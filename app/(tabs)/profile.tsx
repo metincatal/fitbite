@@ -10,6 +10,7 @@ import {
   Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../store/authStore';
 import { Colors, Spacing, FontSize, BorderRadius, ACTIVITY_LEVELS, GOALS, DIET_TYPES } from '../../lib/constants';
 import { Card } from '../../components/ui/Card';
@@ -25,6 +26,7 @@ import {
 } from '../../lib/notifications';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { profile, user, signOut } = useAuthStore();
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [reminderSettings, setReminderSettings] = useState<WaterReminderSettings>(DEFAULT_SETTINGS);
@@ -193,6 +195,11 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.settingRow}>
             <Text style={styles.settingIcon}>✏️</Text>
             <Text style={styles.settingLabel}>Profili Düzenle</Text>
+            <Text style={styles.settingArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.settingRow} onPress={() => router.push('/shopping-list')}>
+            <Text style={styles.settingIcon}>🛒</Text>
+            <Text style={styles.settingLabel}>Alışveriş Listesi</Text>
             <Text style={styles.settingArrow}>›</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.settingRow} onPress={() => setShowNotifModal(true)}>
