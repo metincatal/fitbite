@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
@@ -21,6 +22,7 @@ import { Food } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { recognizeFoodFromImage } from '../../lib/gemini';
+import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 
 export default function FoodLogScreen() {
   const { user } = useAuthStore();
@@ -43,6 +45,13 @@ export default function FoodLogScreen() {
     fat: number;
     confidence: number;
   } | null>(null);
+
+  // Barkod okuyucu state
+  const [scanningBarcode, setScanningBarcode] = useState(false);
+  const [scanned, setScanned] = useState(false);
+  const [lookingUpBarcode, setLookingUpBarcode] = useState(false);
+  const [barcodeResult, setBarcodeResult] = useState<BarcodeFoodResult | null>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   useEffect(() => {
     if (user) fetchDayLogs(user.id, selectedDate);
@@ -139,6 +148,104 @@ export default function FoodLogScreen() {
     setRecognizedFood(null);
     setServingAmount('100');
     setShowSearch(false);
+  }
+
+  async function handleBarcodeScanned({ data }: { type: string; data: string }) {
+    if (scanned || lookingUpBarcode) return;
+    setScanned(true);
+    setLookingUpBarcode(true);
+
+    const food = await lookupBarcode(data);
+    setLookingUpBarcode(false);
+
+    if (!food || food.calories === 0) {
+      Alert.alert(
+        'Ürün Bulunamadı',
+        'Bu barkod için besin değerleri bulunamadı. Manuel arama yapabilirsiniz.',
+        [
+          {
+            text: 'Tamam',
+            onPress: () => {
+              setScanned(false);
+              setScanningBarcode(false);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    setBarcodeResult(food);
+    setScanningBarcode(false);
+    setServingAmount('100');
+  }
+
+  async function handleAddBarcodeFood() {
+    if (!barcodeResult || !user) return;
+    const amount = parseFloat(servingAmount);
+    if (isNaN(amount) || amount <= 0) {
+      Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin');
+      return;
+    }
+
+    const fullName = barcodeResult.brand
+      ? `${barcodeResult.brand} - ${barcodeResult.name}`
+      : barcodeResult.name;
+
+    const { data: newFood, error } = await supabase
+      .from('foods')
+      .insert({
+        name: fullName,
+        name_tr: barcodeResult.name,
+        category: 'Paketli Ürün',
+        calories_per_100g: barcodeResult.calories,
+        protein: barcodeResult.protein,
+        carbs: barcodeResult.carbs,
+        fat: barcodeResult.fat,
+        fiber: barcodeResult.fiber,
+        serving_size: 100,
+        serving_unit: 'g',
+        is_turkish: false,
+        created_by: user.id,
+      })
+      .select()
+      .single();
+
+    if (error || !newFood) {
+      Alert.alert('Hata', 'Yemek kaydedilemedi');
+      return;
+    }
+
+    const ratio = amount / 100;
+    await addFoodLog({
+      user_id: user.id,
+      food_id: newFood.id,
+      meal_type: selectedMeal,
+      serving_amount: amount,
+      calories: Math.round(barcodeResult.calories * ratio),
+      protein: Math.round(barcodeResult.protein * ratio * 10) / 10,
+      carbs: Math.round(barcodeResult.carbs * ratio * 10) / 10,
+      fat: Math.round(barcodeResult.fat * ratio * 10) / 10,
+      logged_at: new Date().toISOString(),
+    });
+
+    setBarcodeResult(null);
+    setScanned(false);
+    setServingAmount('100');
+    setShowSearch(false);
+  }
+
+  async function openBarcodeScanner() {
+    if (!cameraPermission?.granted) {
+      const { granted } = await requestCameraPermission();
+      if (!granted) {
+        Alert.alert('İzin Gerekli', 'Barkod okumak için kamera iznine ihtiyaç var.');
+        return;
+      }
+    }
+    setScanned(false);
+    setBarcodeResult(null);
+    setScanningBarcode(true);
   }
 
   async function openImagePicker(source: 'camera' | 'gallery') {
@@ -270,6 +377,9 @@ export default function FoodLogScreen() {
             setSelectedFood(null);
             setSearchQuery('');
             setRecognizedFood(null);
+            setBarcodeResult(null);
+            setScanned(false);
+            setScanningBarcode(false);
             setSearchResults([]);
           }}>
               <Text style={styles.modalClose}>Kapat</Text>
@@ -296,7 +406,45 @@ export default function FoodLogScreen() {
             ))}
           </ScrollView>
 
-          {/* Fotoğrafla Tara Butonları */}
+          {/* Barkod Tarayıcı (Tam Ekran) */}
+          {scanningBarcode && (
+            <View style={styles.barcodeContainer}>
+              <CameraView
+                style={StyleSheet.absoluteFillObject}
+                facing="back"
+                onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+                barcodeScannerSettings={{
+                  barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'],
+                }}
+              />
+              {/* Tarama çerçevesi */}
+              <View style={styles.barcodeScanFrame}>
+                <View style={styles.barcodeScanBox} />
+                <Text style={styles.barcodeScanHint}>
+                  {lookingUpBarcode ? 'Ürün aranıyor...' : 'Barkodu çerçeveye hizalayın'}
+                </Text>
+                {lookingUpBarcode && (
+                  <ActivityIndicator
+                    size="large"
+                    color={Colors.textLight}
+                    style={{ marginTop: Spacing.md }}
+                  />
+                )}
+              </View>
+              <TouchableOpacity
+                style={styles.barcodeClose}
+                onPress={() => {
+                  setScanningBarcode(false);
+                  setScanned(false);
+                }}
+              >
+                <Text style={styles.barcodeCloseText}>✕ Kapat</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Fotoğrafla Tara & Barkod Butonları */}
+          {!scanningBarcode && (
           <View style={styles.photoSection}>
             <TouchableOpacity
               style={styles.photoButton}
@@ -314,7 +462,16 @@ export default function FoodLogScreen() {
               <Text style={styles.photoButtonIcon}>🖼️</Text>
               <Text style={styles.photoButtonText}>Galeriden Seç</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.photoButton}
+              onPress={openBarcodeScanner}
+              disabled={recognizing}
+            >
+              <Text style={styles.photoButtonIcon}>📊</Text>
+              <Text style={styles.photoButtonText}>Barkod Tara</Text>
+            </TouchableOpacity>
           </View>
+          )}
 
           {/* Tanıma Yükleniyor */}
           {recognizing && (
@@ -376,8 +533,61 @@ export default function FoodLogScreen() {
             </Card>
           )}
 
+          {/* Barkod Sonucu */}
+          {barcodeResult && !scanningBarcode && (
+            <Card style={styles.recognizedCard}>
+              <View style={styles.recognizedHeader}>
+                <Text style={styles.recognizedLabel}>Barkod Sonucu</Text>
+                <View style={[styles.confidenceBadge, { backgroundColor: Colors.primaryLight }]}>
+                  <Text style={styles.confidenceText}>📊</Text>
+                </View>
+              </View>
+              {barcodeResult.brand ? (
+                <Text style={styles.barcodeBrand}>{barcodeResult.brand}</Text>
+              ) : null}
+              <Text style={styles.selectedFoodName}>{barcodeResult.name}</Text>
+              <Text style={styles.selectedFoodCalories}>
+                {barcodeResult.calories} kcal / 100g
+              </Text>
+              <View style={styles.macroRow}>
+                <Text style={styles.macroItem}>P: {barcodeResult.protein}g</Text>
+                <Text style={styles.macroItem}>K: {barcodeResult.carbs}g</Text>
+                <Text style={styles.macroItem}>Y: {barcodeResult.fat}g</Text>
+              </View>
+              <View style={styles.servingRow}>
+                <Text style={styles.servingLabel}>Porsiyon (g):</Text>
+                <TextInput
+                  style={styles.servingInput}
+                  value={servingAmount}
+                  onChangeText={setServingAmount}
+                  keyboardType="numeric"
+                  selectTextOnFocus
+                />
+              </View>
+              <Text style={styles.calculatedCalories}>
+                = {Math.round(barcodeResult.calories * (parseFloat(servingAmount) || 0) / 100)} kcal
+              </Text>
+              <View style={styles.recognizedActions}>
+                <Button
+                  title="Ekle"
+                  onPress={handleAddBarcodeFood}
+                  style={styles.addFoodButton}
+                />
+                <TouchableOpacity
+                  style={styles.retryButton}
+                  onPress={() => {
+                    setBarcodeResult(null);
+                    setScanned(false);
+                  }}
+                >
+                  <Text style={styles.retryText}>Yeniden Tara</Text>
+                </TouchableOpacity>
+              </View>
+            </Card>
+          )}
+
           {/* Ayırıcı */}
-          {!recognizedFood && !recognizing && (
+          {!recognizedFood && !recognizing && !barcodeResult && !scanningBarcode && (
             <View style={styles.divider}>
               <View style={styles.dividerLine} />
               <Text style={styles.dividerText}>veya ara</Text>
@@ -386,7 +596,7 @@ export default function FoodLogScreen() {
           )}
 
           {/* Arama Kutusu */}
-          {!recognizedFood && !recognizing && (
+          {!recognizedFood && !recognizing && !barcodeResult && !scanningBarcode && (
           <View style={styles.searchBox}>
             <Text style={styles.searchIcon}>🔍</Text>
             <TextInput
@@ -408,7 +618,7 @@ export default function FoodLogScreen() {
           )}
 
           {/* Seçili Yemek Detayı */}
-          {selectedFood && !recognizedFood && (
+          {selectedFood && !recognizedFood && !barcodeResult && (
             <Card style={styles.selectedFoodCard}>
               <Text style={styles.selectedFoodName}>{selectedFood.name_tr}</Text>
               <Text style={styles.selectedFoodCalories}>
@@ -433,7 +643,7 @@ export default function FoodLogScreen() {
 
           {/* Arama Sonuçları */}
           <FlatList
-            data={recognizedFood || recognizing ? [] : searchResults}
+            data={recognizedFood || recognizing || barcodeResult || scanningBarcode ? [] : searchResults}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
@@ -625,4 +835,52 @@ const styles = StyleSheet.create({
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: Colors.borderLight },
   dividerText: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600' },
+
+  // Barkod tarayıcı
+  barcodeContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  barcodeScanFrame: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  barcodeScanBox: {
+    width: 260,
+    height: 140,
+    borderWidth: 3,
+    borderColor: Colors.primaryLight,
+    borderRadius: BorderRadius.md,
+    backgroundColor: 'transparent',
+  },
+  barcodeScanHint: {
+    marginTop: Spacing.lg,
+    fontSize: FontSize.md,
+    color: Colors.textLight,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  barcodeClose: {
+    position: 'absolute',
+    top: Spacing.lg,
+    right: Spacing.lg,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+  },
+  barcodeCloseText: {
+    color: Colors.textLight,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+  },
+  barcodeBrand: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    marginBottom: 2,
+    fontWeight: '500',
+  },
 });

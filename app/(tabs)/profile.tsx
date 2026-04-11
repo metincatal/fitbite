@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,15 +6,66 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Modal,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/authStore';
 import { Colors, Spacing, FontSize, BorderRadius, ACTIVITY_LEVELS, GOALS, DIET_TYPES } from '../../lib/constants';
 import { Card } from '../../components/ui/Card';
 import { calculateBMI, getBMICategory, calculateDailyCalorieGoal, calculateMacroGoals } from '../../lib/nutrition';
+import {
+  WaterReminderSettings,
+  DEFAULT_SETTINGS,
+  loadReminderSettings,
+  saveReminderSettings,
+  scheduleWaterReminders,
+  cancelWaterReminders,
+  requestNotificationPermissions,
+} from '../../lib/notifications';
 
 export default function ProfileScreen() {
   const { profile, user, signOut } = useAuthStore();
+  const [showNotifModal, setShowNotifModal] = useState(false);
+  const [reminderSettings, setReminderSettings] = useState<WaterReminderSettings>(DEFAULT_SETTINGS);
+  const [savingNotif, setSavingNotif] = useState(false);
+
+  useEffect(() => {
+    loadReminderSettings().then(setReminderSettings);
+  }, []);
+
+  async function handleNotifToggle(value: boolean) {
+    if (value) {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        Alert.alert(
+          'İzin Gerekli',
+          'Bildirim göndermek için izin vermeniz gerekiyor. Ayarlar > FitBite > Bildirimler bölümünden etkinleştirin.'
+        );
+        return;
+      }
+    }
+    const updated = { ...reminderSettings, enabled: value };
+    setReminderSettings(updated);
+  }
+
+  async function handleSaveNotifSettings() {
+    setSavingNotif(true);
+    await saveReminderSettings(reminderSettings);
+    if (reminderSettings.enabled) {
+      await scheduleWaterReminders(reminderSettings);
+    } else {
+      await cancelWaterReminders();
+    }
+    setSavingNotif(false);
+    setShowNotifModal(false);
+    Alert.alert(
+      'Kaydedildi',
+      reminderSettings.enabled
+        ? `Su hatırlatıcıları aktif! Her ${reminderSettings.intervalHours} saatte bir hatırlatılacaksın.`
+        : 'Su hatırlatıcıları kapatıldı.'
+    );
+  }
 
   function handleSignOut() {
     Alert.alert(
@@ -144,10 +195,17 @@ export default function ProfileScreen() {
             <Text style={styles.settingLabel}>Profili Düzenle</Text>
             <Text style={styles.settingArrow}>›</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow}>
+          <TouchableOpacity style={styles.settingRow} onPress={() => setShowNotifModal(true)}>
             <Text style={styles.settingIcon}>🔔</Text>
-            <Text style={styles.settingLabel}>Bildirim Ayarları</Text>
-            <Text style={styles.settingArrow}>›</Text>
+            <Text style={styles.settingLabel}>Su Hatırlatıcıları</Text>
+            <View style={styles.settingRight}>
+              {reminderSettings.enabled && (
+                <View style={styles.activeBadge}>
+                  <Text style={styles.activeBadgeText}>Açık</Text>
+                </View>
+              )}
+              <Text style={styles.settingArrow}>›</Text>
+            </View>
           </TouchableOpacity>
           <TouchableOpacity style={styles.settingRow}>
             <Text style={styles.settingIcon}>🛡️</Text>
@@ -163,6 +221,144 @@ export default function ProfileScreen() {
 
         <View style={{ height: Spacing.xl }} />
       </ScrollView>
+
+      {/* Su Hatırlatıcıları Modal */}
+      <Modal visible={showNotifModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.notifModal}>
+          <View style={styles.notifHeader}>
+            <Text style={styles.notifTitle}>💧 Su Hatırlatıcıları</Text>
+            <TouchableOpacity onPress={() => setShowNotifModal(false)}>
+              <Text style={styles.notifClose}>Kapat</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.notifContent}>
+            {/* Ana aç/kapat */}
+            <Card style={styles.notifCard}>
+              <View style={styles.notifRow}>
+                <View style={styles.notifRowInfo}>
+                  <Text style={styles.notifRowTitle}>Su Hatırlatıcılarını Etkinleştir</Text>
+                  <Text style={styles.notifRowDesc}>Belirli aralıklarla su içmen için bildirim gönderilir</Text>
+                </View>
+                <Switch
+                  value={reminderSettings.enabled}
+                  onValueChange={handleNotifToggle}
+                  trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+                  thumbColor={reminderSettings.enabled ? Colors.primary : Colors.textMuted}
+                />
+              </View>
+            </Card>
+
+            {reminderSettings.enabled && (
+              <>
+                {/* Hatırlatma aralığı */}
+                <Card style={styles.notifCard}>
+                  <Text style={styles.notifSectionLabel}>Hatırlatma Aralığı</Text>
+                  <View style={styles.optionRow}>
+                    {[1, 2, 3].map((h) => (
+                      <TouchableOpacity
+                        key={h}
+                        style={[
+                          styles.optionBtn,
+                          reminderSettings.intervalHours === h && styles.optionBtnActive,
+                        ]}
+                        onPress={() =>
+                          setReminderSettings((s) => ({ ...s, intervalHours: h }))
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.optionBtnText,
+                            reminderSettings.intervalHours === h && styles.optionBtnTextActive,
+                          ]}
+                        >
+                          {h} saatte bir
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </Card>
+
+                {/* Başlangıç saati */}
+                <Card style={styles.notifCard}>
+                  <Text style={styles.notifSectionLabel}>Başlangıç Saati</Text>
+                  <View style={styles.optionRow}>
+                    {[7, 8, 9, 10].map((h) => (
+                      <TouchableOpacity
+                        key={h}
+                        style={[
+                          styles.optionBtn,
+                          reminderSettings.startHour === h && styles.optionBtnActive,
+                        ]}
+                        onPress={() =>
+                          setReminderSettings((s) => ({ ...s, startHour: h }))
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.optionBtnText,
+                            reminderSettings.startHour === h && styles.optionBtnTextActive,
+                          ]}
+                        >
+                          {h}:00
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </Card>
+
+                {/* Bitiş saati */}
+                <Card style={styles.notifCard}>
+                  <Text style={styles.notifSectionLabel}>Bitiş Saati</Text>
+                  <View style={styles.optionRow}>
+                    {[20, 21, 22, 23].map((h) => (
+                      <TouchableOpacity
+                        key={h}
+                        style={[
+                          styles.optionBtn,
+                          reminderSettings.endHour === h && styles.optionBtnActive,
+                        ]}
+                        onPress={() =>
+                          setReminderSettings((s) => ({ ...s, endHour: h }))
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.optionBtnText,
+                            reminderSettings.endHour === h && styles.optionBtnTextActive,
+                          ]}
+                        >
+                          {h}:00
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </Card>
+
+                {/* Özet */}
+                <View style={styles.notifSummary}>
+                  <Text style={styles.notifSummaryText}>
+                    📋 Saat {reminderSettings.startHour}:00 ile {reminderSettings.endHour}:00 arasında{' '}
+                    her {reminderSettings.intervalHours} saatte bir hatırlatılacaksın.
+                  </Text>
+                </View>
+              </>
+            )}
+          </ScrollView>
+
+          <View style={styles.notifFooter}>
+            <TouchableOpacity
+              style={[styles.saveBtn, savingNotif && styles.saveBtnDisabled]}
+              onPress={handleSaveNotifSettings}
+              disabled={savingNotif}
+            >
+              <Text style={styles.saveBtnText}>
+                {savingNotif ? 'Kaydediliyor...' : 'Kaydet'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -222,4 +418,74 @@ const styles = StyleSheet.create({
   settingIcon: { fontSize: 20, width: 28 },
   settingLabel: { flex: 1, fontSize: FontSize.md, fontWeight: '500', color: Colors.textPrimary },
   settingArrow: { fontSize: FontSize.xl, color: Colors.textMuted },
+  settingRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  activeBadge: {
+    backgroundColor: Colors.primaryPale,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  activeBadgeText: { fontSize: FontSize.xs, color: Colors.primary, fontWeight: '700' },
+
+  // Bildirim Modal
+  notifModal: { flex: 1, backgroundColor: Colors.background },
+  notifHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  notifTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
+  notifClose: { fontSize: FontSize.md, color: Colors.primary, fontWeight: '600' },
+  notifContent: { flex: 1, paddingTop: Spacing.md },
+  notifCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
+  notifRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  notifRowInfo: { flex: 1, marginRight: Spacing.md },
+  notifRowTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
+  notifRowDesc: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
+  notifSectionLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: Spacing.sm,
+  },
+  optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  optionBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  optionBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  optionBtnText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
+  optionBtnTextActive: { color: Colors.textLight },
+  notifSummary: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    padding: Spacing.md,
+    backgroundColor: Colors.primaryPale,
+    borderRadius: BorderRadius.md,
+  },
+  notifSummaryText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '500', lineHeight: 20 },
+  notifFooter: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+  },
+  saveBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+  },
+  saveBtnDisabled: { opacity: 0.6 },
+  saveBtnText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.lg },
 });
