@@ -11,12 +11,14 @@ import {
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
+import { useAuthStore } from '../../store/authStore';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { setSession, fetchProfile } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -49,6 +51,10 @@ export default function LoginScreen() {
         } else {
           Alert.alert('Giriş Başarısız', `Hata: ${error.message}`);
         }
+      } else if (data.session) {
+        setSession(data.session);
+        await fetchProfile();
+        router.replace('/(tabs)');
       }
     } catch (e: any) {
       console.error('[Login] Exception:', e);
