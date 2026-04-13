@@ -11,7 +11,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
-import { Colors, Spacing, FontSize, BorderRadius, MEAL_TYPES, MealType } from '../../lib/constants';
+import { Colors, Spacing, FontSize, BorderRadius, getMealTypes } from '../../lib/constants';
 import { CalorieRing } from '../../components/charts/CalorieRing';
 import { MacroBar } from '../../components/ui/MacroBar';
 import { Card } from '../../components/ui/Card';
@@ -158,22 +158,21 @@ export default function DashboardScreen() {
               <Text style={styles.seeAllText}>Tümünü gör</Text>
             </TouchableOpacity>
           </View>
-          {(Object.keys(MEAL_TYPES) as MealType[]).map((mealKey) => {
-            const mealLogs = foodLogs.filter((l) => l.meal_type === mealKey);
+          {getMealTypes(profile?.meal_count ?? 3).map(({ key, label }) => {
+            const mealLogs = foodLogs.filter((l) => l.meal_type === key);
             const mealCalories = mealLogs.reduce((sum, l) => sum + l.calories, 0);
+            const emoji = key === 'breakfast' ? '🌅' : key === 'lunch' ? '☀️' : key === 'dinner' ? '🌙' : '🍎';
             return (
               <TouchableOpacity
-                key={mealKey}
+                key={`${key}-${label}`}
                 style={styles.mealRow}
                 onPress={() => router.push('/(tabs)/food-log')}
               >
                 <View style={styles.mealIcon}>
-                  <Text style={styles.mealEmoji}>
-                    {mealKey === 'breakfast' ? '🌅' : mealKey === 'lunch' ? '☀️' : mealKey === 'dinner' ? '🌙' : '🍎'}
-                  </Text>
+                  <Text style={styles.mealEmoji}>{emoji}</Text>
                 </View>
                 <View style={styles.mealInfo}>
-                  <Text style={styles.mealName}>{MEAL_TYPES[mealKey]}</Text>
+                  <Text style={styles.mealName}>{label}</Text>
                   <Text style={styles.mealItems}>
                     {mealLogs.length > 0 ? `${mealLogs.length} öğe` : 'Henüz eklenmedi'}
                   </Text>

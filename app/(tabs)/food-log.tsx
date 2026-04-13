@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
-import { Colors, Spacing, FontSize, BorderRadius, MEAL_TYPES, MealType } from '../../lib/constants';
+import { Colors, Spacing, FontSize, BorderRadius, getMealTypes, MealType } from '../../lib/constants';
 import { Food } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -28,11 +28,11 @@ import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 
 export default function FoodLogScreen() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, profile } = useAuthStore();
   const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, selectedDate } = useNutritionStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Food[]>([]);
-  const [selectedMeal, setSelectedMeal] = useState<MealType>('breakfast');
+  const [selectedMeal, setSelectedMeal] = useState<string>('breakfast');
   const [showSearch, setShowSearch] = useState(false);
   const [servingAmount, setServingAmount] = useState('100');
   const [selectedFood, setSelectedFood] = useState<Food | null>(null);
@@ -87,7 +87,7 @@ export default function FoodLogScreen() {
     await addFoodLog({
       user_id: user.id,
       food_id: selectedFood.id,
-      meal_type: selectedMeal,
+      meal_type: selectedMeal as MealType,
       serving_amount: amount,
       calories: Math.round(selectedFood.calories_per_100g * ratio),
       protein: Math.round(selectedFood.protein * ratio * 10) / 10,
@@ -139,7 +139,7 @@ export default function FoodLogScreen() {
     await addFoodLog({
       user_id: user.id,
       food_id: newFood.id,
-      meal_type: selectedMeal,
+      meal_type: selectedMeal as MealType,
       serving_amount: amount,
       calories: Math.round(recognizedFood.calories * ratio),
       protein: Math.round(recognizedFood.protein * ratio * 10) / 10,
@@ -223,7 +223,7 @@ export default function FoodLogScreen() {
     await addFoodLog({
       user_id: user.id,
       food_id: newFood.id,
-      meal_type: selectedMeal,
+      meal_type: selectedMeal as MealType,
       serving_amount: amount,
       calories: Math.round(barcodeResult.calories * ratio),
       protein: Math.round(barcodeResult.protein * ratio * 10) / 10,
@@ -295,10 +295,12 @@ export default function FoodLogScreen() {
     }
   }
 
-  const getMealLogs = (meal: MealType) =>
+  const mealTypes = getMealTypes(profile?.meal_count ?? 3);
+
+  const getMealLogs = (meal: string) =>
     foodLogs.filter((l) => l.meal_type === meal);
 
-  const getMealCalories = (meal: MealType) =>
+  const getMealCalories = (meal: string) =>
     getMealLogs(meal).reduce((sum, l) => sum + l.calories, 0);
 
   return (
@@ -322,17 +324,17 @@ export default function FoodLogScreen() {
           style={styles.mealTabs}
           contentContainerStyle={styles.mealTabsContent}
         >
-          {(Object.keys(MEAL_TYPES) as MealType[]).map((meal) => (
+          {mealTypes.map(({ key, label }) => (
             <TouchableOpacity
-              key={meal}
-              style={[styles.mealTab, selectedMeal === meal && styles.mealTabActive]}
-              onPress={() => setSelectedMeal(meal)}
+              key={`${key}-${label}`}
+              style={[styles.mealTab, selectedMeal === key && styles.mealTabActive]}
+              onPress={() => setSelectedMeal(key)}
             >
-              <Text style={[styles.mealTabText, selectedMeal === meal && styles.mealTabTextActive]}>
-                {MEAL_TYPES[meal]}
+              <Text style={[styles.mealTabText, selectedMeal === key && styles.mealTabTextActive]}>
+                {label}
               </Text>
-              <Text style={[styles.mealTabCalories, selectedMeal === meal && styles.mealTabCaloriesActive]}>
-                {Math.round(getMealCalories(meal))} kcal
+              <Text style={[styles.mealTabCalories, selectedMeal === key && styles.mealTabCaloriesActive]}>
+                {Math.round(getMealCalories(key))} kcal
               </Text>
             </TouchableOpacity>
           ))}
@@ -343,7 +345,7 @@ export default function FoodLogScreen() {
           {getMealLogs(selectedMeal).length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="restaurant-outline" size={40} color={Colors.textMuted} style={{ marginBottom: Spacing.md }} />
-              <Text style={styles.emptyTitle}>{MEAL_TYPES[selectedMeal]} için henüz yemek eklenmedi</Text>
+              <Text style={styles.emptyTitle}>{mealTypes.find((m) => m.key === selectedMeal)?.label ?? selectedMeal} için henüz yemek eklenmedi</Text>
               <Text style={styles.emptySubtitle}>Yemek eklemek için + Ekle butonuna bas</Text>
             </View>
           ) : (
@@ -404,14 +406,14 @@ export default function FoodLogScreen() {
             style={styles.modalMealTabs}
             contentContainerStyle={[styles.mealTabsContent, { alignItems: 'center' }]}
           >
-            {(Object.keys(MEAL_TYPES) as MealType[]).map((meal) => (
+            {mealTypes.map(({ key, label }) => (
               <TouchableOpacity
-                key={meal}
-                style={[styles.mealTab, selectedMeal === meal && styles.mealTabActive]}
-                onPress={() => setSelectedMeal(meal)}
+                key={`modal-${key}-${label}`}
+                style={[styles.mealTab, selectedMeal === key && styles.mealTabActive]}
+                onPress={() => setSelectedMeal(key)}
               >
-                <Text style={[styles.mealTabText, selectedMeal === meal && styles.mealTabTextActive]}>
-                  {MEAL_TYPES[meal]}
+                <Text style={[styles.mealTabText, selectedMeal === key && styles.mealTabTextActive]}>
+                  {label}
                 </Text>
               </TouchableOpacity>
             ))}

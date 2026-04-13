@@ -429,6 +429,58 @@ export default function ProgressScreen() {
           {weightLogs.length === 0 && <Text style={styles.noLogs}>Henüz kilo ölçümü yok</Text>}
         </Card>
 
+        {/* Hedef Kilo Timeline */}
+        {profile?.target_weight_kg && currentWeight && (
+          (() => {
+            const target = profile.target_weight_kg!;
+            const weeklyRate = profile.weekly_weight_goal_kg ?? 0.5;
+            const kgRemaining = Math.abs(currentWeight - target);
+            const weeksRemaining = weeklyRate > 0 ? Math.ceil(kgRemaining / weeklyRate) : null;
+            const isLosing = currentWeight > target;
+            const progressDenominator = startWeight ? Math.abs(startWeight - target) : 0;
+            const progressPct = progressDenominator > 0
+              ? Math.max(0, Math.min(100, Math.abs((startWeight! - currentWeight) / (startWeight! - target)) * 100))
+              : 0;
+            const reached = kgRemaining < 0.5;
+            void isLosing;
+
+            return (
+              <Card style={styles.chartCard}>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Hedef Kilo Takibi</Text>
+                  <Ionicons name="flag-outline" size={20} color={Colors.primary} />
+                </View>
+
+                <View style={styles.targetRow}>
+                  <View style={styles.targetStat}>
+                    <Text style={styles.targetStatValue}>{currentWeight.toFixed(1)} kg</Text>
+                    <Text style={styles.targetStatLabel}>Şu an</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={18} color={Colors.textMuted} />
+                  <View style={styles.targetStat}>
+                    <Text style={[styles.targetStatValue, { color: Colors.primary }]}>{target.toFixed(1)} kg</Text>
+                    <Text style={styles.targetStatLabel}>Hedef</Text>
+                  </View>
+                </View>
+
+                <View style={styles.targetBarBg}>
+                  <View style={[styles.targetBarFill, { width: `${progressPct}%` as any }]} />
+                </View>
+                <Text style={styles.targetPct}>{Math.round(progressPct)}% tamamlandı</Text>
+
+                {reached ? (
+                  <Text style={styles.targetReached}>Hedefinize ulaştınız!</Text>
+                ) : (
+                  <Text style={styles.targetRemaining}>
+                    {kgRemaining.toFixed(1)} kg kaldı
+                    {weeksRemaining ? ` · yaklaşık ${weeksRemaining} hafta` : ''}
+                  </Text>
+                )}
+              </Card>
+            );
+          })()
+        )}
+
         {/* Kalori & Makro Trend */}
         {(() => {
           const sliced = trendTab === '7' ? trendData.slice(-7) : trendData;
@@ -708,6 +760,16 @@ const styles = StyleSheet.create({
   logDate: { fontSize: FontSize.md, color: Colors.textSecondary },
   logWeight: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
   noLogs: { fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center', paddingVertical: Spacing.md },
+  // Hedef kilo timeline
+  targetRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', marginBottom: Spacing.md },
+  targetStat: { alignItems: 'center', gap: 2 },
+  targetStatValue: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
+  targetStatLabel: { fontSize: FontSize.xs, color: Colors.textMuted },
+  targetBarBg: { height: 10, backgroundColor: Colors.borderLight, borderRadius: BorderRadius.full, overflow: 'hidden', marginBottom: Spacing.xs },
+  targetBarFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: BorderRadius.full },
+  targetPct: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'right', marginBottom: Spacing.sm },
+  targetReached: { fontSize: FontSize.md, fontWeight: '700', color: Colors.success, textAlign: 'center', paddingVertical: Spacing.xs },
+  targetRemaining: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center', paddingVertical: Spacing.xs },
   trendChartLabel: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary, marginBottom: 4 },
   trendGoalText: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'right', marginTop: 4 },
   // Vücut ölçüleri

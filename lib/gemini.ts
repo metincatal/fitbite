@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Profile } from '../types';
+import { DIET_TYPES, MOTIVATIONS, OBSTACLES, ALLERGIES } from './constants';
 
 const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY!);
 
@@ -24,6 +25,61 @@ KURALLAR:
 - Türk mutfağından örnekler ver
 
 Kullanıcı profili aşağıda verilecek.`;
+
+/**
+ * Profil verilerini kullanarak kişiselleştirilmiş sistem promptu oluşturur.
+ * Tüm AI fonksiyonlarında DIETITIAN_SYSTEM_PROMPT yerine kullanılabilir.
+ */
+export function buildSystemPrompt(profile: Partial<Profile>): string {
+  const lines: string[] = [DIETITIAN_SYSTEM_PROMPT];
+
+  // Motivasyonlar
+  if (profile.motivations && profile.motivations.length > 0) {
+    const motivationLabels = profile.motivations
+      .map((key) => MOTIVATIONS.find((m) => m.key === key)?.label ?? key)
+      .join(', ');
+    lines.push(`\nKullanıcının motivasyonları: ${motivationLabels}`);
+    lines.push('→ Yanıtlarını bu motivasyonlara göre odakla, ilgili hedeflere değin.');
+  }
+
+  // Geçmiş engeller
+  if (profile.past_obstacles && profile.past_obstacles.length > 0) {
+    const obstacleLabels = profile.past_obstacles
+      .map((key) => OBSTACLES.find((o) => o.key === key)?.label ?? key)
+      .join(', ');
+    lines.push(`\nGeçmişteki zorluklar: ${obstacleLabels}`);
+    lines.push('→ Bu engelleri göz önünde bulundurarak pratik ve gerçekçi öneriler sun.');
+  }
+
+  // Diyet tercihi
+  if (profile.diet_type && profile.diet_type !== 'normal') {
+    const diet = DIET_TYPES[profile.diet_type as keyof typeof DIET_TYPES];
+    if (diet) {
+      lines.push(`\nDiyet tercihi: ${diet.emoji} ${diet.label} (${diet.description})`);
+      lines.push('→ Tarif ve besin önerilerinde bu diyete uygun seçenekler sun.');
+    }
+  }
+
+  // Alerjiler / intoleranslar
+  if (profile.allergies && profile.allergies.length > 0) {
+    const allergyLabels = profile.allergies
+      .map((key) => ALLERGIES.find((a) => a.key === key)?.label ?? key)
+      .join(', ');
+    lines.push(`\n⚠️ Alerjiler / intoleranslar: ${allergyLabels}`);
+    lines.push('→ Bu içerikleri kesinlikle önerme; içerebilecek yemeklerde uyar.');
+  }
+
+  // Öğün sayısı
+  if (profile.meal_count) {
+    lines.push(`\nGünlük öğün sayısı: ${profile.meal_count}`);
+    if (profile.first_meal_time && profile.last_meal_time) {
+      lines.push(`İlk öğün: ${profile.first_meal_time}, Son öğün: ${profile.last_meal_time}`);
+    }
+    lines.push('→ Önerileri bu öğün ritmine uygun planla.');
+  }
+
+  return lines.join('\n');
+}
 
 /**
  * Fotoğraftan yemek tanıma
