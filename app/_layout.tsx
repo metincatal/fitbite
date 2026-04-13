@@ -50,6 +50,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="shopping-list" />
+        <Stack.Screen name="food/[id]" />
+        <Stack.Screen name="recipe" />
       </Stack>
     </>
   );

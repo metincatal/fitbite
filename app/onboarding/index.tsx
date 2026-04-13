@@ -1,81 +1,73 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-} from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, StyleSheet, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { SlideInRight, SlideInLeft } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
-import {
-  Colors,
-  Spacing,
-  FontSize,
-  BorderRadius,
-  ACTIVITY_LEVELS,
-  GOALS,
-  DIET_TYPES,
-  ActivityLevel,
-  Goal,
-  DietType,
-} from '../../lib/constants';
-import { calculateDailyCalorieGoal, calculateMacroGoals } from '../../lib/nutrition';
-import { Button } from '../../components/ui/Button';
+import { useOnboardingData } from '../../hooks/useOnboardingData';
+import { calculateMacroGoals } from '../../lib/nutrition';
+import { ProgressBar } from '../../components/onboarding/shared/ProgressBar';
+import { Colors } from '../../lib/constants';
 
-interface OnboardingData {
-  name: string;
-  gender: 'male' | 'female' | null;
-  birth_year: string;
-  height_cm: string;
-  weight_kg: string;
-  activity_level: ActivityLevel | null;
-  goal: Goal | null;
-  diet_type: DietType;
+// Adım bileşenleri
+import { StoryWelcome } from '../../components/onboarding/steps/StoryWelcome';
+import { StoryManifesto } from '../../components/onboarding/steps/StoryManifesto';
+import { NameInput } from '../../components/onboarding/steps/NameInput';
+import { GenderBirthDate } from '../../components/onboarding/steps/GenderBirthDate';
+import { BodyMetrics } from '../../components/onboarding/steps/BodyMetrics';
+import { StoryLifestyle } from '../../components/onboarding/steps/StoryLifestyle';
+import { MotivationSelect } from '../../components/onboarding/steps/MotivationSelect';
+import { PastObstacles } from '../../components/onboarding/steps/PastObstacles';
+import { ActivityLevel } from '../../components/onboarding/steps/ActivityLevel';
+import { DietType } from '../../components/onboarding/steps/DietType';
+import { Allergies } from '../../components/onboarding/steps/Allergies';
+import { MealRhythm } from '../../components/onboarding/steps/MealRhythm';
+import { MealTiming } from '../../components/onboarding/steps/MealTiming';
+import { WeightGoalRate } from '../../components/onboarding/steps/WeightGoalRate';
+import { StoryPrivacy } from '../../components/onboarding/steps/StoryPrivacy';
+import { NotificationPrefs } from '../../components/onboarding/steps/NotificationPrefs';
+import { AISummary } from '../../components/onboarding/steps/AISummary';
+import { PhotoDemo } from '../../components/onboarding/steps/PhotoDemo';
+
+// Hikaye adımları progress bar'da gösterilmez
+const STORY_STEPS = new Set([0, 1, 5, 14]);
+const TOTAL_STEPS = 18;
+
+// Progress bar için veri adımı sayısı (18 - 4 hikaye = 14 veri adımı)
+const DATA_STEPS = TOTAL_STEPS - STORY_STEPS.size;
+
+function getDataStepIndex(step: number): number {
+  let count = 0;
+  for (let i = 0; i < step; i++) {
+    if (!STORY_STEPS.has(i)) count++;
+  }
+  return count;
 }
-
-const TOTAL_STEPS = 5;
 
 export default function OnboardingScreen() {
   const router = useRouter();
   const { user, setProfile } = useAuthStore();
-  const [step, setStep] = useState(1);
+  const { data, reset } = useOnboardingData();
+  const [step, setStep] = useState(0);
+  const [direction, setDirection] = useState<'forward' | 'back'>('forward');
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<OnboardingData>({
-    name: '',
-    gender: null,
-    birth_year: '',
-    height_cm: '',
-    weight_kg: '',
-    activity_level: null,
-    goal: null,
-    diet_type: 'normal',
-  });
 
-  function update(key: keyof OnboardingData, value: any) {
-    setData((prev) => ({ ...prev, [key]: value }));
-  }
+  const goNext = useCallback(() => {
+    setDirection('forward');
+    setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
+  }, []);
 
-  function canProceed(): boolean {
-    switch (step) {
-      case 1: return data.name.trim().length >= 2;
-      case 2: return data.gender !== null && data.birth_year.length === 4;
-      case 3: return data.height_cm.length > 0 && data.weight_kg.length > 0;
-      case 4: return data.activity_level !== null;
-      case 5: return data.goal !== null;
-      default: return false;
-    }
-  }
+  const goBack = useCallback(() => {
+    setDirection('back');
+    setStep((s) => Math.max(s - 1, 0));
+  }, []);
 
   async function handleFinish() {
     if (!user) return;
     setLoading(true);
 
-    const age = new Date().getFullYear() - parseInt(data.birth_year);
+    const age = data.birth_year ? new Date().getFullYear() - parseInt(data.birth_year) : 25;
     const metrics = {
       gender: data.gender!,
       age,
@@ -85,8 +77,8 @@ export default function OnboardingScreen() {
       goal: data.goal!,
     };
 
-    const macros = calculateMacroGoals(metrics);
-    const birth_date = `${data.birth_year}-01-01`;
+    const macros = calculateMacroGoals(metrics, data.weekly_weight_goal_kg);
+    const birth_date = `${data.birth_year}-${String(parseInt(data.birth_month)).padStart(2, '0')}-01`;
 
     const profileData = {
       user_id: user.id,
@@ -95,10 +87,18 @@ export default function OnboardingScreen() {
       birth_date,
       height_cm: parseFloat(data.height_cm),
       weight_kg: parseFloat(data.weight_kg),
+      target_weight_kg: parseFloat(data.target_weight_kg) || null,
       activity_level: data.activity_level!,
       goal: data.goal!,
       diet_type: data.diet_type,
-      allergies: [],
+      allergies: data.allergies,
+      motivations: data.motivations,
+      past_obstacles: data.past_obstacles,
+      meal_count: data.meal_count,
+      first_meal_time: data.first_meal_time,
+      last_meal_time: data.last_meal_time,
+      weekly_weight_goal_kg: data.weekly_weight_goal_kg,
+      notification_preferences: data.notification_preferences,
       daily_calorie_goal: macros.calories,
       daily_protein_goal: macros.protein_g,
       daily_carbs_goal: macros.carbs_g,
@@ -121,272 +121,71 @@ export default function OnboardingScreen() {
 
     if (profile) {
       setProfile(profile);
+      reset();
       router.replace('/(tabs)');
     }
   }
 
-  const progressWidth = `${(step / TOTAL_STEPS) * 100}%`;
+  const showProgress = !STORY_STEPS.has(step);
+  const dataStepIndex = getDataStepIndex(step);
+
+  const enteringAnim = direction === 'forward'
+    ? SlideInRight.duration(280)
+    : SlideInLeft.duration(280);
+
+  function renderStep() {
+    const stepProps = { onNext: goNext, onBack: goBack };
+
+    switch (step) {
+      case 0:  return <StoryWelcome {...stepProps} />;
+      case 1:  return <StoryManifesto {...stepProps} />;
+      case 2:  return <NameInput {...stepProps} />;
+      case 3:  return <GenderBirthDate {...stepProps} />;
+      case 4:  return <BodyMetrics {...stepProps} />;
+      case 5:  return <StoryLifestyle {...stepProps} />;
+      case 6:  return <MotivationSelect {...stepProps} />;
+      case 7:  return <PastObstacles {...stepProps} />;
+      case 8:  return <ActivityLevel {...stepProps} />;
+      case 9:  return <DietType {...stepProps} />;
+      case 10: return <Allergies {...stepProps} />;
+      case 11: return <MealRhythm {...stepProps} />;
+      case 12: return <MealTiming {...stepProps} />;
+      case 13: return <WeightGoalRate {...stepProps} />;
+      case 14: return <StoryPrivacy {...stepProps} />;
+      case 15: return <NotificationPrefs {...stepProps} />;
+      case 16: return <AISummary {...stepProps} />;
+      case 17: return (
+        <PhotoDemo
+          onNext={handleFinish}
+          onBack={goBack}
+        />
+      );
+      default: return null;
+    }
+  }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* İlerleme Çubuğu */}
-      <View style={styles.progressContainer}>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: progressWidth as any }]} />
-        </View>
-        <Text style={styles.progressText}>{step} / {TOTAL_STEPS}</Text>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-
-        {/* Adım 1: İsim */}
-        {step === 1 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepEmoji}>👋</Text>
-            <Text style={styles.stepTitle}>Merhaba! Adın nedir?</Text>
-            <Text style={styles.stepSubtitle}>Seni nasıl çağıralım?</Text>
-            <TextInput
-              style={styles.bigInput}
-              value={data.name}
-              onChangeText={(v) => update('name', v)}
-              placeholder="Adın ve soyadın"
-              autoCapitalize="words"
-              autoFocus
-              placeholderTextColor={Colors.textMuted}
-            />
-          </View>
-        )}
-
-        {/* Adım 2: Cinsiyet & Yaş */}
-        {step === 2 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepEmoji}>🧬</Text>
-            <Text style={styles.stepTitle}>Biraz daha bilgi</Text>
-            <Text style={styles.stepSubtitle}>Kalori hesaplama için gerekli</Text>
-
-            <Text style={styles.fieldLabel}>Cinsiyetin</Text>
-            <View style={styles.optionRow}>
-              {[{ value: 'male', label: '👨 Erkek' }, { value: 'female', label: '👩 Kadın' }].map((opt) => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.optionCard, data.gender === opt.value && styles.optionCardSelected]}
-                  onPress={() => update('gender', opt.value)}
-                >
-                  <Text style={[styles.optionLabel, data.gender === opt.value && styles.optionLabelSelected]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.fieldLabel}>Doğum Yılın</Text>
-            <TextInput
-              style={styles.bigInput}
-              value={data.birth_year}
-              onChangeText={(v) => update('birth_year', v)}
-              placeholder="1990"
-              keyboardType="numeric"
-              maxLength={4}
-              placeholderTextColor={Colors.textMuted}
-            />
-          </View>
-        )}
-
-        {/* Adım 3: Boy & Kilo */}
-        {step === 3 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepEmoji}>📏</Text>
-            <Text style={styles.stepTitle}>Boy ve kilonu girelim</Text>
-            <Text style={styles.stepSubtitle}>BMI ve kalori hedefin hesaplanacak</Text>
-
-            <Text style={styles.fieldLabel}>Boyun (cm)</Text>
-            <TextInput
-              style={styles.bigInput}
-              value={data.height_cm}
-              onChangeText={(v) => update('height_cm', v)}
-              placeholder="170"
-              keyboardType="numeric"
-              maxLength={3}
-              placeholderTextColor={Colors.textMuted}
-            />
-
-            <Text style={styles.fieldLabel}>Kilonuz (kg)</Text>
-            <TextInput
-              style={styles.bigInput}
-              value={data.weight_kg}
-              onChangeText={(v) => update('weight_kg', v)}
-              placeholder="70"
-              keyboardType="numeric"
-              maxLength={5}
-              placeholderTextColor={Colors.textMuted}
-            />
-          </View>
-        )}
-
-        {/* Adım 4: Aktivite Seviyesi */}
-        {step === 4 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepEmoji}>🏃</Text>
-            <Text style={styles.stepTitle}>Ne kadar aktifsin?</Text>
-            <Text style={styles.stepSubtitle}>Günlük fiziksel aktiviteni seç</Text>
-            {(Object.entries(ACTIVITY_LEVELS) as [ActivityLevel, { label: string; multiplier: number }][]).map(([key, val]) => (
-              <TouchableOpacity
-                key={key}
-                style={[styles.listOption, data.activity_level === key && styles.listOptionSelected]}
-                onPress={() => update('activity_level', key)}
-              >
-                <Text style={[styles.listOptionText, data.activity_level === key && styles.listOptionTextSelected]}>
-                  {val.label}
-                </Text>
-                {data.activity_level === key && <Text style={styles.checkmark}>✓</Text>}
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Adım 5: Hedef & Diyet */}
-        {step === 5 && (
-          <View style={styles.stepContent}>
-            <Text style={styles.stepEmoji}>🎯</Text>
-            <Text style={styles.stepTitle}>Hedefin ne?</Text>
-            <Text style={styles.stepSubtitle}>Sana özel program oluşturalım</Text>
-
-            <Text style={styles.fieldLabel}>Hedefin</Text>
-            <View style={styles.optionRow}>
-              {(Object.entries(GOALS) as [Goal, { label: string }][]).map(([key, val]) => (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.optionCard, styles.optionCardSmall, data.goal === key && styles.optionCardSelected]}
-                  onPress={() => update('goal', key)}
-                >
-                  <Text style={styles.goalEmoji}>
-                    {key === 'lose' ? '📉' : key === 'maintain' ? '⚖️' : '📈'}
-                  </Text>
-                  <Text style={[styles.optionLabel, data.goal === key && styles.optionLabelSelected]}>
-                    {val.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.fieldLabel}>Diyet Tercihin</Text>
-            {(Object.entries(DIET_TYPES) as [DietType, string][]).map(([key, label]) => (
-              <TouchableOpacity
-                key={key}
-                style={[styles.listOption, data.diet_type === key && styles.listOptionSelected]}
-                onPress={() => update('diet_type', key)}
-              >
-                <Text style={[styles.listOptionText, data.diet_type === key && styles.listOptionTextSelected]}>
-                  {label}
-                </Text>
-                {data.diet_type === key && <Text style={styles.checkmark}>✓</Text>}
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Navigasyon Butonları */}
-      <View style={styles.navButtons}>
-        {step > 1 && (
-          <Button
-            title="Geri"
-            onPress={() => setStep((s) => s - 1)}
-            variant="outline"
-            style={styles.backButton}
-          />
-        )}
-        <Button
-          title={step === TOTAL_STEPS ? 'Başla!' : 'Devam Et'}
-          onPress={step === TOTAL_STEPS ? handleFinish : () => setStep((s) => s + 1)}
-          disabled={!canProceed()}
-          loading={loading}
-          style={styles.nextButton}
-        />
-      </View>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {showProgress && (
+        <ProgressBar current={dataStepIndex} total={DATA_STEPS} />
+      )}
+      <Animated.View
+        key={step}
+        entering={enteringAnim}
+        style={styles.stepWrapper}
+      >
+        {renderStep()}
+      </Animated.View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
-    gap: Spacing.md,
-  },
-  progressTrack: {
+  container: {
     flex: 1,
-    height: 6,
-    backgroundColor: Colors.borderLight,
-    borderRadius: BorderRadius.full,
-    overflow: 'hidden',
+    backgroundColor: Colors.background,
   },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.full,
-  },
-  progressText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textMuted },
-  content: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xl },
-  stepContent: { paddingTop: Spacing.xl },
-  stepEmoji: { fontSize: 52, marginBottom: Spacing.md },
-  stepTitle: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.textPrimary, marginBottom: Spacing.sm },
-  stepSubtitle: { fontSize: FontSize.md, color: Colors.textMuted, marginBottom: Spacing.xl },
-  fieldLabel: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.textSecondary, marginBottom: Spacing.sm, marginTop: Spacing.md },
-  bigInput: {
-    borderWidth: 2,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    fontSize: FontSize.xl,
-    color: Colors.textPrimary,
-    fontWeight: '600',
-    backgroundColor: Colors.surface,
-  },
-  optionRow: { flexDirection: 'row', gap: Spacing.md },
-  optionCard: {
+  stepWrapper: {
     flex: 1,
-    borderWidth: 2,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
   },
-  optionCardSmall: { padding: Spacing.md },
-  optionCardSelected: { borderColor: Colors.primary, backgroundColor: Colors.primaryPale },
-  optionLabel: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary },
-  optionLabelSelected: { color: Colors.primary },
-  goalEmoji: { fontSize: 28, marginBottom: Spacing.xs },
-  listOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    backgroundColor: Colors.surface,
-  },
-  listOptionSelected: { borderColor: Colors.primary, backgroundColor: Colors.primaryPale },
-  listOptionText: { fontSize: FontSize.md, fontWeight: '500', color: Colors.textSecondary },
-  listOptionTextSelected: { color: Colors.primary, fontWeight: '700' },
-  checkmark: { fontSize: FontSize.lg, color: Colors.primary, fontWeight: '700' },
-  navButtons: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.xl,
-    paddingTop: Spacing.md,
-    gap: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderLight,
-  },
-  backButton: { flex: 0.4 },
-  nextButton: { flex: 1 },
 });

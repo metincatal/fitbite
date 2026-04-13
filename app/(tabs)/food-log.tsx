@@ -14,6 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
@@ -25,6 +27,7 @@ import { recognizeFoodFromImage } from '../../lib/gemini';
 import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 
 export default function FoodLogScreen() {
+  const router = useRouter();
   const { user } = useAuthStore();
   const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, selectedDate } = useNutritionStore();
   const [searchQuery, setSearchQuery] = useState('');
@@ -339,7 +342,7 @@ export default function FoodLogScreen() {
         <View style={styles.foodList}>
           {getMealLogs(selectedMeal).length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>🍽️</Text>
+              <Ionicons name="restaurant-outline" size={40} color={Colors.textMuted} style={{ marginBottom: Spacing.md }} />
               <Text style={styles.emptyTitle}>{MEAL_TYPES[selectedMeal]} için henüz yemek eklenmedi</Text>
               <Text style={styles.emptySubtitle}>Yemek eklemek için + Ekle butonuna bas</Text>
             </View>
@@ -348,9 +351,17 @@ export default function FoodLogScreen() {
               <Card key={log.id} style={styles.foodItem}>
                 <View style={styles.foodItemHeader}>
                   <Text style={styles.foodName}>{log.food?.name_tr ?? log.food?.name}</Text>
-                  <TouchableOpacity onPress={() => removeFoodLog(log.id)}>
-                    <Text style={styles.deleteIcon}>✕</Text>
-                  </TouchableOpacity>
+                  <View style={styles.foodItemActions}>
+                    <TouchableOpacity
+                      onPress={() => router.push(`/food/${log.food_id}`)}
+                      style={styles.infoBtn}
+                    >
+                      <Ionicons name="information-circle-outline" size={20} color={Colors.textMuted} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => removeFoodLog(log.id)}>
+                      <Text style={styles.deleteIcon}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
                 <Text style={styles.foodServing}>{log.serving_amount}g</Text>
                 <View style={styles.foodMacros}>
@@ -391,7 +402,7 @@ export default function FoodLogScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.modalMealTabs}
-            contentContainerStyle={styles.mealTabsContent}
+            contentContainerStyle={[styles.mealTabsContent, { alignItems: 'center' }]}
           >
             {(Object.keys(MEAL_TYPES) as MealType[]).map((meal) => (
               <TouchableOpacity
@@ -451,24 +462,24 @@ export default function FoodLogScreen() {
               onPress={() => openImagePicker('camera')}
               disabled={recognizing}
             >
-              <Text style={styles.photoButtonIcon}>📷</Text>
-              <Text style={styles.photoButtonText}>Kamerayla Çek</Text>
+              <Ionicons name="camera-outline" size={22} color={Colors.primary} />
+              <Text style={styles.photoButtonText}>Kamera</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.photoButton}
               onPress={() => openImagePicker('gallery')}
               disabled={recognizing}
             >
-              <Text style={styles.photoButtonIcon}>🖼️</Text>
-              <Text style={styles.photoButtonText}>Galeriden Seç</Text>
+              <Ionicons name="image-outline" size={22} color={Colors.primary} />
+              <Text style={styles.photoButtonText}>Galeri</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.photoButton}
               onPress={openBarcodeScanner}
               disabled={recognizing}
             >
-              <Text style={styles.photoButtonIcon}>📊</Text>
-              <Text style={styles.photoButtonText}>Barkod Tara</Text>
+              <Ionicons name="barcode-outline" size={22} color={Colors.primary} />
+              <Text style={styles.photoButtonText}>Barkod</Text>
             </TouchableOpacity>
           </View>
           )}
@@ -539,7 +550,7 @@ export default function FoodLogScreen() {
               <View style={styles.recognizedHeader}>
                 <Text style={styles.recognizedLabel}>Barkod Sonucu</Text>
                 <View style={[styles.confidenceBadge, { backgroundColor: Colors.primaryLight }]}>
-                  <Text style={styles.confidenceText}>📊</Text>
+                  <Ionicons name="checkmark" size={12} color={Colors.textLight} />
                 </View>
               </View>
               {barcodeResult.brand ? (
@@ -598,7 +609,7 @@ export default function FoodLogScreen() {
           {/* Arama Kutusu */}
           {!recognizedFood && !recognizing && !barcodeResult && !scanningBarcode && (
           <View style={styles.searchBox}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <Ionicons name="search-outline" size={18} color={Colors.textMuted} style={{ marginRight: Spacing.sm }} />
             <TextInput
               style={styles.searchInput}
               placeholder="Yemek adı ara... (örn: tavuk, pilav)"
@@ -617,6 +628,7 @@ export default function FoodLogScreen() {
           </View>
           )}
 
+          {/* Seçili Yemek Detayı */}
           {/* Seçili Yemek Detayı */}
           {selectedFood && !recognizedFood && !barcodeResult && (
             <Card style={styles.selectedFoodCard}>
@@ -707,12 +719,13 @@ const styles = StyleSheet.create({
   mealTabCaloriesActive: { color: Colors.primaryPale },
   foodList: { paddingHorizontal: Spacing.lg },
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xxl },
-  emptyEmoji: { fontSize: 48, marginBottom: Spacing.md },
   emptyTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center' },
   emptySubtitle: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: Spacing.xs, textAlign: 'center' },
   foodItem: { marginBottom: Spacing.sm },
   foodItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   foodName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, flex: 1 },
+  foodItemActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  infoBtn: { padding: 4 },
   deleteIcon: { fontSize: FontSize.sm, color: Colors.textMuted, padding: 4 },
   foodServing: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
   foodMacros: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.sm },
@@ -730,7 +743,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
   modalClose: { fontSize: FontSize.md, color: Colors.primary, fontWeight: '600' },
-  modalMealTabs: { paddingVertical: Spacing.sm },
+  modalMealTabs: { paddingVertical: Spacing.sm, height: 60 },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -742,7 +755,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.border,
   },
-  searchIcon: { fontSize: 18, marginRight: Spacing.sm },
   searchInput: { flex: 1, fontSize: FontSize.md, color: Colors.textPrimary, paddingVertical: Spacing.sm + 2 },
   clearSearch: { fontSize: FontSize.sm, color: Colors.textMuted, padding: Spacing.sm },
   selectedFoodCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
@@ -789,18 +801,18 @@ const styles = StyleSheet.create({
   },
   photoButton: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.xs,
+    gap: 6,
     backgroundColor: Colors.primaryPale,
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xs,
     borderWidth: 1.5,
     borderColor: Colors.primaryLight,
   },
-  photoButtonIcon: { fontSize: 18 },
-  photoButtonText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.primary },
+  photoButtonText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.primary, textAlign: 'center' },
   recognizingContainer: {
     alignItems: 'center',
     paddingVertical: Spacing.xl,

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -11,7 +12,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
@@ -28,6 +29,8 @@ const QUICK_QUESTIONS = [
 ];
 
 export default function AIChatScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { profile, user } = useAuthStore();
   const { getDailyTotals } = useNutritionStore();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -64,7 +67,7 @@ export default function AIChatScreen() {
         id: 'welcome',
         user_id: '',
         role: 'assistant',
-        content: `Merhaba! 👋 Ben FitBot, senin yapay zeka diyetisyeninim.\n\nSana kişiselleştirilmiş beslenme önerileri sunmak için buradayım. Bugün ne yemek istediğini sorabilir, kalori hedefin hakkında yardım alabilir ya da Türk mutfağından sağlıklı tarifler öğrenebilirsin.\n\nNasıl yardımcı olabilirim?`,
+        content: `Merhaba! Ben FitBot, senin yapay zeka diyetisyeninim.\n\nSana kişiselleştirilmiş beslenme önerileri sunmak için buradayım. Bugün ne yemek istediğini sorabilir, kalori hedefin hakkında yardım alabilir ya da Türk mutfağından sağlıklı tarifler öğrenebilirsin.\n\nNasıl yardımcı olabilirim?`,
         created_at: new Date().toISOString(),
       };
       setMessages([welcome]);
@@ -175,6 +178,7 @@ export default function AIChatScreen() {
       >
         <FlatList
           ref={flatListRef}
+          style={{ flex: 1 }}
           data={messages}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
@@ -224,12 +228,19 @@ export default function AIChatScreen() {
                   <Text style={styles.quickQuestionText}>{q}</Text>
                 </TouchableOpacity>
               ))}
+              <TouchableOpacity
+                style={[styles.quickQuestion, styles.recipeQuickBtn]}
+                onPress={() => router.push('/recipe')}
+              >
+                <Ionicons name="restaurant-outline" size={14} color={Colors.accent} />
+                <Text style={[styles.quickQuestionText, { color: Colors.accent }]}>Tarif Önerisi</Text>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         )}
 
         {/* Giriş Alanı */}
-        <View style={styles.inputRow}>
+        <View style={[styles.inputRow, { paddingBottom: Math.max(Spacing.sm, insets.bottom) + 4 }]}>
           <TextInput
             style={styles.input}
             value={input}
@@ -326,6 +337,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   quickQuestionText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
+  recipeQuickBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, borderColor: Colors.accentLight },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',

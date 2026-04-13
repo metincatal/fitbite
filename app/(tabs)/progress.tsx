@@ -12,8 +12,9 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LineChart } from 'react-native-chart-kit';
+import { LineChart, BarChart } from 'react-native-chart-kit';
 import { Ionicons } from '@expo/vector-icons';
+
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
@@ -108,6 +109,10 @@ export default function ProgressScreen() {
   const [newWeight, setNewWeight] = useState('');
   const [activeTab, setActiveTab] = useState<'week' | 'month' | 'all'>('month');
 
+  // Kalori & makro trend
+  const [trendData, setTrendData] = useState<{ date: string; calories: number; protein: number; carbs: number; fat: number }[]>([]);
+  const [trendTab, setTrendTab] = useState<'7' | '30'>('7');
+
   // Vücut ölçüleri
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([]);
   const [showMeasureModal, setShowMeasureModal] = useState(false);
@@ -132,7 +137,40 @@ export default function ProgressScreen() {
       fetchWeightLogs(),
       fetchMeasurements(),
       fetchCounts(),
+      fetchTrendData(),
     ]);
+  }
+
+  async function fetchTrendData() {
+    if (!user) return;
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+    const { data } = await supabase
+      .from('food_logs')
+      .select('calories, protein, carbs, fat, logged_at')
+      .eq('user_id', user.id)
+      .gte('logged_at', thirtyDaysAgo.toISOString())
+      .order('logged_at', { ascending: true });
+
+    // Son 30 günü oluştur (veri olmayan günler sıfır olarak kalır)
+    const grouped: Record<string, { calories: number; protein: number; carbs: number; fat: number }> = {};
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      grouped[d.toISOString().split('T')[0]] = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+    }
+
+    for (const log of data ?? []) {
+      const dateKey = log.logged_at.split('T')[0];
+      if (grouped[dateKey]) {
+        grouped[dateKey].calories += log.calories;
+        grouped[dateKey].protein += log.protein;
+        grouped[dateKey].carbs += log.carbs;
+        grouped[dateKey].fat += log.fat;
+      }
+    }
+
+    setTrendData(Object.entries(grouped).map(([date, v]) => ({ date, ...v })));
   }
 
   async function fetchWeightLogs() {
@@ -246,8 +284,9 @@ export default function ProgressScreen() {
 
       const analysis = await analyzeWeeklyNutrition({ profile, dailyData: days, goals });
       setWeeklyAnalysis(analysis);
-    } catch {
-      setWeeklyAnalysis('Analiz alınırken bir hata oluştu. Lütfen tekrar deneyin.');
+    } catch (error) {
+      console.error('Haftalık analiz hatası:', error);
+      setWeeklyAnalysis('Analiz alınırken bir hata oluştu. İnternet bağlantınızı kontrol edip tekrar deneyin.');
     } finally {
       setAnalyzingWeekly(false);
     }
@@ -289,24 +328,29 @@ export default function ProgressScreen() {
         {/* Özet Kartlar */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsRow}>
           <Card style={styles.statCard}>
-            <Text style={styles.statEmoji}>⚖️</Text>
+            <Ionicons name="scale-outline" size={22} color={Colors.textMuted} style={styles.statIcon} />
             <Text style={styles.statValue}>{currentWeight?.toFixed(1) ?? '—'} kg</Text>
             <Text style={styles.statLabel}>Güncel Kilo</Text>
           </Card>
           <Card style={styles.statCard}>
-            <Text style={styles.statEmoji}>{weightChange <= 0 ? '📉' : '📈'}</Text>
+            <Ionicons
+              name={weightChange <= 0 ? 'trending-down' : 'trending-up'}
+              size={22}
+              color={weightChange <= 0 ? Colors.success : Colors.error}
+              style={styles.statIcon}
+            />
             <Text style={[styles.statValue, { color: weightChange <= 0 ? Colors.success : Colors.error }]}>
               {weightChange > 0 ? '+' : ''}{weightChange.toFixed(1)} kg
             </Text>
             <Text style={styles.statLabel}>Değişim</Text>
           </Card>
           <Card style={styles.statCard}>
-            <Text style={styles.statEmoji}>📊</Text>
+            <Ionicons name="bar-chart-outline" size={22} color={Colors.textMuted} style={styles.statIcon} />
             <Text style={styles.statValue}>{bmi ?? '—'}</Text>
             <Text style={styles.statLabel}>BMI {bmi ? `(${getBMICategory(bmi)})` : ''}</Text>
           </Card>
           <Card style={styles.statCard}>
-            <Text style={styles.statEmoji}>🏅</Text>
+            <Ionicons name="ribbon-outline" size={22} color={Colors.textMuted} style={styles.statIcon} />
             <Text style={styles.statValue}>{unlockedCount}/{badges.length}</Text>
             <Text style={styles.statLabel}>Rozet</Text>
           </Card>
@@ -384,6 +428,106 @@ export default function ProgressScreen() {
           ))}
           {weightLogs.length === 0 && <Text style={styles.noLogs}>Henüz kilo ölçümü yok</Text>}
         </Card>
+
+        {/* Kalori & Makro Trend */}
+        {(() => {
+          const sliced = trendTab === '7' ? trendData.slice(-7) : trendData;
+          const calorieData = sliced.map((d) => Math.round(d.calories));
+          const proteinData = sliced.map((d) => Math.round(d.protein));
+          const hasData = calorieData.some((c) => c > 0);
+
+          const MONTH_SHORT = ['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+          const labels = sliced.map((d, i) => {
+            const date = new Date(d.date);
+            const day = date.getDate();
+            const mon = date.getMonth();
+            if (trendTab === '7') {
+              return String(day);
+            }
+            // 30-gün: her 5'te bir göster, ay geçişini işaretle
+            if (i % 5 !== 0) return '';
+            const prevDate = i > 0 ? new Date(sliced[i - 5]?.date ?? d.date) : null;
+            const monthChanged = prevDate && prevDate.getMonth() !== mon;
+            if (day <= 5 || monthChanged) return MONTH_SHORT[mon];
+            return String(day);
+          });
+
+          return (
+            <Card style={styles.chartCard}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Kalori & Protein Trendi</Text>
+              </View>
+              <View style={styles.tabRow}>
+                {(['7', '30'] as const).map((tab) => (
+                  <TouchableOpacity
+                    key={tab}
+                    style={[styles.tab, trendTab === tab && styles.tabActive]}
+                    onPress={() => setTrendTab(tab)}
+                  >
+                    <Text style={[styles.tabText, trendTab === tab && styles.tabTextActive]}>
+                      {tab === '7' ? '7 Gün' : '30 Gün'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {hasData ? (
+                <>
+                  <Text style={styles.trendChartLabel}>Günlük Kalori (kcal)</Text>
+                  <BarChart
+                    data={{ labels, datasets: [{ data: calorieData }] }}
+                    width={screenWidth - Spacing.lg * 2 - Spacing.md * 2}
+                    height={160}
+                    yAxisLabel=""
+                    yAxisSuffix=""
+                    chartConfig={{
+                      backgroundColor: Colors.surface,
+                      backgroundGradientFrom: Colors.surface,
+                      backgroundGradientTo: Colors.surface,
+                      decimalPlaces: 0,
+                      color: () => Colors.accent,
+                      labelColor: () => Colors.textMuted,
+                      barPercentage: trendTab === '7' ? 0.6 : 0.4,
+                      propsForLabels: { fontSize: '10' },
+                    }}
+                    style={{ borderRadius: BorderRadius.md, marginLeft: -Spacing.md }}
+                    withInnerLines={false}
+                    showBarTops={false}
+                    fromZero
+                  />
+                  <Text style={[styles.trendChartLabel, { marginTop: Spacing.sm }]}>Günlük Protein (g)</Text>
+                  <LineChart
+                    data={{ labels, datasets: [{ data: proteinData, color: () => Colors.protein }] }}
+                    width={screenWidth - Spacing.lg * 2 - Spacing.md * 2}
+                    height={160}
+                    chartConfig={{
+                      backgroundColor: Colors.surface,
+                      backgroundGradientFrom: Colors.surface,
+                      backgroundGradientTo: Colors.surface,
+                      decimalPlaces: 0,
+                      color: () => Colors.protein,
+                      labelColor: () => Colors.textMuted,
+                      propsForDots: { r: '3', strokeWidth: '1', stroke: Colors.protein, fill: Colors.protein },
+                      propsForLabels: { fontSize: '10' },
+                    }}
+                    bezier
+                    style={{ borderRadius: BorderRadius.md, marginLeft: -Spacing.md }}
+                    withDots={trendTab === '7'}
+                    withInnerLines={false}
+                  />
+                  {profile?.daily_calorie_goal && (
+                    <Text style={styles.trendGoalText}>
+                      Kalori hedefi: {profile.daily_calorie_goal} kcal/gün
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <View style={styles.noChartData}>
+                  <Text style={styles.noChartText}>Yeterli veri yok — yemek kaydı ekleyin</Text>
+                </View>
+              )}
+            </Card>
+          );
+        })()}
 
         {/* Vücut Ölçüleri */}
         <Card style={styles.measureCard}>
@@ -537,7 +681,7 @@ const styles = StyleSheet.create({
   title: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.textPrimary, paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
   statsRow: { paddingHorizontal: Spacing.lg, gap: Spacing.sm, paddingBottom: Spacing.md },
   statCard: { width: 120, alignItems: 'center', paddingVertical: Spacing.md },
-  statEmoji: { fontSize: 24, marginBottom: Spacing.xs },
+  statIcon: { marginBottom: Spacing.xs },
   statValue: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.textPrimary },
   statLabel: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', marginTop: 2 },
   chartCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
@@ -564,6 +708,8 @@ const styles = StyleSheet.create({
   logDate: { fontSize: FontSize.md, color: Colors.textSecondary },
   logWeight: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
   noLogs: { fontSize: FontSize.md, color: Colors.textMuted, textAlign: 'center', paddingVertical: Spacing.md },
+  trendChartLabel: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary, marginBottom: 4 },
+  trendGoalText: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'right', marginTop: 4 },
   // Vücut ölçüleri
   measureCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
   addMeasureBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primary, paddingHorizontal: Spacing.sm, paddingVertical: 6, borderRadius: BorderRadius.full },

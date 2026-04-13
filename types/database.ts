@@ -1,5 +1,24 @@
 export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
 
+export type DietTypeDB =
+  | 'normal'
+  | 'vegetarian'
+  | 'vegan'
+  | 'pescatarian'
+  | 'keto'
+  | 'paleo'
+  | 'mediterranean'
+  | 'gluten_free'
+  | 'flexitarian'
+  | 'lactose_free';
+
+export type NotificationPreferences = {
+  meals: boolean;
+  water: boolean;
+  weekly_report: boolean;
+  motivation: boolean;
+};
+
 export interface Database {
   public: {
     PostgrestVersion: '12';
@@ -13,10 +32,18 @@ export interface Database {
           birth_date: string;
           height_cm: number;
           weight_kg: number;
+          target_weight_kg: number | null;
           activity_level: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
           goal: 'lose' | 'maintain' | 'gain';
-          diet_type: 'normal' | 'vegetarian' | 'vegan' | 'gluten_free' | 'lactose_free';
+          diet_type: DietTypeDB;
           allergies: string[];
+          motivations: string[];
+          past_obstacles: string[];
+          meal_count: number;
+          first_meal_time: string;
+          last_meal_time: string;
+          weekly_weight_goal_kg: number;
+          notification_preferences: NotificationPreferences;
           daily_calorie_goal: number;
           daily_protein_goal: number;
           daily_carbs_goal: number;
@@ -33,10 +60,18 @@ export interface Database {
           birth_date: string;
           height_cm: number;
           weight_kg: number;
+          target_weight_kg?: number | null;
           activity_level?: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
           goal?: 'lose' | 'maintain' | 'gain';
-          diet_type?: 'normal' | 'vegetarian' | 'vegan' | 'gluten_free' | 'lactose_free';
+          diet_type?: DietTypeDB;
           allergies?: string[];
+          motivations?: string[];
+          past_obstacles?: string[];
+          meal_count?: number;
+          first_meal_time?: string;
+          last_meal_time?: string;
+          weekly_weight_goal_kg?: number;
+          notification_preferences?: NotificationPreferences;
           daily_calorie_goal?: number;
           daily_protein_goal?: number;
           daily_carbs_goal?: number;
@@ -201,6 +236,22 @@ export interface Database {
           logged_at?: string;
         };
         Update: Partial<Database['public']['Tables']['body_measurements']['Insert']>;
+        Relationships: [];
+      };
+      step_logs: {
+        Row: {
+          id: string;
+          user_id: string;
+          step_count: number;
+          logged_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          step_count: number;
+          logged_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['step_logs']['Insert']>;
         Relationships: [];
       };
     };

@@ -30,12 +30,21 @@ export function calculateTDEE(metrics: UserMetrics): number {
 /**
  * Hedefe göre günlük kalori hedefini hesapla
  * Güvenlik sınırları: Kadın min 1200, Erkek min 1500
+ * weeklyGoalKg: haftalık kilo hedefi (opsiyonel) — dinamik offset hesaplar
  */
-export function calculateDailyCalorieGoal(metrics: UserMetrics): number {
+export function calculateDailyCalorieGoal(metrics: UserMetrics, weeklyGoalKg?: number): number {
   const tdee = calculateTDEE(metrics);
-  const offset = GOALS[metrics.goal].calorieOffset;
-  const target = tdee + offset;
 
+  let offset: number;
+  if (weeklyGoalKg !== undefined && weeklyGoalKg > 0) {
+    // 1 kg yağ ≈ 7700 kcal → haftalık hedef / 7 = günlük açık
+    const dynamicOffset = Math.round((weeklyGoalKg * 7700) / 7);
+    offset = metrics.goal === 'gain' ? dynamicOffset : -dynamicOffset;
+  } else {
+    offset = GOALS[metrics.goal].calorieOffset;
+  }
+
+  const target = tdee + offset;
   const minCalories = metrics.gender === 'male' ? 1500 : 1200;
   return Math.max(target, minCalories);
 }
@@ -49,9 +58,10 @@ export interface MacroGoals {
 
 /**
  * WHO ve Türkiye Beslenme Rehberi referanslı makro hesaplama
+ * weeklyGoalKg: dinamik kalori offset için kullanılır
  */
-export function calculateMacroGoals(metrics: UserMetrics): MacroGoals {
-  const calories = calculateDailyCalorieGoal(metrics);
+export function calculateMacroGoals(metrics: UserMetrics, weeklyGoalKg?: number): MacroGoals {
+  const calories = calculateDailyCalorieGoal(metrics, weeklyGoalKg);
 
   // Protein: 1.2-1.6 g/kg (hedefe göre)
   const proteinPerKg = metrics.goal === 'gain' ? 1.8 : metrics.goal === 'lose' ? 1.6 : 1.2;

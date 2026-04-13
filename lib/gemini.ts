@@ -160,3 +160,58 @@ Türk marketi ürünleri kullan, 20-25 madde ekle. Kategorilere göre sırala (�
   if (!jsonMatch) return [];
   return JSON.parse(jsonMatch[0]);
 }
+
+/**
+ * AI tarif önerisi
+ */
+export interface RecipeResult {
+  name: string;
+  description: string;
+  servings: number;
+  prepTime: string;
+  ingredients: string[];
+  steps: string[];
+  nutrition: { calories: number; protein: number; carbs: number; fat: number };
+}
+
+export async function generateRecipe(params: {
+  request: string;
+  profile: Profile;
+}): Promise<RecipeResult> {
+  const { request, profile } = params;
+  const age = new Date().getFullYear() - new Date(profile.birth_date ?? '').getFullYear();
+
+  const prompt = `${DIETITIAN_SYSTEM_PROMPT}
+
+Kullanıcı profili:
+- Hedef: ${profile.goal === 'lose' ? 'Kilo vermek' : profile.goal === 'gain' ? 'Kilo almak' : 'Kiloyu korumak'}
+- Diyet tipi: ${profile.diet_type ?? 'Normal'}
+- Günlük kalori hedefi: ${profile.daily_calorie_goal ?? 2000} kcal
+- Yaş: ${age}
+
+Tarif isteği: "${request}"
+
+SADECE şu JSON formatında yanıtla (başka metin ekleme):
+{
+  "name": "Tarif adı",
+  "description": "Kısa açıklama (1-2 cümle)",
+  "servings": 2,
+  "prepTime": "20 dakika",
+  "ingredients": ["500g tavuk göğsü", "2 diş sarımsak", ...],
+  "steps": ["Tavuğu küp küp doğrayın.", "..."],
+  "nutrition": {
+    "calories": 350,
+    "protein": 35,
+    "carbs": 20,
+    "fat": 12
+  }
+}
+
+Tarif kişi başı değerleri için nutrition hesapla. Türk mutfağına uygun malzemeler kullan.`;
+
+  const result = await geminiFlash.generateContent(prompt);
+  const text = result.response.text();
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Tarif oluşturulamadı');
+  return JSON.parse(jsonMatch[0]);
+}

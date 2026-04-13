@@ -109,7 +109,7 @@ export default function ShoppingListScreen() {
                 goal: profile.goal,
               };
               const goals = calculateMacroGoals(metrics);
-              const dietLabel = profile.diet_type ? DIET_TYPES[profile.diet_type as keyof typeof DIET_TYPES] : 'Normal';
+              const dietLabel = profile.diet_type ? (DIET_TYPES[profile.diet_type as keyof typeof DIET_TYPES]?.label ?? 'Normal') : 'Normal';
               const suggestions = await generateShoppingList({ profile, goals, dietType: dietLabel });
               const newItems: ShoppingItem[] = suggestions.map((text) => ({
                 id: `ai_${Date.now()}_${Math.random()}`,

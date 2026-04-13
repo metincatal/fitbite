@@ -8,13 +8,17 @@ import {
   Alert,
   Modal,
   Switch,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
-import { Colors, Spacing, FontSize, BorderRadius, ACTIVITY_LEVELS, GOALS, DIET_TYPES } from '../../lib/constants';
+import { Colors, Spacing, FontSize, BorderRadius, ACTIVITY_LEVELS, GOALS, DIET_TYPES, ActivityLevel, Goal, DietType } from '../../lib/constants';
 import { Card } from '../../components/ui/Card';
-import { calculateBMI, getBMICategory, calculateDailyCalorieGoal, calculateMacroGoals } from '../../lib/nutrition';
+import { calculateBMI, getBMICategory, calculateMacroGoals, UserMetrics } from '../../lib/nutrition';
+import { supabase } from '../../lib/supabase';
 import {
   WaterReminderSettings,
   DEFAULT_SETTINGS,
@@ -27,14 +31,121 @@ import {
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { profile, user, signOut } = useAuthStore();
+  const { profile, user, signOut, setProfile } = useAuthStore();
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [reminderSettings, setReminderSettings] = useState<WaterReminderSettings>(DEFAULT_SETTINGS);
   const [savingNotif, setSavingNotif] = useState(false);
 
+  // Profil düzenleme
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editData, setEditData] = useState({ name: '', weight_kg: '', goal: '', diet_type: '', activity_level: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Gizlilik & Güvenlik
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+
   useEffect(() => {
     loadReminderSettings().then(setReminderSettings);
   }, []);
+
+  function openEditModal() {
+    if (!profile) return;
+    setEditData({
+      name: profile.name,
+      weight_kg: profile.weight_kg.toString(),
+      goal: profile.goal,
+      diet_type: profile.diet_type,
+      activity_level: profile.activity_level,
+    });
+    setShowEditModal(true);
+  }
+
+  async function saveProfile() {
+    if (!user || !profile) return;
+    const weight = parseFloat(editData.weight_kg);
+    if (!editData.name.trim()) {
+      Alert.alert('Hata', 'İsim boş bırakılamaz');
+      return;
+    }
+    if (isNaN(weight) || weight < 20 || weight > 300) {
+      Alert.alert('Hata', 'Geçerli bir kilo değeri girin (20-300 kg)');
+      return;
+    }
+    setSavingEdit(true);
+    const age = new Date().getFullYear() - new Date(profile.birth_date).getFullYear();
+    const metrics: UserMetrics = {
+      gender: profile.gender,
+      age,
+      height_cm: profile.height_cm,
+      weight_kg: weight,
+      activity_level: editData.activity_level as ActivityLevel,
+      goal: editData.goal as Goal,
+    };
+    const macros = calculateMacroGoals(metrics);
+    const { data } = await supabase
+      .from('profiles')
+      .update({
+        name: editData.name.trim(),
+        weight_kg: weight,
+        goal: editData.goal as Goal,
+        diet_type: editData.diet_type as DietType,
+        activity_level: editData.activity_level as ActivityLevel,
+        daily_calorie_goal: macros.calories,
+        daily_protein_goal: macros.protein_g,
+        daily_carbs_goal: macros.carbs_g,
+        daily_fat_goal: macros.fat_g,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', user.id)
+      .select()
+      .single();
+    setSavingEdit(false);
+    if (data) {
+      setProfile(data);
+      setShowEditModal(false);
+      Alert.alert('Kaydedildi', 'Profiliniz güncellendi.');
+    } else {
+      Alert.alert('Hata', 'Profil güncellenemedi. Tekrar deneyin.');
+    }
+  }
+
+  async function handlePasswordReset() {
+    if (!user?.email) return;
+    setSendingReset(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(user.email);
+    setSendingReset(false);
+    if (error) {
+      Alert.alert('Hata', 'E-posta gönderilemedi. Lütfen tekrar deneyin.');
+    } else {
+      Alert.alert('E-posta Gönderildi', `${user.email} adresine şifre sıfırlama bağlantısı gönderildi.`);
+    }
+  }
+
+  function handleDeleteAccount() {
+    Alert.alert(
+      'Hesabı Sil',
+      'Tüm verileriniz kalıcı olarak silinecek. Bu işlem geri alınamaz. Devam etmek istiyor musunuz?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Hesabı Sil',
+          style: 'destructive',
+          onPress: async () => {
+            if (!user) return;
+            // Kullanıcı verilerini sil
+            await supabase.from('food_logs').delete().eq('user_id', user.id);
+            await supabase.from('water_logs').delete().eq('user_id', user.id);
+            await supabase.from('weight_logs').delete().eq('user_id', user.id);
+            await supabase.from('chat_messages').delete().eq('user_id', user.id);
+            await supabase.from('body_measurements').delete().eq('user_id', user.id);
+            await supabase.from('profiles').delete().eq('user_id', user.id);
+            await signOut();
+          },
+        },
+      ]
+    );
+  }
 
   async function handleNotifToggle(value: boolean) {
     if (value) {
@@ -84,7 +195,7 @@ export default function ProfileScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyState}>
-          <Text style={styles.emptyEmoji}>👤</Text>
+          <Ionicons name="person-circle-outline" size={56} color={Colors.textMuted} />
           <Text style={styles.emptyText}>Profil bilgileri yükleniyor...</Text>
         </View>
       </SafeAreaView>
@@ -100,9 +211,11 @@ export default function ProfileScreen() {
         {/* Profil Başlığı */}
         <View style={styles.profileHeader}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarEmoji}>
-              {profile.gender === 'male' ? '👨' : '👩'}
-            </Text>
+            <Ionicons
+              name={profile.gender === 'male' ? 'person' : 'person'}
+              size={44}
+              color={Colors.primary}
+            />
           </View>
           <Text style={styles.profileName}>{profile.name}</Text>
           <Text style={styles.profileEmail}>{user?.email}</Text>
@@ -114,7 +227,7 @@ export default function ProfileScreen() {
             </View>
             <View style={[styles.badge, styles.badgeSecondary]}>
               <Text style={styles.badgeText}>
-                {DIET_TYPES[profile.diet_type] ?? profile.diet_type}
+                {DIET_TYPES[profile.diet_type]?.label ?? profile.diet_type}
               </Text>
             </View>
           </View>
@@ -147,23 +260,23 @@ export default function ProfileScreen() {
         <Card style={styles.goalsCard}>
           <Text style={styles.sectionTitle}>Günlük Hedefler</Text>
           <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>🔥 Kalori</Text>
+            <Text style={styles.goalLabel}>Kalori</Text>
             <Text style={styles.goalValue}>{profile.daily_calorie_goal} kcal</Text>
           </View>
           <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>💪 Protein</Text>
+            <Text style={styles.goalLabel}>Protein</Text>
             <Text style={styles.goalValue}>{profile.daily_protein_goal} g</Text>
           </View>
           <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>🌾 Karbonhidrat</Text>
+            <Text style={styles.goalLabel}>Karbonhidrat</Text>
             <Text style={styles.goalValue}>{profile.daily_carbs_goal} g</Text>
           </View>
           <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>🥑 Yağ</Text>
+            <Text style={styles.goalLabel}>Yağ</Text>
             <Text style={styles.goalValue}>{profile.daily_fat_goal} g</Text>
           </View>
           <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>💧 Su</Text>
+            <Text style={styles.goalLabel}>Su</Text>
             <Text style={styles.goalValue}>{(profile.daily_water_goal_ml / 1000).toFixed(1)} L</Text>
           </View>
         </Card>
@@ -192,18 +305,18 @@ export default function ProfileScreen() {
 
         {/* Ayarlar Bölümü */}
         <Card style={styles.settingsCard}>
-          <TouchableOpacity style={styles.settingRow}>
-            <Text style={styles.settingIcon}>✏️</Text>
+          <TouchableOpacity style={styles.settingRow} onPress={openEditModal}>
+            <Ionicons name="create-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
             <Text style={styles.settingLabel}>Profili Düzenle</Text>
-            <Text style={styles.settingArrow}>›</Text>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.settingRow} onPress={() => router.push('/shopping-list')}>
-            <Text style={styles.settingIcon}>🛒</Text>
+            <Ionicons name="cart-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
             <Text style={styles.settingLabel}>Alışveriş Listesi</Text>
-            <Text style={styles.settingArrow}>›</Text>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.settingRow} onPress={() => setShowNotifModal(true)}>
-            <Text style={styles.settingIcon}>🔔</Text>
+            <Ionicons name="notifications-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
             <Text style={styles.settingLabel}>Su Hatırlatıcıları</Text>
             <View style={styles.settingRight}>
               {reminderSettings.enabled && (
@@ -211,18 +324,18 @@ export default function ProfileScreen() {
                   <Text style={styles.activeBadgeText}>Açık</Text>
                 </View>
               )}
-              <Text style={styles.settingArrow}>›</Text>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow}>
-            <Text style={styles.settingIcon}>🛡️</Text>
+          <TouchableOpacity style={styles.settingRow} onPress={() => setShowPrivacyModal(true)}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
             <Text style={styles.settingLabel}>Gizlilik & Güvenlik</Text>
-            <Text style={styles.settingArrow}>›</Text>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.settingRow} onPress={handleSignOut}>
-            <Text style={styles.settingIcon}>🚪</Text>
+            <Ionicons name="log-out-outline" size={20} color={Colors.error} style={styles.settingIconView} />
             <Text style={[styles.settingLabel, { color: Colors.error }]}>Çıkış Yap</Text>
-            <Text style={styles.settingArrow}>›</Text>
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
         </Card>
 
@@ -233,7 +346,7 @@ export default function ProfileScreen() {
       <Modal visible={showNotifModal} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.notifModal}>
           <View style={styles.notifHeader}>
-            <Text style={styles.notifTitle}>💧 Su Hatırlatıcıları</Text>
+            <Text style={styles.notifTitle}>Su Hatırlatıcıları</Text>
             <TouchableOpacity onPress={() => setShowNotifModal(false)}>
               <Text style={styles.notifClose}>Kapat</Text>
             </TouchableOpacity>
@@ -345,7 +458,7 @@ export default function ProfileScreen() {
                 {/* Özet */}
                 <View style={styles.notifSummary}>
                   <Text style={styles.notifSummaryText}>
-                    📋 Saat {reminderSettings.startHour}:00 ile {reminderSettings.endHour}:00 arasında{' '}
+                    Saat {reminderSettings.startHour}:00 ile {reminderSettings.endHour}:00 arasında{' '}
                     her {reminderSettings.intervalHours} saatte bir hatırlatılacaksın.
                   </Text>
                 </View>
@@ -366,6 +479,148 @@ export default function ProfileScreen() {
           </View>
         </SafeAreaView>
       </Modal>
+
+      {/* Profili Düzenle Modal */}
+      <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.notifModal}>
+          <View style={styles.notifHeader}>
+            <Text style={styles.notifTitle}>Profili Düzenle</Text>
+            <TouchableOpacity onPress={() => setShowEditModal(false)}>
+              <Text style={styles.notifClose}>İptal</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.notifContent} keyboardShouldPersistTaps="handled">
+            <Card style={styles.notifCard}>
+              <Text style={styles.editFieldLabel}>İsim</Text>
+              <TextInput
+                style={styles.editInput}
+                value={editData.name}
+                onChangeText={(v) => setEditData((p) => ({ ...p, name: v }))}
+                placeholder="Adınız"
+                placeholderTextColor={Colors.textMuted}
+              />
+            </Card>
+            <Card style={styles.notifCard}>
+              <Text style={styles.editFieldLabel}>Kilo (kg)</Text>
+              <TextInput
+                style={styles.editInput}
+                value={editData.weight_kg}
+                onChangeText={(v) => setEditData((p) => ({ ...p, weight_kg: v }))}
+                placeholder="örn: 72"
+                keyboardType="numeric"
+                placeholderTextColor={Colors.textMuted}
+              />
+            </Card>
+            <Card style={styles.notifCard}>
+              <Text style={styles.editFieldLabel}>Hedef</Text>
+              <View style={styles.optionRow}>
+                {(Object.entries(GOALS) as [Goal, { label: string }][]).map(([key, val]) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.optionBtn, editData.goal === key && styles.optionBtnActive]}
+                    onPress={() => setEditData((p) => ({ ...p, goal: key }))}
+                  >
+                    <Text style={[styles.optionBtnText, editData.goal === key && styles.optionBtnTextActive]}>
+                      {val.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Card>
+            <Card style={styles.notifCard}>
+              <Text style={styles.editFieldLabel}>Diyet Tipi</Text>
+              <View style={styles.optionRow}>
+                {(Object.entries(DIET_TYPES) as [DietType, typeof DIET_TYPES[DietType]][]).map(([key, val]) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.optionBtn, editData.diet_type === key && styles.optionBtnActive]}
+                    onPress={() => setEditData((p) => ({ ...p, diet_type: key }))}
+                  >
+                    <Text style={[styles.optionBtnText, editData.diet_type === key && styles.optionBtnTextActive]}>
+                      {val.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Card>
+            <Card style={styles.notifCard}>
+              <Text style={styles.editFieldLabel}>Aktivite Seviyesi</Text>
+              <View style={styles.optionRow}>
+                {(Object.entries(ACTIVITY_LEVELS) as [ActivityLevel, { label: string }][]).map(([key, val]) => (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.optionBtn, editData.activity_level === key && styles.optionBtnActive]}
+                    onPress={() => setEditData((p) => ({ ...p, activity_level: key }))}
+                  >
+                    <Text style={[styles.optionBtnText, editData.activity_level === key && styles.optionBtnTextActive]}>
+                      {val.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </Card>
+            <View style={{ height: Spacing.xl }} />
+          </ScrollView>
+          <View style={styles.notifFooter}>
+            <TouchableOpacity
+              style={[styles.saveBtn, savingEdit && styles.saveBtnDisabled]}
+              onPress={saveProfile}
+              disabled={savingEdit}
+            >
+              {savingEdit
+                ? <ActivityIndicator color={Colors.textLight} />
+                : <Text style={styles.saveBtnText}>Kaydet</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Gizlilik & Güvenlik Modal */}
+      <Modal visible={showPrivacyModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.notifModal}>
+          <View style={styles.notifHeader}>
+            <Text style={styles.notifTitle}>Gizlilik & Güvenlik</Text>
+            <TouchableOpacity onPress={() => setShowPrivacyModal(false)}>
+              <Text style={styles.notifClose}>Kapat</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.notifContent}>
+            <Card style={styles.notifCard}>
+              <Text style={styles.privacySectionTitle}>Veri Güvenliği</Text>
+              <Text style={styles.privacyText}>
+                Tüm verileriniz Supabase altyapısında şifrelenmiş olarak saklanmaktadır. Üçüncü taraflarla paylaşılmaz.
+              </Text>
+            </Card>
+            <Card style={styles.notifCard}>
+              <Text style={styles.privacySectionTitle}>Şifre Sıfırlama</Text>
+              <Text style={styles.privacyText}>
+                {user?.email} adresinize şifre sıfırlama bağlantısı gönderilebilir.
+              </Text>
+              <TouchableOpacity
+                style={[styles.privacyBtn, sendingReset && styles.saveBtnDisabled]}
+                onPress={handlePasswordReset}
+                disabled={sendingReset}
+              >
+                {sendingReset
+                  ? <ActivityIndicator color={Colors.textLight} size="small" />
+                  : <Text style={styles.privacyBtnText}>Şifre Sıfırlama E-postası Gönder</Text>
+                }
+              </TouchableOpacity>
+            </Card>
+            <Card style={styles.notifCard}>
+              <Text style={[styles.privacySectionTitle, { color: Colors.error }]}>Tehlikeli Bölge</Text>
+              <Text style={styles.privacyText}>
+                Hesabınızı sildiğinizde tüm verileriniz kalıcı olarak silinir. Bu işlem geri alınamaz.
+              </Text>
+              <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
+                <Text style={styles.deleteBtnText}>Hesabı Sil</Text>
+              </TouchableOpacity>
+            </Card>
+            <View style={{ height: Spacing.xl }} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -379,8 +634,7 @@ function getBMIColor(bmi: number): string {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyEmoji: { fontSize: 48, marginBottom: Spacing.md },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
   emptyText: { fontSize: FontSize.md, color: Colors.textMuted },
   profileHeader: { alignItems: 'center', paddingVertical: Spacing.xl },
   avatar: {
@@ -392,7 +646,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.md,
   },
-  avatarEmoji: { fontSize: 48 },
   profileName: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.textPrimary },
   profileEmail: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 4 },
   profileBadges: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
@@ -421,10 +674,9 @@ const styles = StyleSheet.create({
   tag: { backgroundColor: Colors.accentLight, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: BorderRadius.full },
   tagText: { fontSize: FontSize.sm, color: Colors.accent, fontWeight: '600' },
   settingsCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md, paddingVertical: Spacing.sm },
-  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm, gap: Spacing.md },
-  settingIcon: { fontSize: 20, width: 28 },
+  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm, gap: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  settingIconView: { width: 24 },
   settingLabel: { flex: 1, fontSize: FontSize.md, fontWeight: '500', color: Colors.textPrimary },
-  settingArrow: { fontSize: FontSize.xl, color: Colors.textMuted },
   settingRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   activeBadge: {
     backgroundColor: Colors.primaryPale,
@@ -495,4 +747,41 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.lg },
+  // Edit modal
+  editFieldLabel: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: Spacing.sm,
+  },
+  editInput: {
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.background,
+  },
+  // Privacy modal
+  privacySectionTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm },
+  privacyText: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 20, marginBottom: Spacing.md },
+  privacyBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+  },
+  privacyBtnText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.sm },
+  deleteBtn: {
+    borderWidth: 1.5,
+    borderColor: Colors.error,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm,
+    alignItems: 'center',
+  },
+  deleteBtnText: { color: Colors.error, fontWeight: '700', fontSize: FontSize.sm },
 });
