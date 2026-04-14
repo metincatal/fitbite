@@ -94,7 +94,113 @@ Mesaj: "${firstMessage}"`;
 }
 
 /**
- * Fotoğraftan yemek tanıma
+ * Fotoğraftaki tüm yiyecek ve içecekleri tespit et
+ */
+export interface DetectedFoodItem {
+  name: string;
+  estimatedGrams: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  confidence: number;
+}
+
+export async function recognizeMealFromImage(imageBase64: string): Promise<DetectedFoodItem[]> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+  const prompt = `Bu yemek fotoğrafını dikkatle analiz et. Fotoğraftaki TÜM yiyecek ve içecekleri ayrı ayrı tespit et.
+Her biri için tahmini gramaj ve o gramaja göre toplam besin değerlerini hesapla.
+
+SADECE şu JSON formatında yanıtla (başka hiçbir metin ekleme, açıklama yapma):
+[
+  {
+    "name": "yemek/içecek adı (Türkçe)",
+    "estimatedGrams": tahmini gram miktarı (sayı),
+    "calories": bu gramaj için toplam kalori (sayı),
+    "protein": bu gramaj için toplam protein gram (sayı),
+    "carbs": bu gramaj için toplam karbonhidrat gram (sayı),
+    "fat": bu gramaj için toplam yağ gram (sayı),
+    "confidence": güven skoru 0-1 arası (sayı)
+  }
+]
+
+Önemli kurallar:
+- Tabaktaki her farklı yiyeceği ve içeceği ayrı nesne olarak listele
+- Garnitür, sos, ekmek gibi yan ürünleri de dahil et
+- Gramaj tahmini için porsiyon büyüklüğünü görsel olarak değerlendir`;
+
+  const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
+  const result = await model.generateContent([prompt, imagePart]);
+  const text = result.response.text();
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error('Yemek tanınamadı');
+  return JSON.parse(jsonMatch[0]);
+}
+
+/**
+ * Analizi iyileştirmek için soru üret
+ */
+export async function generateAnalysisQuestions(items: DetectedFoodItem[]): Promise<string[]> {
+  const itemList = items.map((i) => i.name).join(', ');
+  const prompt = `Bir yemek fotoğrafında şu yiyecekler tespit edildi: ${itemList}
+
+Analizi iyileştirmek için kullanıcıya sorulacak 3 kısa, pratik soru üret.
+SADECE şu JSON formatında yanıtla:
+["Soru 1?", "Soru 2?", "Soru 3?"]
+
+Sorular pişirme yöntemi, porsiyon büyüklüğü, eklenen malzemeler veya gözden kaçan yiyecekler hakkında olsun.`;
+
+  const result = await geminiFlash.generateContent(prompt);
+  const text = result.response.text();
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return [];
+  return JSON.parse(jsonMatch[0]);
+}
+
+/**
+ * Kullanıcı cevaplarıyla analizi yenile
+ */
+export async function refineAnalysisWithAnswers(
+  imageBase64: string,
+  currentItems: DetectedFoodItem[],
+  qa: { question: string; answer: string }[]
+): Promise<DetectedFoodItem[]> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  const currentList = currentItems.map((i) => `- ${i.name} (~${i.estimatedGrams}g)`).join('\n');
+  const qaText = qa.filter((q) => q.answer.trim()).map((q) => `S: ${q.question}\nC: ${q.answer}`).join('\n');
+
+  const prompt = `Bu yemek fotoğrafını yeniden analiz et.
+
+Önceki tespitim:
+${currentList}
+
+Kullanıcının verdiği ek bilgiler:
+${qaText}
+
+Bu bilgilere göre daha doğru bir analiz yap. SADECE şu JSON formatında yanıtla:
+[
+  {
+    "name": "yemek/içecek adı (Türkçe)",
+    "estimatedGrams": tahmini gram (sayı),
+    "calories": toplam kalori (sayı),
+    "protein": toplam protein gram (sayı),
+    "carbs": toplam karbonhidrat gram (sayı),
+    "fat": toplam yağ gram (sayı),
+    "confidence": 0-1 arası güven (sayı)
+  }
+]`;
+
+  const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
+  const result = await model.generateContent([prompt, imagePart]);
+  const text = result.response.text();
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error('Analiz yenilenemedi');
+  return JSON.parse(jsonMatch[0]);
+}
+
+/**
+ * Fotoğraftan yemek tanıma (tek yemek - geriye dönük uyumluluk)
  */
 export async function recognizeFoodFromImage(imageBase64: string): Promise<{
   name: string;
@@ -104,34 +210,18 @@ export async function recognizeFoodFromImage(imageBase64: string): Promise<{
   fat: number;
   confidence: number;
 }> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-
-  const prompt = `Bu yemek fotoğrafını analiz et. Yemeği tanı ve tahmini besin değerlerini ver.
-
-  SADECE şu JSON formatında yanıtla (başka metin ekleme):
-  {
-    "name": "yemek adı (Türkçe)",
-    "calories": 100g için kalori miktarı (sayı),
-    "protein": 100g için protein (g, sayı),
-    "carbs": 100g için karbonhidrat (g, sayı),
-    "fat": 100g için yağ (g, sayı),
-    "confidence": güven skoru 0-1 arası (sayı)
-  }`;
-
-  const imagePart = {
-    inlineData: {
-      data: imageBase64,
-      mimeType: 'image/jpeg',
-    },
+  const items = await recognizeMealFromImage(imageBase64);
+  if (items.length === 0) throw new Error('Yemek tanınamadı');
+  const first = items[0];
+  const per100 = first.estimatedGrams > 0 ? 100 / first.estimatedGrams : 1;
+  return {
+    name: first.name,
+    calories: Math.round(first.calories * per100),
+    protein: Math.round(first.protein * per100 * 10) / 10,
+    carbs: Math.round(first.carbs * per100 * 10) / 10,
+    fat: Math.round(first.fat * per100 * 10) / 10,
+    confidence: first.confidence,
   };
-
-  const result = await model.generateContent([prompt, imagePart]);
-  const text = result.response.text();
-
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Yemek tanınamadı');
-
-  return JSON.parse(jsonMatch[0]);
 }
 
 /**

@@ -24,10 +24,11 @@ import { Colors, Spacing, FontSize, BorderRadius, getMealTypes, MealType } from 
 import { Food, FoodLogWithFood } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { recognizeFoodFromImage } from '../../lib/gemini';
+import { recognizeMealFromImage, DetectedFoodItem } from '../../lib/gemini';
 import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 import { uploadFoodPhoto } from '../../lib/storage';
-import { FoodPhotoModal } from '../../components/food/FoodPhotoModal';
+import { PhotoMealReviewModal } from '../../components/food/PhotoMealReviewModal';
+import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
 
 export default function FoodLogScreen() {
   const router = useRouter();
@@ -43,18 +44,12 @@ export default function FoodLogScreen() {
 
   // Fotoğraf tanıma state
   const [recognizing, setRecognizing] = useState(false);
-  const [recognizedFood, setRecognizedFood] = useState<{
-    name: string;
-    calories: number;
-    protein: number;
-    carbs: number;
-    fat: number;
-    confidence: number;
-  } | null>(null);
+  const [photoMealItems, setPhotoMealItems] = useState<DetectedFoodItem[]>([]);
+  const [showPhotoReview, setShowPhotoReview] = useState(false);
 
   // Yakalanan fotograf
   const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
-  const [photoModalLog, setPhotoModalLog] = useState<FoodLogWithFood | null>(null);
+  const [photoDetailGroup, setPhotoDetailGroup] = useState<FoodLogWithFood[]>([]);
 
   // Barkod okuyucu state
   const [scanningBarcode, setScanningBarcode] = useState(false);
@@ -109,63 +104,57 @@ export default function FoodLogScreen() {
     setShowSearch(false);
   }
 
-  async function handleAddRecognizedFood() {
-    if (!recognizedFood || !user) return;
-    const amount = parseFloat(servingAmount);
-    if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin');
-      return;
-    }
+  async function handleSavePhotoMeal(items: DetectedFoodItem[], mealType: MealType) {
+    if (!user) return;
 
-    // Önce yemeği foods tablosuna ekle
-    const { data: newFood, error } = await supabase
-      .from('foods')
-      .insert({
-        name: recognizedFood.name,
-        name_tr: recognizedFood.name,
-        category: 'AI Tanıma',
-        calories_per_100g: recognizedFood.calories,
-        protein: recognizedFood.protein,
-        carbs: recognizedFood.carbs,
-        fat: recognizedFood.fat,
-        fiber: 0,
-        serving_size: 100,
-        serving_unit: 'g',
-        is_turkish: true,
-        created_by: user.id,
-      })
-      .select()
-      .single();
-
-    if (error || !newFood) {
-      Alert.alert('Hata', 'Yemek kaydedilemedi');
-      return;
-    }
-
-    // Fotografi Supabase Storage'a yukle
+    // Fotoğrafı Storage'a yükle (bir kez)
     let imageUrl: string | null = null;
     if (capturedImageBase64) {
       imageUrl = await uploadFoodPhoto(user.id, capturedImageBase64);
     }
 
-    const ratio = amount / 100;
-    await addFoodLog({
-      user_id: user.id,
-      food_id: newFood.id,
-      meal_type: selectedMeal as MealType,
-      serving_amount: amount,
-      calories: Math.round(recognizedFood.calories * ratio),
-      protein: Math.round(recognizedFood.protein * ratio * 10) / 10,
-      carbs: Math.round(recognizedFood.carbs * ratio * 10) / 10,
-      fat: Math.round(recognizedFood.fat * ratio * 10) / 10,
-      image_url: imageUrl,
-      logged_at: new Date().toISOString(),
-    });
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const per100 = item.estimatedGrams > 0 ? 100 / item.estimatedGrams : 1;
 
-    setRecognizedFood(null);
+      const { data: newFood, error } = await supabase
+        .from('foods')
+        .insert({
+          name: item.name,
+          name_tr: item.name,
+          category: 'AI Tanıma',
+          calories_per_100g: Math.round(item.calories * per100),
+          protein: Math.round(item.protein * per100 * 10) / 10,
+          carbs: Math.round(item.carbs * per100 * 10) / 10,
+          fat: Math.round(item.fat * per100 * 10) / 10,
+          fiber: 0,
+          serving_size: 100,
+          serving_unit: 'g',
+          is_turkish: true,
+          created_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (error || !newFood) continue;
+
+      await addFoodLog({
+        user_id: user.id,
+        food_id: newFood.id,
+        meal_type: mealType,
+        serving_amount: item.estimatedGrams,
+        calories: Math.round(item.calories),
+        protein: Math.round(item.protein * 10) / 10,
+        carbs: Math.round(item.carbs * 10) / 10,
+        fat: Math.round(item.fat * 10) / 10,
+        image_url: imageUrl,
+        logged_at: new Date().toISOString(),
+      });
+    }
+
     setCapturedImageBase64(null);
-    setServingAmount('100');
-    setShowSearch(false);
+    setPhotoMealItems([]);
+    setShowPhotoReview(false);
   }
 
   async function handleBarcodeScanned({ data }: { type: string; data: string }) {
@@ -302,13 +291,13 @@ export default function FoodLogScreen() {
     const base64Data = result.assets[0].base64;
     setCapturedImageBase64(base64Data);
     setRecognizing(true);
-    setRecognizedFood(null);
     setSelectedFood(null);
 
     try {
-      const food = await recognizeFoodFromImage(base64Data);
-      setRecognizedFood(food);
-      setServingAmount('100');
+      const items = await recognizeMealFromImage(base64Data);
+      setPhotoMealItems(items);
+      setShowSearch(false);
+      setShowPhotoReview(true);
     } catch {
       setCapturedImageBase64(null);
       Alert.alert('Tanıma Başarısız', 'Yemek tanınamadı. Lütfen daha net bir fotoğraf çekin.');
@@ -370,54 +359,120 @@ export default function FoodLogScreen() {
               <Text style={styles.emptyTitle}>{mealTypes.find((m) => m.key === selectedMeal)?.label ?? selectedMeal} için henüz yemek eklenmedi</Text>
               <Text style={styles.emptySubtitle}>Yemek eklemek için + Ekle butonuna bas</Text>
             </View>
-          ) : (
-            getMealLogs(selectedMeal).map((log) => (
-              <Card key={log.id} style={styles.foodItem}>
-                {log.image_url ? (
-                  <TouchableOpacity onPress={() => setPhotoModalLog(log)}>
+          ) : (() => {
+            // Aynı image_url'e sahip kayıtları grupla
+            const logs = getMealLogs(selectedMeal);
+            const rendered: React.ReactNode[] = [];
+            const seenUrls = new Set<string>();
+
+            logs.forEach((log) => {
+              if (log.image_url) {
+                if (seenUrls.has(log.image_url)) return;
+                seenUrls.add(log.image_url);
+                const group = logs.filter((l) => l.image_url === log.image_url);
+                const totalCal = group.reduce((s, l) => s + l.calories, 0);
+                const totalP = group.reduce((s, l) => s + l.protein, 0);
+                const totalK = group.reduce((s, l) => s + l.carbs, 0);
+                const totalY = group.reduce((s, l) => s + l.fat, 0);
+
+                rendered.push(
+                  <TouchableOpacity
+                    key={`photo-${log.image_url}`}
+                    style={styles.photoMealCard}
+                    onPress={() => setPhotoDetailGroup(group)}
+                    activeOpacity={0.85}
+                  >
                     <Image
                       source={{ uri: log.image_url }}
-                      style={styles.foodThumbnail}
+                      style={styles.photoMealImage}
                       resizeMode="cover"
                     />
-                  </TouchableOpacity>
-                ) : null}
-                <View style={styles.foodItemContent}>
-                  <View style={styles.foodItemHeader}>
-                    <Text style={styles.foodName}>{log.food?.name_tr ?? log.food?.name}</Text>
-                    <View style={styles.foodItemActions}>
-                      <TouchableOpacity
-                        onPress={() => router.push(`/food/${log.food_id}`)}
-                        style={styles.infoBtn}
-                      >
-                        <Ionicons name="information-circle-outline" size={20} color={Colors.textMuted} />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => removeFoodLog(log.id)}>
-                        <Text style={styles.deleteIcon}>✕</Text>
-                      </TouchableOpacity>
+                    <View style={styles.photoMealOverlay}>
+                      <View style={styles.photoMealBadge}>
+                        <Ionicons name="camera" size={11} color="rgba(255,255,255,0.9)" />
+                        <Text style={styles.photoMealBadgeText}>{group.length} yiyecek</Text>
+                      </View>
                     </View>
-                  </View>
-                  <Text style={styles.foodServing}>{log.serving_amount}g</Text>
-                  <View style={styles.foodMacros}>
-                    <Text style={styles.foodCalories}>{Math.round(log.calories)} kcal</Text>
-                    <Text style={styles.foodMacro}>P: {log.protein}g</Text>
-                    <Text style={styles.foodMacro}>K: {log.carbs}g</Text>
-                    <Text style={styles.foodMacro}>Y: {log.fat}g</Text>
-                  </View>
-                </View>
-              </Card>
-            ))
-          )}
+                    <View style={styles.photoMealInfo}>
+                      <View style={styles.photoMealInfoLeft}>
+                        <Text style={styles.photoMealCalories}>{Math.round(totalCal)} kcal</Text>
+                        <View style={styles.photoMealMacros}>
+                          <Text style={[styles.photoMealMacro, { color: Colors.protein }]}>P {Math.round(totalP)}g</Text>
+                          <Text style={[styles.photoMealMacro, { color: Colors.carbs }]}>K {Math.round(totalK)}g</Text>
+                          <Text style={[styles.photoMealMacro, { color: Colors.fat }]}>Y {Math.round(totalY)}g</Text>
+                        </View>
+                      </View>
+                      <View style={styles.photoMealInfoRight}>
+                        <TouchableOpacity
+                          style={styles.photoMealDeleteBtn}
+                          onPress={() => group.forEach((l) => removeFoodLog(l.id))}
+                        >
+                          <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
+                        </TouchableOpacity>
+                        <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              } else {
+                rendered.push(
+                  <Card key={log.id} style={styles.foodItem}>
+                    <View style={styles.foodItemContent}>
+                      <View style={styles.foodItemHeader}>
+                        <Text style={styles.foodName}>{log.food?.name_tr ?? log.food?.name}</Text>
+                        <View style={styles.foodItemActions}>
+                          <TouchableOpacity
+                            onPress={() => router.push(`/food/${log.food_id}`)}
+                            style={styles.infoBtn}
+                          >
+                            <Ionicons name="information-circle-outline" size={20} color={Colors.textMuted} />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => removeFoodLog(log.id)}>
+                            <Text style={styles.deleteIcon}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      <Text style={styles.foodServing}>{log.serving_amount}g</Text>
+                      <View style={styles.foodMacros}>
+                        <Text style={styles.foodCalories}>{Math.round(log.calories)} kcal</Text>
+                        <Text style={styles.foodMacro}>P: {log.protein}g</Text>
+                        <Text style={styles.foodMacro}>K: {log.carbs}g</Text>
+                        <Text style={styles.foodMacro}>Y: {log.fat}g</Text>
+                      </View>
+                    </View>
+                  </Card>
+                );
+              }
+            });
+            return rendered;
+          })()}
         </View>
 
         <View style={{ height: Spacing.xl }} />
       </ScrollView>
 
-      {/* Fotograf Detay Modal */}
-      <FoodPhotoModal
-        visible={!!photoModalLog}
-        onClose={() => setPhotoModalLog(null)}
-        log={photoModalLog}
+      {/* Fotoğraf Analiz Detay Modal */}
+      <MealPhotoDetailModal
+        visible={photoDetailGroup.length > 0}
+        onClose={() => setPhotoDetailGroup([])}
+        logs={photoDetailGroup}
+        onRemoveAll={() => {
+          photoDetailGroup.forEach((l) => removeFoodLog(l.id));
+          setPhotoDetailGroup([]);
+        }}
+      />
+
+      {/* Çoklu Yemek AI Analiz Modal */}
+      <PhotoMealReviewModal
+        visible={showPhotoReview}
+        onClose={() => {
+          setShowPhotoReview(false);
+          setCapturedImageBase64(null);
+          setPhotoMealItems([]);
+        }}
+        items={photoMealItems}
+        imageBase64={capturedImageBase64}
+        onSave={handleSavePhotoMeal}
       />
 
       {/* Yemek Arama Modal */}
@@ -429,7 +484,6 @@ export default function FoodLogScreen() {
             setShowSearch(false);
             setSelectedFood(null);
             setSearchQuery('');
-            setRecognizedFood(null);
             setBarcodeResult(null);
             setScanned(false);
             setScanningBarcode(false);
@@ -530,67 +584,8 @@ export default function FoodLogScreen() {
           {recognizing && (
             <View style={styles.recognizingContainer}>
               <ActivityIndicator size="large" color={Colors.primary} />
-              <Text style={styles.recognizingText}>Yemek tanınıyor...</Text>
+              <Text style={styles.recognizingText}>Yemekler analiz ediliyor...</Text>
             </View>
-          )}
-
-          {/* AI Tanıma Sonucu */}
-          {recognizedFood && !recognizing && (
-            <Card style={styles.recognizedCard}>
-              {capturedImageBase64 ? (
-                <Image
-                  source={{ uri: `data:image/jpeg;base64,${capturedImageBase64}` }}
-                  style={styles.recognizedImage}
-                  resizeMode="cover"
-                />
-              ) : null}
-              <View style={styles.recognizedHeader}>
-                <Text style={styles.recognizedLabel}>AI Tanıma Sonucu</Text>
-                <View style={[
-                  styles.confidenceBadge,
-                  { backgroundColor: recognizedFood.confidence >= 0.7 ? Colors.primary : Colors.accent }
-                ]}>
-                  <Text style={styles.confidenceText}>
-                    %{Math.round(recognizedFood.confidence * 100)}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.selectedFoodName}>{recognizedFood.name}</Text>
-              <Text style={styles.selectedFoodCalories}>
-                {recognizedFood.calories} kcal / 100g
-              </Text>
-              <View style={styles.macroRow}>
-                <Text style={styles.macroItem}>P: {recognizedFood.protein}g</Text>
-                <Text style={styles.macroItem}>K: {recognizedFood.carbs}g</Text>
-                <Text style={styles.macroItem}>Y: {recognizedFood.fat}g</Text>
-              </View>
-              <View style={styles.servingRow}>
-                <Text style={styles.servingLabel}>Porsiyon (g):</Text>
-                <TextInput
-                  style={styles.servingInput}
-                  value={servingAmount}
-                  onChangeText={setServingAmount}
-                  keyboardType="numeric"
-                  selectTextOnFocus
-                />
-              </View>
-              <Text style={styles.calculatedCalories}>
-                = {Math.round(recognizedFood.calories * (parseFloat(servingAmount) || 0) / 100)} kcal
-              </Text>
-              <View style={styles.recognizedActions}>
-                <Button
-                  title="Ekle"
-                  onPress={handleAddRecognizedFood}
-                  style={styles.addFoodButton}
-                />
-                <TouchableOpacity
-                  style={styles.retryButton}
-                  onPress={() => setRecognizedFood(null)}
-                >
-                  <Text style={styles.retryText}>Yeniden Dene</Text>
-                </TouchableOpacity>
-              </View>
-            </Card>
           )}
 
           {/* Barkod Sonucu */}
@@ -647,7 +642,7 @@ export default function FoodLogScreen() {
           )}
 
           {/* Ayırıcı */}
-          {!recognizedFood && !recognizing && !barcodeResult && !scanningBarcode && (
+          {!recognizing && !barcodeResult && !scanningBarcode && (
             <View style={styles.divider}>
               <View style={styles.dividerLine} />
               <Text style={styles.dividerText}>veya ara</Text>
@@ -656,7 +651,7 @@ export default function FoodLogScreen() {
           )}
 
           {/* Arama Kutusu */}
-          {!recognizedFood && !recognizing && !barcodeResult && !scanningBarcode && (
+          {!recognizing && !barcodeResult && !scanningBarcode && (
           <View style={styles.searchBox}>
             <Ionicons name="search-outline" size={18} color={Colors.textMuted} style={{ marginRight: Spacing.sm }} />
             <TextInput
@@ -679,7 +674,7 @@ export default function FoodLogScreen() {
 
           {/* Seçili Yemek Detayı */}
           {/* Seçili Yemek Detayı */}
-          {selectedFood && !recognizedFood && !barcodeResult && (
+          {selectedFood && !barcodeResult && (
             <Card style={styles.selectedFoodCard}>
               <Text style={styles.selectedFoodName}>{selectedFood.name_tr}</Text>
               <Text style={styles.selectedFoodCalories}>
@@ -704,7 +699,7 @@ export default function FoodLogScreen() {
 
           {/* Arama Sonuçları */}
           <FlatList
-            data={recognizedFood || recognizing || barcodeResult || scanningBarcode ? [] : searchResults}
+            data={recognizing || barcodeResult || scanningBarcode ? [] : searchResults}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
@@ -770,16 +765,59 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xxl },
   emptyTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center' },
   emptySubtitle: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: Spacing.xs, textAlign: 'center' },
+
+  // Fotoğraf öğün kart
+  photoMealCard: {
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  photoMealImage: {
+    width: '100%',
+    height: 160,
+  },
+  photoMealOverlay: {
+    position: 'absolute',
+    top: Spacing.sm,
+    left: Spacing.sm,
+  },
+  photoMealBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+  photoMealBadgeText: { fontSize: 11, color: '#fff', fontWeight: '700' },
+  photoMealInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  photoMealInfoLeft: {},
+  photoMealCalories: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.textPrimary },
+  photoMealMacros: { flexDirection: 'row', gap: Spacing.sm, marginTop: 2 },
+  photoMealMacro: { fontSize: FontSize.xs, fontWeight: '700' },
+  photoMealInfoRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  photoMealDeleteBtn: { padding: 6 },
+
   foodItem: { marginBottom: Spacing.sm, overflow: 'hidden' },
   foodItemRow: { flexDirection: 'row', gap: Spacing.md },
   foodThumbnail: {
     width: '100%',
-    height: 180,
+    height: 160,
     borderRadius: 0,
     backgroundColor: Colors.borderLight,
     marginBottom: Spacing.sm,
   },
-  foodItemContent: { flex: 1 },
+  foodItemContent: { flex: 1, padding: Spacing.md },
   foodItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   foodName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, flex: 1 },
   foodItemActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },

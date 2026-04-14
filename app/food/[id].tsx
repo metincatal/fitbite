@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -18,7 +19,23 @@ import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
 import { Colors, Spacing, FontSize, BorderRadius, MEAL_TYPES, MealType } from '../../lib/constants';
 import { Food } from '../../types';
-import { Card } from '../../components/ui/Card';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const MACRO_COLORS = {
+  protein: Colors.protein,
+  carbs: Colors.carbs,
+  fat: Colors.fat,
+};
+
+const MEAL_OPTIONS: { key: MealType; label: string; icon: string; color: string }[] = [
+  { key: 'breakfast', label: 'Kahvaltı', icon: 'sunny-outline', color: '#F59E0B' },
+  { key: 'lunch', label: 'Öğle', icon: 'partly-sunny-outline', color: '#10B981' },
+  { key: 'dinner', label: 'Akşam', icon: 'moon-outline', color: '#6366F1' },
+  { key: 'snack', label: 'Atıştırmalık', icon: 'cafe-outline', color: '#F97316' },
+];
+
+const QUICK_AMOUNTS = [50, 100, 150, 200, 300];
 
 export default function FoodDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,9 +50,7 @@ export default function FoodDetailScreen() {
   const [showMealModal, setShowMealModal] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  useEffect(() => {
-    fetchFood();
-  }, [id]);
+  useEffect(() => { fetchFood(); }, [id]);
 
   async function fetchFood() {
     setLoading(true);
@@ -51,7 +66,6 @@ export default function FoodDetailScreen() {
       Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin');
       return;
     }
-
     setAdding(true);
     const ratio = amount / 100;
     await addFoodLog({
@@ -67,7 +81,7 @@ export default function FoodDetailScreen() {
     });
     setAdding(false);
     setShowMealModal(false);
-    Alert.alert('Eklendi ✓', `${food.name_tr} ${MEAL_TYPES[selectedMeal]} öğününe eklendi.`, [
+    Alert.alert('Eklendi', `${food.name_tr} ${MEAL_TYPES[selectedMeal]} öğününe eklendi.`, [
       { text: 'Tamam', onPress: () => router.back() },
     ]);
   }
@@ -79,6 +93,14 @@ export default function FoodDetailScreen() {
   const calcCarbs = Math.round((food?.carbs ?? 0) * ratio * 10) / 10;
   const calcFat = Math.round((food?.fat ?? 0) * ratio * 10) / 10;
   const calcFiber = food?.fiber ? Math.round(food.fiber * ratio * 10) / 10 : null;
+
+  // Macro percent bars (relative to each other)
+  const totalMacroG = (food?.protein ?? 0) + (food?.carbs ?? 0) + (food?.fat ?? 0);
+  const proteinPct = totalMacroG > 0 ? food!.protein / totalMacroG : 0;
+  const carbsPct = totalMacroG > 0 ? food!.carbs / totalMacroG : 0;
+  const fatPct = totalMacroG > 0 ? food!.fat / totalMacroG : 0;
+
+  const currentMealOption = MEAL_OPTIONS.find((m) => m.key === selectedMeal)!;
 
   if (loading) {
     return (
@@ -93,11 +115,9 @@ export default function FoodDetailScreen() {
   if (!food) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtnAbsolute}>
+          <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
+        </TouchableOpacity>
         <View style={styles.loadingState}>
           <Text style={styles.errorText}>Yemek bulunamadı</Text>
         </View>
@@ -106,277 +126,396 @@ export default function FoodDetailScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{food.name_tr}</Text>
-        <View style={{ width: 32 }} />
-      </View>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Başlık Kartı */}
-        <Card style={styles.titleCard}>
-          <View style={styles.categoryBadge}>
-            <Text style={styles.categoryText}>{food.category}</Text>
+        {/* ── Hero Header ── */}
+        <View style={styles.heroHeader}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={20} color={Colors.textLight} />
+          </TouchableOpacity>
+          <View style={styles.heroCategoryBadge}>
+            <Text style={styles.heroCategoryText}>{food.category}</Text>
           </View>
-          <Text style={styles.foodName}>{food.name_tr}</Text>
+          <Text style={styles.heroFoodName}>{food.name_tr}</Text>
           {food.name !== food.name_tr && (
-            <Text style={styles.foodNameEn}>{food.name}</Text>
+            <Text style={styles.heroFoodNameEn}>{food.name}</Text>
           )}
-          <Text style={styles.servingInfo}>
-            {food.serving_size} {food.serving_unit} · {food.calories_per_100g} kcal/100g
-          </Text>
-        </Card>
+          <View style={styles.heroServingRow}>
+            <Ionicons name="scale-outline" size={14} color="rgba(255,255,255,0.7)" />
+            <Text style={styles.heroServingText}>
+              {food.serving_size} {food.serving_unit} · {food.calories_per_100g} kcal/100g
+            </Text>
+          </View>
+        </View>
 
-        {/* Besin Değerleri (100g) */}
-        <Card style={styles.nutriCard}>
-          <Text style={styles.sectionTitle}>Besin Değerleri (100g)</Text>
-          <View style={styles.nutriTable}>
-            <NutriRow label="Kalori" value={`${food.calories_per_100g} kcal`} highlight />
-            <NutriRow label="Protein" value={`${food.protein} g`} color={Colors.protein} />
-            <NutriRow label="Karbonhidrat" value={`${food.carbs} g`} color={Colors.carbs} />
-            <NutriRow label="Yağ" value={`${food.fat} g`} color={Colors.fat} />
+        {/* ── Macro Overview Card ── */}
+        <View style={styles.macroCard}>
+          <View style={styles.macroCardTop}>
+            <View style={styles.caloriePill}>
+              <Text style={styles.calorieValue}>{food.calories_per_100g}</Text>
+              <Text style={styles.calorieUnit}>kcal</Text>
+            </View>
+            <Text style={styles.per100Label}>100g başına</Text>
+          </View>
+
+          {/* Macro Bars */}
+          <View style={styles.macroBars}>
+            <MacroBar label="Protein" value={food.protein} pct={proteinPct} color={MACRO_COLORS.protein} unit="g" />
+            <MacroBar label="Karbonhidrat" value={food.carbs} pct={carbsPct} color={MACRO_COLORS.carbs} unit="g" />
+            <MacroBar label="Yağ" value={food.fat} pct={fatPct} color={MACRO_COLORS.fat} unit="g" />
             {food.fiber != null && food.fiber > 0 && (
-              <NutriRow label="Lif" value={`${food.fiber} g`} color={Colors.fiber} />
+              <MacroBar label="Lif" value={food.fiber} pct={food.fiber / (totalMacroG || 1)} color={Colors.fiber ?? '#6B7280'} unit="g" />
             )}
           </View>
-        </Card>
+        </View>
 
-        {/* Porsiyon Hesaplayıcı */}
-        <Card style={styles.calculatorCard}>
-          <Text style={styles.sectionTitle}>Porsiyon Hesaplayıcı</Text>
-          <View style={styles.servingRow}>
+        {/* ── Serving Calculator ── */}
+        <View style={styles.calculatorCard}>
+          <Text style={styles.sectionLabel}>Porsiyon Hesaplayıcı</Text>
+
+          {/* Stepper */}
+          <View style={styles.stepperRow}>
             <TouchableOpacity
-              style={styles.servingAdjust}
-              onPress={() => {
-                const v = Math.max(10, (parseFloat(servingAmount) || 100) - 10);
-                setServingAmount(String(v));
-              }}
+              style={styles.stepperBtn}
+              onPress={() => setServingAmount(String(Math.max(5, (parseFloat(servingAmount) || 100) - 10)))}
             >
-              <Ionicons name="remove" size={20} color={Colors.primary} />
+              <Ionicons name="remove" size={22} color={Colors.primary} />
             </TouchableOpacity>
-            <View style={styles.servingInputWrapper}>
+            <View style={styles.stepperCenter}>
               <TextInput
-                style={styles.servingInput}
+                style={styles.stepperInput}
                 value={servingAmount}
                 onChangeText={setServingAmount}
                 keyboardType="numeric"
                 selectTextOnFocus
               />
-              <Text style={styles.servingUnit}>g</Text>
+              <Text style={styles.stepperUnit}>gram</Text>
             </View>
             <TouchableOpacity
-              style={styles.servingAdjust}
-              onPress={() => {
-                const v = (parseFloat(servingAmount) || 100) + 10;
-                setServingAmount(String(v));
-              }}
+              style={styles.stepperBtn}
+              onPress={() => setServingAmount(String((parseFloat(servingAmount) || 100) + 10))}
             >
-              <Ionicons name="add" size={20} color={Colors.primary} />
+              <Ionicons name="add" size={22} color={Colors.primary} />
             </TouchableOpacity>
           </View>
 
-          {/* Hızlı porsiyon butonları */}
-          <View style={styles.quickServing}>
-            {[50, 100, 150, 200].map((g) => (
+          {/* Quick amounts */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.quickAmountsScroll}>
+            {QUICK_AMOUNTS.map((g) => (
               <TouchableOpacity
                 key={g}
-                style={[styles.quickServingBtn, servingAmount === String(g) && styles.quickServingBtnActive]}
+                style={[styles.quickAmountChip, servingAmount === String(g) && styles.quickAmountChipActive]}
                 onPress={() => setServingAmount(String(g))}
               >
-                <Text style={[styles.quickServingText, servingAmount === String(g) && styles.quickServingTextActive]}>
+                <Text style={[styles.quickAmountText, servingAmount === String(g) && styles.quickAmountTextActive]}>
                   {g}g
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
 
-          {/* Hesaplanan değerler */}
-          <View style={styles.calcResult}>
-            <View style={styles.calcMain}>
-              <Text style={styles.calcCalories}>{calcCalories}</Text>
-              <Text style={styles.calcUnit}>kcal</Text>
+          {/* Calculated result */}
+          <View style={styles.calcResultCard}>
+            <View style={styles.calcCalorieRow}>
+              <Text style={styles.calcCalorieValue}>{calcCalories}</Text>
+              <Text style={styles.calcCalorieUnit}>kcal</Text>
+              <Text style={styles.calcAmountLabel}>· {amount}g için</Text>
             </View>
-            <View style={styles.calcMacros}>
-              <View style={styles.calcMacroItem}>
-                <Text style={[styles.calcMacroValue, { color: Colors.protein }]}>{calcProtein}g</Text>
-                <Text style={styles.calcMacroLabel}>Protein</Text>
-              </View>
-              <View style={styles.calcMacroItem}>
-                <Text style={[styles.calcMacroValue, { color: Colors.carbs }]}>{calcCarbs}g</Text>
-                <Text style={styles.calcMacroLabel}>Karb</Text>
-              </View>
-              <View style={styles.calcMacroItem}>
-                <Text style={[styles.calcMacroValue, { color: Colors.fat }]}>{calcFat}g</Text>
-                <Text style={styles.calcMacroLabel}>Yağ</Text>
-              </View>
+            <View style={styles.calcMacroRow}>
+              <CalcMacroChip label="Protein" value={calcProtein} color={MACRO_COLORS.protein} />
+              <CalcMacroChip label="Karb" value={calcCarbs} color={MACRO_COLORS.carbs} />
+              <CalcMacroChip label="Yağ" value={calcFat} color={MACRO_COLORS.fat} />
               {calcFiber != null && (
-                <View style={styles.calcMacroItem}>
-                  <Text style={[styles.calcMacroValue, { color: Colors.fiber }]}>{calcFiber}g</Text>
-                  <Text style={styles.calcMacroLabel}>Lif</Text>
-                </View>
+                <CalcMacroChip label="Lif" value={calcFiber} color={Colors.fiber ?? '#6B7280'} />
               )}
             </View>
           </View>
-        </Card>
+        </View>
 
-        {/* Günlüğe Ekle */}
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowMealModal(true)}>
-          <Ionicons name="add-circle" size={20} color={Colors.textLight} />
-          <Text style={styles.addButtonText}>Günlüğe Ekle</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: Spacing.xl }} />
-      </ScrollView>
-
-      {/* Öğün Seçim Modal */}
-      <Modal visible={showMealModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Hangi Öğüne?</Text>
-              <TouchableOpacity onPress={() => setShowMealModal(false)}>
-                <Ionicons name="close" size={24} color={Colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.modalSubtitle}>
-              {calcCalories} kcal · {servingAmount}g {food.name_tr}
-            </Text>
-            {(Object.keys(MEAL_TYPES) as MealType[]).map((meal) => (
+        {/* ── Meal Picker ── */}
+        <View style={styles.mealPickerCard}>
+          <Text style={styles.sectionLabel}>Öğün Seçimi</Text>
+          <View style={styles.mealGrid}>
+            {MEAL_OPTIONS.map((m) => (
               <TouchableOpacity
-                key={meal}
-                style={[styles.mealOption, selectedMeal === meal && styles.mealOptionActive]}
-                onPress={() => setSelectedMeal(meal)}
+                key={m.key}
+                style={[styles.mealTile, selectedMeal === m.key && { borderColor: m.color, backgroundColor: `${m.color}12` }]}
+                onPress={() => setSelectedMeal(m.key)}
               >
-                <Text style={[styles.mealOptionText, selectedMeal === meal && styles.mealOptionTextActive]}>
-                  {MEAL_TYPES[meal]}
+                <View style={[styles.mealTileIcon, { backgroundColor: selectedMeal === m.key ? m.color : Colors.surfaceSecondary }]}>
+                  <Ionicons name={m.icon as any} size={18} color={selectedMeal === m.key ? '#fff' : Colors.textSecondary} />
+                </View>
+                <Text style={[styles.mealTileLabel, selectedMeal === m.key && { color: m.color, fontWeight: '700' }]}>
+                  {m.label}
                 </Text>
-                {selectedMeal === meal && (
-                  <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />
+                {selectedMeal === m.key && (
+                  <Ionicons name="checkmark-circle" size={14} color={m.color} style={{ position: 'absolute', top: 6, right: 6 }} />
                 )}
               </TouchableOpacity>
             ))}
-            <TouchableOpacity
-              style={[styles.confirmBtn, adding && styles.confirmBtnDisabled]}
-              onPress={handleAddToLog}
-              disabled={adding}
-            >
-              {adding ? (
-                <ActivityIndicator size="small" color={Colors.textLight} />
-              ) : (
-                <Text style={styles.confirmBtnText}>Ekle</Text>
-              )}
-            </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+
+      </ScrollView>
+
+      {/* ── Fixed Bottom Add Button ── */}
+      <View style={styles.bottomBar}>
+        <View style={styles.bottomBarSummary}>
+          <Text style={styles.bottomBarCalories}>{calcCalories} kcal</Text>
+          <Text style={styles.bottomBarDetail}>{amount}g · {MEAL_TYPES[selectedMeal]}</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.addBtn, adding && { opacity: 0.6 }]}
+          onPress={handleAddToLog}
+          disabled={adding}
+        >
+          {adding ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="add-circle" size={20} color="#fff" />
+              <Text style={styles.addBtnText}>Günlüğe Ekle</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
 
-function NutriRow({ label, value, highlight, color }: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-  color?: string;
+function MacroBar({ label, value, pct, color, unit }: {
+  label: string; value: number; pct: number; color: string; unit: string;
 }) {
   return (
-    <View style={nutriStyles.row}>
-      <Text style={[nutriStyles.label, highlight && nutriStyles.labelHighlight]}>{label}</Text>
-      <Text style={[nutriStyles.value, highlight && nutriStyles.valueHighlight, color ? { color } : null]}>
-        {value}
-      </Text>
+    <View style={barStyles.row}>
+      <Text style={barStyles.label}>{label}</Text>
+      <View style={barStyles.barTrack}>
+        <View style={[barStyles.barFill, { width: `${Math.min(pct * 100, 100)}%`, backgroundColor: color }]} />
+      </View>
+      <Text style={[barStyles.value, { color }]}>{value}{unit}</Text>
     </View>
   );
 }
 
-const nutriStyles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  label: { fontSize: FontSize.md, color: Colors.textSecondary },
-  labelHighlight: { fontWeight: '700', color: Colors.textPrimary },
-  value: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
-  valueHighlight: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.primary },
+const barStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },
+  label: { width: 100, fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
+  barTrack: { flex: 1, height: 8, backgroundColor: Colors.borderLight, borderRadius: 4, overflow: 'hidden' },
+  barFill: { height: '100%', borderRadius: 4 },
+  value: { width: 40, fontSize: FontSize.sm, fontWeight: '700', textAlign: 'right' },
+});
+
+function CalcMacroChip({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <View style={[chipStyles.chip, { backgroundColor: `${color}15` }]}>
+      <Text style={[chipStyles.value, { color }]}>{value}g</Text>
+      <Text style={chipStyles.label}>{label}</Text>
+    </View>
+  );
+}
+
+const chipStyles = StyleSheet.create({
+  chip: { flex: 1, alignItems: 'center', paddingVertical: Spacing.sm, borderRadius: BorderRadius.md },
+  value: { fontSize: FontSize.md, fontWeight: '800' },
+  label: { fontSize: 10, color: Colors.textMuted, marginTop: 2, fontWeight: '500' },
 });
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   loadingState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorText: { fontSize: FontSize.lg, color: Colors.textMuted },
-  header: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md, gap: Spacing.sm,
+  backBtnAbsolute: { position: 'absolute', top: 16, left: 16, zIndex: 10 },
+
+  // Hero
+  heroHeader: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xl,
+    position: 'relative',
   },
-  backBtn: { padding: 4 },
-  headerTitle: { flex: 1, fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' },
-  titleCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  categoryBadge: {
-    alignSelf: 'flex-start', backgroundColor: Colors.primaryPale,
-    paddingHorizontal: Spacing.sm, paddingVertical: 4, borderRadius: BorderRadius.full, marginBottom: Spacing.xs,
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
   },
-  categoryText: { fontSize: FontSize.xs, color: Colors.primary, fontWeight: '700' },
-  foodName: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.textPrimary },
-  foodNameEn: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
-  servingInfo: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: Spacing.xs },
-  nutriCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  sectionTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm },
-  nutriTable: {},
-  calculatorCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  servingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.md, marginBottom: Spacing.md },
-  servingAdjust: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.primaryPale,
-    alignItems: 'center', justifyContent: 'center',
+  heroCategoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    marginBottom: Spacing.sm,
   },
-  servingInputWrapper: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  servingInput: {
-    width: 80, borderWidth: 2, borderColor: Colors.primary, borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.sm, paddingVertical: Spacing.sm, fontSize: FontSize.xl,
-    fontWeight: '800', color: Colors.textPrimary, textAlign: 'center',
+  heroCategoryText: { fontSize: FontSize.xs, color: 'rgba(255,255,255,0.9)', fontWeight: '700', letterSpacing: 0.5 },
+  heroFoodName: { fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
+  heroFoodNameEn: { fontSize: FontSize.sm, color: 'rgba(255,255,255,0.65)', marginTop: 2 },
+  heroServingRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: Spacing.sm },
+  heroServingText: { fontSize: FontSize.sm, color: 'rgba(255,255,255,0.7)' },
+
+  // Macro Overview Card
+  macroCard: {
+    backgroundColor: Colors.surface,
+    marginHorizontal: Spacing.lg,
+    marginTop: -Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    marginBottom: Spacing.md,
   },
-  servingUnit: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: '600' },
-  quickServing: { flexDirection: 'row', gap: Spacing.sm, justifyContent: 'center', marginBottom: Spacing.md },
-  quickServingBtn: {
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full, borderWidth: 1.5, borderColor: Colors.border,
+  macroCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginBottom: Spacing.lg,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
   },
-  quickServingBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  quickServingText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
-  quickServingTextActive: { color: Colors.textLight },
-  calcResult: {
-    backgroundColor: Colors.surfaceSecondary, borderRadius: BorderRadius.md, padding: Spacing.md, alignItems: 'center',
+  caloriePill: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    backgroundColor: `${Colors.primary}12`,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
   },
-  calcMain: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginBottom: Spacing.sm },
-  calcCalories: { fontSize: FontSize.xxxl, fontWeight: '800', color: Colors.primary },
-  calcUnit: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: '600' },
-  calcMacros: { flexDirection: 'row', gap: Spacing.lg },
-  calcMacroItem: { alignItems: 'center' },
-  calcMacroValue: { fontSize: FontSize.md, fontWeight: '700' },
-  calcMacroLabel: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  addButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.primary, marginHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md, borderRadius: BorderRadius.lg,
+  calorieValue: { fontSize: 28, fontWeight: '900', color: Colors.primary },
+  calorieUnit: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.primary },
+  per100Label: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '500' },
+  macroBars: {},
+
+  // Calculator Card
+  calculatorCard: {
+    backgroundColor: Colors.surface,
+    marginHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
   },
-  addButtonText: { color: Colors.textLight, fontWeight: '800', fontSize: FontSize.lg },
-  // Modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: Colors.surface, borderTopLeftRadius: BorderRadius.xl, borderTopRightRadius: BorderRadius.xl, padding: Spacing.lg },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
-  modalTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
-  modalSubtitle: { fontSize: FontSize.sm, color: Colors.textMuted, marginBottom: Spacing.md },
-  mealOption: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+  sectionLabel: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: Spacing.md },
+
+  stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.lg, marginBottom: Spacing.md },
+  stepperBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.primaryPale,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  mealOptionActive: {},
-  mealOptionText: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: '500' },
-  mealOptionTextActive: { color: Colors.primary, fontWeight: '700' },
-  confirmBtn: {
-    backgroundColor: Colors.primary, paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md, alignItems: 'center', marginTop: Spacing.md,
+  stepperCenter: { alignItems: 'center' },
+  stepperInput: {
+    width: 90,
+    fontSize: 32,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+    paddingBottom: 4,
   },
-  confirmBtnDisabled: { opacity: 0.6 },
-  confirmBtnText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.md },
+  stepperUnit: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '500', marginTop: 4 },
+
+  quickAmountsScroll: { marginBottom: Spacing.md },
+  quickAmountChip: {
+    marginRight: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  quickAmountChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  quickAmountText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
+  quickAmountTextActive: { color: '#fff' },
+
+  calcResultCard: {
+    backgroundColor: `${Colors.primary}08`,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: `${Colors.primary}20`,
+  },
+  calcCalorieRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: Spacing.sm },
+  calcCalorieValue: { fontSize: 36, fontWeight: '900', color: Colors.primary },
+  calcCalorieUnit: { fontSize: FontSize.md, fontWeight: '700', color: Colors.primary },
+  calcAmountLabel: { fontSize: FontSize.sm, color: Colors.textMuted, marginLeft: 4 },
+  calcMacroRow: { flexDirection: 'row', gap: Spacing.sm },
+
+  // Meal Picker
+  mealPickerCard: {
+    backgroundColor: Colors.surface,
+    marginHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  mealGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  mealTile: {
+    width: (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.lg * 2 - Spacing.sm) / 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 2,
+    borderColor: Colors.borderLight,
+    backgroundColor: Colors.surface,
+    position: 'relative',
+  },
+  mealTileIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mealTileLabel: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600', flex: 1 },
+
+  // Bottom Bar
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    paddingBottom: Spacing.xl,
+    backgroundColor: Colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  bottomBarSummary: { flex: 1 },
+  bottomBarCalories: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
+  bottomBarDetail: { fontSize: FontSize.sm, color: Colors.textMuted },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+  },
+  addBtnText: { fontSize: FontSize.md, fontWeight: '700', color: '#fff' },
 });
