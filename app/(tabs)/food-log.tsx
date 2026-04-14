@@ -10,6 +10,7 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -20,11 +21,13 @@ import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
 import { Colors, Spacing, FontSize, BorderRadius, getMealTypes, MealType } from '../../lib/constants';
-import { Food } from '../../types';
+import { Food, FoodLogWithFood } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { recognizeFoodFromImage } from '../../lib/gemini';
 import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
+import { uploadFoodPhoto } from '../../lib/storage';
+import { FoodPhotoModal } from '../../components/food/FoodPhotoModal';
 
 export default function FoodLogScreen() {
   const router = useRouter();
@@ -48,6 +51,10 @@ export default function FoodLogScreen() {
     fat: number;
     confidence: number;
   } | null>(null);
+
+  // Yakalanan fotograf
+  const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
+  const [photoModalLog, setPhotoModalLog] = useState<FoodLogWithFood | null>(null);
 
   // Barkod okuyucu state
   const [scanningBarcode, setScanningBarcode] = useState(false);
@@ -135,6 +142,12 @@ export default function FoodLogScreen() {
       return;
     }
 
+    // Fotografi Supabase Storage'a yukle
+    let imageUrl: string | null = null;
+    if (capturedImageBase64) {
+      imageUrl = await uploadFoodPhoto(user.id, capturedImageBase64);
+    }
+
     const ratio = amount / 100;
     await addFoodLog({
       user_id: user.id,
@@ -145,10 +158,12 @@ export default function FoodLogScreen() {
       protein: Math.round(recognizedFood.protein * ratio * 10) / 10,
       carbs: Math.round(recognizedFood.carbs * ratio * 10) / 10,
       fat: Math.round(recognizedFood.fat * ratio * 10) / 10,
+      image_url: imageUrl,
       logged_at: new Date().toISOString(),
     });
 
     setRecognizedFood(null);
+    setCapturedImageBase64(null);
     setServingAmount('100');
     setShowSearch(false);
   }
@@ -264,6 +279,8 @@ export default function FoodLogScreen() {
         mediaTypes: ['images'],
         quality: 0.7,
         base64: true,
+        allowsEditing: true,
+        aspect: [1, 1],
       });
     } else {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -275,20 +292,25 @@ export default function FoodLogScreen() {
         mediaTypes: ['images'],
         quality: 0.7,
         base64: true,
+        allowsEditing: true,
+        aspect: [1, 1],
       });
     }
 
     if (result.canceled || !result.assets[0].base64) return;
 
+    const base64Data = result.assets[0].base64;
+    setCapturedImageBase64(base64Data);
     setRecognizing(true);
     setRecognizedFood(null);
     setSelectedFood(null);
 
     try {
-      const food = await recognizeFoodFromImage(result.assets[0].base64);
+      const food = await recognizeFoodFromImage(base64Data);
       setRecognizedFood(food);
       setServingAmount('100');
     } catch {
+      setCapturedImageBase64(null);
       Alert.alert('Tanıma Başarısız', 'Yemek tanınamadı. Lütfen daha net bir fotoğraf çekin.');
     } finally {
       setRecognizing(false);
@@ -351,26 +373,37 @@ export default function FoodLogScreen() {
           ) : (
             getMealLogs(selectedMeal).map((log) => (
               <Card key={log.id} style={styles.foodItem}>
-                <View style={styles.foodItemHeader}>
-                  <Text style={styles.foodName}>{log.food?.name_tr ?? log.food?.name}</Text>
-                  <View style={styles.foodItemActions}>
-                    <TouchableOpacity
-                      onPress={() => router.push(`/food/${log.food_id}`)}
-                      style={styles.infoBtn}
-                    >
-                      <Ionicons name="information-circle-outline" size={20} color={Colors.textMuted} />
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeFoodLog(log.id)}>
-                      <Text style={styles.deleteIcon}>✕</Text>
-                    </TouchableOpacity>
+                {log.image_url ? (
+                  <TouchableOpacity onPress={() => setPhotoModalLog(log)}>
+                    <Image
+                      source={{ uri: log.image_url }}
+                      style={styles.foodThumbnail}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ) : null}
+                <View style={styles.foodItemContent}>
+                  <View style={styles.foodItemHeader}>
+                    <Text style={styles.foodName}>{log.food?.name_tr ?? log.food?.name}</Text>
+                    <View style={styles.foodItemActions}>
+                      <TouchableOpacity
+                        onPress={() => router.push(`/food/${log.food_id}`)}
+                        style={styles.infoBtn}
+                      >
+                        <Ionicons name="information-circle-outline" size={20} color={Colors.textMuted} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => removeFoodLog(log.id)}>
+                        <Text style={styles.deleteIcon}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-                <Text style={styles.foodServing}>{log.serving_amount}g</Text>
-                <View style={styles.foodMacros}>
-                  <Text style={styles.foodCalories}>{Math.round(log.calories)} kcal</Text>
-                  <Text style={styles.foodMacro}>P: {log.protein}g</Text>
-                  <Text style={styles.foodMacro}>K: {log.carbs}g</Text>
-                  <Text style={styles.foodMacro}>Y: {log.fat}g</Text>
+                  <Text style={styles.foodServing}>{log.serving_amount}g</Text>
+                  <View style={styles.foodMacros}>
+                    <Text style={styles.foodCalories}>{Math.round(log.calories)} kcal</Text>
+                    <Text style={styles.foodMacro}>P: {log.protein}g</Text>
+                    <Text style={styles.foodMacro}>K: {log.carbs}g</Text>
+                    <Text style={styles.foodMacro}>Y: {log.fat}g</Text>
+                  </View>
                 </View>
               </Card>
             ))
@@ -379,6 +412,13 @@ export default function FoodLogScreen() {
 
         <View style={{ height: Spacing.xl }} />
       </ScrollView>
+
+      {/* Fotograf Detay Modal */}
+      <FoodPhotoModal
+        visible={!!photoModalLog}
+        onClose={() => setPhotoModalLog(null)}
+        log={photoModalLog}
+      />
 
       {/* Yemek Arama Modal */}
       <Modal visible={showSearch} animationType="slide" presentationStyle="pageSheet">
@@ -497,6 +537,13 @@ export default function FoodLogScreen() {
           {/* AI Tanıma Sonucu */}
           {recognizedFood && !recognizing && (
             <Card style={styles.recognizedCard}>
+              {capturedImageBase64 ? (
+                <Image
+                  source={{ uri: `data:image/jpeg;base64,${capturedImageBase64}` }}
+                  style={styles.recognizedImage}
+                  resizeMode="cover"
+                />
+              ) : null}
               <View style={styles.recognizedHeader}>
                 <Text style={styles.recognizedLabel}>AI Tanıma Sonucu</Text>
                 <View style={[
@@ -723,7 +770,16 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xxl },
   emptyTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center' },
   emptySubtitle: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: Spacing.xs, textAlign: 'center' },
-  foodItem: { marginBottom: Spacing.sm },
+  foodItem: { marginBottom: Spacing.sm, overflow: 'hidden' },
+  foodItemRow: { flexDirection: 'row', gap: Spacing.md },
+  foodThumbnail: {
+    width: '100%',
+    height: 180,
+    borderRadius: 0,
+    backgroundColor: Colors.borderLight,
+    marginBottom: Spacing.sm,
+  },
+  foodItemContent: { flex: 1 },
   foodItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   foodName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, flex: 1 },
   foodItemActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -821,7 +877,13 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   recognizingText: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: '500' },
-  recognizedCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
+  recognizedCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md, overflow: 'hidden' },
+  recognizedImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.md,
+  },
   recognizedHeader: {
     flexDirection: 'row',
     alignItems: 'center',

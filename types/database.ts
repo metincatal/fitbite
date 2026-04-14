@@ -132,6 +132,7 @@ export interface Database {
           protein: number;
           carbs: number;
           fat: number;
+          image_url: string | null;
           logged_at: string;
           created_at: string;
         };
@@ -145,6 +146,7 @@ export interface Database {
           protein?: number;
           carbs?: number;
           fat?: number;
+          image_url?: string | null;
           logged_at?: string;
           created_at?: string;
         };
@@ -198,12 +200,31 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['water_logs']['Insert']>;
         Relationships: [];
       };
+      conversations: {
+        Row: {
+          id: string;
+          user_id: string;
+          title: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          title?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['conversations']['Insert']>;
+        Relationships: [];
+      };
       chat_messages: {
         Row: {
           id: string;
           user_id: string;
           role: 'user' | 'assistant';
           content: string;
+          conversation_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -211,6 +232,7 @@ export interface Database {
           user_id: string;
           role: 'user' | 'assistant';
           content: string;
+          conversation_id?: string | null;
           created_at?: string;
         };
         Update: Partial<Database['public']['Tables']['chat_messages']['Insert']>;

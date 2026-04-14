@@ -8,6 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
@@ -15,6 +16,9 @@ import { Colors, Spacing, FontSize, BorderRadius, getMealTypes } from '../../lib
 import { CalorieRing } from '../../components/charts/CalorieRing';
 import { MacroBar } from '../../components/ui/MacroBar';
 import { Card } from '../../components/ui/Card';
+import { ActivitySection } from '../../components/dashboard/ActivitySection';
+import { useActivityStore } from '../../store/activityStore';
+import { usePedometer } from '../../hooks/usePedometer';
 
 const WATER_GLASSES = [250, 250, 250, 250, 250, 250, 250, 250]; // 8 bardak = 2000ml
 
@@ -26,6 +30,9 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
 
   const userId = useAuthStore((s) => s.user?.id);
+  const { todaySteps, stepGoal, caloriesBurned, distanceKm, activeMinutes, isAvailable, permissionGranted } =
+    useActivityStore();
+  usePedometer(userId, profile?.weight_kg, profile?.height_cm);
 
   useEffect(() => {
     if (userId) fetchDayLogs(userId, selectedDate);
@@ -62,12 +69,12 @@ export default function DashboardScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>
-              Merhaba, {profile?.name?.split(' ')[0] ?? 'Kullanıcı'} 👋
+              Merhaba, {profile?.name?.split(' ')[0] ?? 'Kullanıcı'}
             </Text>
             <Text style={styles.date}>{todayFormatted}</Text>
           </View>
           <TouchableOpacity style={styles.notifButton}>
-            <Text style={styles.notifIcon}>🔔</Text>
+            <Ionicons name="notifications-outline" size={20} color={Colors.textPrimary} />
           </TouchableOpacity>
         </View>
 
@@ -123,7 +130,7 @@ export default function DashboardScreen() {
         {/* Su Takibi */}
         <Card style={styles.waterCard}>
           <View style={styles.waterHeader}>
-            <Text style={styles.sectionTitle}>Su Takibi 💧</Text>
+            <Text style={styles.sectionTitle}>Su Takibi 🫧</Text>
             <Text style={styles.waterAmount}>
               {(waterTotal / 1000).toFixed(1)}L / {(waterGoal / 1000).toFixed(1)}L
             </Text>
@@ -140,7 +147,7 @@ export default function DashboardScreen() {
                 }}
               >
                 <Text style={styles.glassIcon}>
-                  {index < waterGlasses ? '💧' : '🥛'}
+                  {index < waterGlasses ? '💧' : '🫗'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -149,6 +156,17 @@ export default function DashboardScreen() {
             {8 - waterGlasses > 0 ? `${8 - waterGlasses} bardak daha iç` : 'Günlük su hedefinize ulaştınız! 🎉'}
           </Text>
         </Card>
+
+        {/* Gunluk Aktivite */}
+        <ActivitySection
+          steps={todaySteps}
+          stepGoal={stepGoal}
+          caloriesBurned={caloriesBurned}
+          distanceKm={distanceKm}
+          activeMinutes={activeMinutes}
+          isAvailable={isAvailable}
+          permissionGranted={permissionGranted}
+        />
 
         {/* Bugünkü Öğünler */}
         <View style={styles.mealsSection}>
@@ -161,7 +179,7 @@ export default function DashboardScreen() {
           {getMealTypes(profile?.meal_count ?? 3).map(({ key, label }) => {
             const mealLogs = foodLogs.filter((l) => l.meal_type === key);
             const mealCalories = mealLogs.reduce((sum, l) => sum + l.calories, 0);
-            const emoji = key === 'breakfast' ? '🌅' : key === 'lunch' ? '☀️' : key === 'dinner' ? '🌙' : '🍎';
+            const emoji = key === 'breakfast' ? '🥐' : key === 'lunch' ? '🥗' : key === 'dinner' ? '🍽️' : '🫐';
             return (
               <TouchableOpacity
                 key={`${key}-${label}`}
@@ -231,9 +249,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceSecondary,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  notifIcon: {
-    fontSize: 18,
   },
   calorieCard: {
     marginHorizontal: Spacing.lg,

@@ -11,7 +11,7 @@ interface NutritionState {
 
   setSelectedDate: (date: string) => void;
   fetchDayLogs: (userId: string, date: string) => Promise<void>;
-  addFoodLog: (log: Omit<FoodLog, 'id' | 'created_at'>) => Promise<void>;
+  addFoodLog: (log: Omit<FoodLog, 'id' | 'created_at' | 'image_url'> & { image_url?: string | null }) => Promise<void>;
   removeFoodLog: (id: string) => Promise<void>;
   addWaterLog: (userId: string, amount_ml: number) => Promise<void>;
 

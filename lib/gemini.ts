@@ -82,6 +82,18 @@ export function buildSystemPrompt(profile: Partial<Profile>): string {
 }
 
 /**
+ * Sohbet basligi uretme
+ */
+export async function generateConversationTitle(firstMessage: string): Promise<string> {
+  const prompt = `Bu kullanici mesajindan 30 karakteri gecmeyen kisa bir sohbet basligi olustur.
+SADECE basligi yaz, baska bir sey ekleme. Tirnak isareti kullanma.
+Mesaj: "${firstMessage}"`;
+
+  const result = await geminiFlash.generateContent(prompt);
+  return result.response.text().trim().slice(0, 30);
+}
+
+/**
  * Fotoğraftan yemek tanıma
  */
 export async function recognizeFoodFromImage(imageBase64: string): Promise<{
