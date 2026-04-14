@@ -9,6 +9,7 @@ import { OnboardingButton } from '../shared/OnboardingButton';
 interface Props {
   onNext: () => void;
   onBack: () => void;
+  loading?: boolean;
 }
 
 const FEATURES = [
@@ -18,7 +19,7 @@ const FEATURES = [
   { icon: 'trending-up-outline', title: 'İlerleme takibi', desc: 'Haftalık raporlar ve kilo timeline\'ı' },
 ];
 
-export function PhotoDemo({ onNext, onBack }: Props) {
+export function PhotoDemo({ onNext, onBack, loading = false }: Props) {
   const { data } = useOnboardingData();
 
   return (
@@ -70,7 +71,7 @@ export function PhotoDemo({ onNext, onBack }: Props) {
       </View>
 
       <Animated.View entering={FadeInDown.delay(900).duration(400)} style={styles.footer}>
-        <OnboardingButton title="Haydi başlayalım! 🌿" onPress={onNext} />
+        <OnboardingButton title="Haydi başlayalım! 🌿" onPress={onNext} loading={loading} />
         <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
       </Animated.View>
     </View>

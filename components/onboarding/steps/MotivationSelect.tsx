@@ -34,13 +34,6 @@ export function MotivationSelect({ onNext, onBack }: Props) {
             const selected = data.motivations.includes(m.key);
             return (
               <View key={m.key} style={styles.itemWrapper}>
-                <Animated.View>
-                  <Ionicons
-                    name={m.icon as any}
-                    size={0}
-                    color="transparent"
-                  />
-                </Animated.View>
                 <View
                   style={[styles.item, selected && styles.itemSelected]}
                   onTouchEnd={() => toggleArrayItem('motivations', m.key)}

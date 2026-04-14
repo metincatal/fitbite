@@ -9,7 +9,7 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
@@ -54,7 +54,13 @@ export default function LoginScreen() {
       } else if (data.session) {
         setSession(data.session);
         await fetchProfile();
-        router.replace('/(tabs)');
+        const { profile } = useAuthStore.getState();
+        if (profile) {
+          router.replace('/(tabs)');
+        } else {
+          // Hesap var ama profil tamamlanmamış — onboarding'e devam
+          router.replace('/onboarding');
+        }
       }
     } catch (e: any) {
       console.error('[Login] Exception:', e);
@@ -130,11 +136,9 @@ export default function LoginScreen() {
         {/* Kayıt Ol Linki */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>Hesabın yok mu? </Text>
-          <Link href="/(auth)/register" asChild>
-            <TouchableOpacity>
-              <Text style={styles.footerLink}>Kayıt Ol</Text>
-            </TouchableOpacity>
-          </Link>
+          <TouchableOpacity onPress={() => router.push('/onboarding')}>
+            <Text style={styles.footerLink}>Kayıt Ol</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

@@ -14,11 +14,13 @@ export function StepContainer({ children, scrollable = true }: StepContainerProp
     </View>
   );
 
+  const kvBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
+
   if (!scrollable) {
     return (
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={kvBehavior}
       >
         {content}
       </KeyboardAvoidingView>
@@ -28,7 +30,7 @@ export function StepContainer({ children, scrollable = true }: StepContainerProp
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={kvBehavior}
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}

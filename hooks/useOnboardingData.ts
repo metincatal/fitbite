@@ -1,39 +1,44 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityLevel, DietType, Goal } from '../lib/constants';
 import { NotificationPreferences } from '../types/database';
 
 export interface OnboardingData {
-  // Step 3: Name
+  // Step 2: Name
   name: string;
-  // Step 4: Gender + Birth
+  // Step 3: Gender + Birth
   gender: 'male' | 'female' | null;
   birth_year: string;
   birth_month: string;
-  // Step 5: Body
+  // Step 4: Body
   height_cm: string;
   weight_kg: string;
   target_weight_kg: string;
-  // Step 7: Motivations
+  // Step 6: Motivations
   motivations: string[];
-  // Step 8: Past obstacles
+  // Step 7: Past obstacles
   past_obstacles: string[];
-  // Step 9: Activity
+  // Step 8: Activity
   activity_level: ActivityLevel | null;
-  // Step 10: Diet
+  // Step 9: Diet
   diet_type: DietType;
-  // Step 11: Allergies
+  // Step 10: Allergies
   allergies: string[];
-  // Step 12: Meal rhythm
+  // Step 11: Meal rhythm
   meal_count: number;
-  // Step 13: Meal timing
+  // Step 12: Meal timing
   first_meal_time: string;
   last_meal_time: string;
-  // Step 14: Weight goal rate
+  // Step 13: Weight goal rate
   weekly_weight_goal_kg: number;
-  // Step 5 derived: Goal
+  // Derived: Goal
   goal: Goal | null;
-  // Step 16: Notifications
+  // Step 15: Notifications
   notification_preferences: NotificationPreferences;
+  // Step 17: Account Creation
+  email: string;
+  password: string;
 }
 
 interface OnboardingStore {
@@ -69,21 +74,31 @@ const initialData: OnboardingData = {
     weekly_report: true,
     motivation: false,
   },
+  email: '',
+  password: '',
 };
 
-export const useOnboardingData = create<OnboardingStore>((set) => ({
-  data: { ...initialData },
-  currentStep: 0,
-  setStep: (step) => set({ currentStep: step }),
-  updateField: (key, value) =>
-    set((state) => ({
-      data: { ...state.data, [key]: value },
-    })),
-  toggleArrayItem: (key, item) =>
-    set((state) => {
-      const arr = state.data[key] as string[];
-      const newArr = arr.includes(item) ? arr.filter((i) => i !== item) : [...arr, item];
-      return { data: { ...state.data, [key]: newArr } };
+export const useOnboardingData = create<OnboardingStore>()(
+  persist(
+    (set) => ({
+      data: { ...initialData },
+      currentStep: 0,
+      setStep: (step) => set({ currentStep: step }),
+      updateField: (key, value) =>
+        set((state) => ({
+          data: { ...state.data, [key]: value },
+        })),
+      toggleArrayItem: (key, item) =>
+        set((state) => {
+          const arr = state.data[key] as string[];
+          const newArr = arr.includes(item) ? arr.filter((i) => i !== item) : [...arr, item];
+          return { data: { ...state.data, [key]: newArr } };
+        }),
+      reset: () => set({ data: { ...initialData }, currentStep: 0 }),
     }),
-  reset: () => set({ data: { ...initialData }, currentStep: 0 }),
-}));
+    {
+      name: 'fitbite-onboarding',
+      storage: createJSONStorage(() => AsyncStorage),
+    }
+  )
+);
