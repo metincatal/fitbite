@@ -67,17 +67,42 @@ Supabase tablolar (`types/database.ts`):
 
 ### AI (Google Gemini 2.5 Flash)
 
-`lib/gemini.ts` — dört fonksiyon:
-- `recognizeFoodFromImage` — base64 görsel → besin değerleri (JSON)
-- `analyzeWeeklyNutrition` — haftalık beslenme raporu (metin)
-- `generateShoppingList` — alışveriş listesi (JSON dizisi)
-- `generateRecipe` — tarif (JSON)
+`lib/gemini.ts` — tüm fonksiyonlar:
+- `recognizeMealFromImage(base64, userHint?)` — fotoğraf → `DetectedFoodItem[]` (çoklu yemek)
+- `generateAnalysisQuestions(items)` — tespit edilen yemekler için soru üretir
+- `refineAnalysisWithAnswers(items, questions, answers)` — cevaplara göre analizi günceller
+- `estimateNutritionFromText(params)` — metin açıklamasından besin tahmini
+- `recognizeFoodFromImage(base64)` — tekil yemek, eski akış için
+- `analyzeWeeklyNutrition(params)` — haftalık rapor (metin)
+- `generateShoppingList(params)` — alışveriş listesi (JSON dizisi)
+- `generateRecipe(params)` — tarif (JSON)
+- `generateMealName(foodNames)` — öğün için espritüel Türkçe isim üretir
+- `buildSystemPrompt(profile)` — profil verisiyle kişiselleştirilmiş sistem promptu
 
 Tüm AI yanıtları Türkçe. `DIETITIAN_SYSTEM_PROMPT` tüm prompt'lara prefix olarak eklenir. AI yanıtlarından JSON parse ederken regex (`/\{[\s\S]*\}/` veya `/\[[\s\S]*\]/`) kullanılır.
+
+### Fotoğraf Akışı (food-log → analiz)
+
+1. Kullanıcı fotoğraf seçer → `base64` `pendingBase64` state'ine alınır
+2. Hint prompt modal açılır (opsiyonel kullanıcı notu)
+3. `startAnalysis(hint)` → `recognizeMealFromImage(base64, hint)` → `DetectedFoodItem[]`
+4. `generateMealName(foodNames)` ile öğün ismi üretilir, `AsyncStorage` key `fitbite_meal_names` ile kalıcılaştırılır
+5. `PhotoMealReviewModal` açılır: kullanıcı her item'ın porsiyonunu slider ile ayarlar
+6. Kayıt: `uploadFoodPhoto` → Supabase `food-photos` bucket → `addFoodLog` store action
+
+### Fotoğraf Analiz Bileşenleri
+
+- `components/food/FoodPhotoModal.tsx` — eski tekil yemek akışı
+- `components/food/PhotoMealReviewModal.tsx` — çoklu yemek review; `SliderControl` (PanResponder + `pageX` bazlı, throttled) ile porsiyon ayarı; "AI ile Makroları Hesapla" butonu `estimateNutritionFromText` çağırır
+- `components/food/MealPhotoDetailModal.tsx` — kayıtlı fotoğraf detayı; öğün adı inline düzenlenebilir
 
 ### Barcode
 
 `lib/openfoodfacts.ts` — Open Food Facts API ile barkod sorgulama.
+
+### Fotoğraf Depolama
+
+`lib/storage.ts` — `uploadFoodPhoto(userId, base64)`: Supabase Storage `food-photos` bucket'ına yükler, public URL döner. `base64-arraybuffer` ile decode gerektirir.
 
 ### Nutrition Hesapları
 
@@ -89,9 +114,22 @@ Tüm AI yanıtları Türkçe. `DIETITIAN_SYSTEM_PROMPT` tüm prompt'lara prefix 
 
 `Colors.primary` = `#2D6A4F` (yeşil), `Colors.accent` = `#F4845F` (turuncu).
 
+### Onboarding
+
+`app/onboarding/` + `components/onboarding/` — çok adımlı sihirbaz. Tamamlanınca profil Supabase'e kaydedilir, ardından `(tabs)`'a yönlendirilir. `PhotoDemo` adımı fotoğraf analizi özelliğini gösterir.
+
+### Dashboard Bileşenleri
+
+- `components/charts/CalorieRing.tsx` — SVG halka grafiği
+- `components/charts/ActivityRing.tsx` — adım/aktivite halkası
+- `components/dashboard/ActivitySection.tsx` — `expo-sensors` ile adım izleme
+
 ## Key Conventions
 
 - Tüm UI metinleri Türkçedir.
 - `foods` tablosunda besinler `calories_per_100g` bazında tutulur; `food_logs`'a kaydedilirken `serving_amount` ile çarpılarak güncel kalori/makro hesaplanır.
 - Expo Router'da `useRouter` + `useSegments` ile programatik yönlendirme yapılır.
 - `expo-notifications` su hatırlatıcıları için kullanılır (`lib/notifications.ts`).
+- Tüm tipler `types/index.ts`'den re-export edilir; Supabase şema tipleri `types/database.ts` tarafından üretilir (doğrudan düzenleme yapma).
+- `lib/constants.ts` içindeki `MealType` = `'breakfast' | 'lunch' | 'dinner' | 'snack'`.
+- Satır içi stil kullanılmaz; `StyleSheet.create` + design token'lar zorunlu.

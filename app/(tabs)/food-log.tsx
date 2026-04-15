@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,8 +34,19 @@ import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 import { uploadFoodPhoto } from '../../lib/storage';
 import { PhotoMealReviewModal } from '../../components/food/PhotoMealReviewModal';
 import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Arka planda kayıt süreci için tip
+interface PendingSave {
+  imageBase64: string;
+  items: DetectedFoodItem[];
+  mealType: MealType;
+  progress: number;      // 0-100
+  statusText: string;
+  imageUrl?: string;     // upload sonrası doldurulur
+}
 
 const MEAL_COLORS: Record<string, string> = {
   breakfast: '#F9B8A3',
@@ -82,6 +94,10 @@ export default function FoodLogScreen() {
   const [lookingUpBarcode, setLookingUpBarcode] = useState(false);
   const [barcodeResult, setBarcodeResult] = useState<BarcodeFoodResult | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  // Arka planda kayıt süreci
+  const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
+  const pendingSaveRef = useRef<PendingSave | null>(null);
 
   // AsyncStorage'dan espritüel isimleri yükle
   useEffect(() => {
@@ -154,52 +170,109 @@ export default function FoodLogScreen() {
     setShowSearch(false);
   }
 
-  async function handleSavePhotoMeal(items: DetectedFoodItem[], mealType: MealType) {
+  function handleSavePhotoMeal(items: DetectedFoodItem[], mealType: MealType) {
     if (!user) return;
 
-    let imageUrl: string | null = null;
-    if (capturedImageBase64) {
-      imageUrl = await uploadFoodPhoto(user.id, capturedImageBase64);
-    }
+    const base64 = capturedImageBase64;
 
-    for (const item of items) {
-      const per100 = item.estimatedGrams > 0 ? 100 / item.estimatedGrams : 1;
-      const { data: newFood, error } = await supabase
-        .from('foods')
-        .insert({
-          name: item.name, name_tr: item.name, category: 'AI Tanıma',
-          calories_per_100g: Math.round(item.calories * per100),
-          protein: Math.round(item.protein * per100 * 10) / 10,
-          carbs: Math.round(item.carbs * per100 * 10) / 10,
-          fat: Math.round(item.fat * per100 * 10) / 10,
-          fiber: 0, serving_size: 100, serving_unit: 'g', is_turkish: true, created_by: user.id,
-        })
-        .select()
-        .single();
-      if (error || !newFood) continue;
-      await addFoodLog({
-        user_id: user.id, food_id: newFood.id, meal_type: mealType,
-        serving_amount: item.estimatedGrams,
-        calories: Math.round(item.calories),
-        protein: Math.round(item.protein * 10) / 10,
-        carbs: Math.round(item.carbs * 10) / 10,
-        fat: Math.round(item.fat * 10) / 10,
-        image_url: imageUrl,
-        logged_at: new Date().toISOString(),
-      });
-    }
-
-    // Espritüel isim üret
-    if (imageUrl) {
-      try {
-        const name = await generateMealName(items.map((i) => i.name));
-        setMealNames((prev) => ({ ...prev, [imageUrl!]: name }));
-      } catch {}
-    }
-
-    setCapturedImageBase64(null);
-    setPhotoMealItems([]);
+    // Modal'ı hemen kapat
     setShowPhotoReview(false);
+    setPhotoMealItems([]);
+
+    if (!base64) return;
+
+    // Pending save state'ini oluştur
+    const pending: PendingSave = {
+      imageBase64: base64,
+      items,
+      mealType,
+      progress: 0,
+      statusText: 'Fotoğraf yükleniyor...',
+    };
+    setPendingSave(pending);
+    pendingSaveRef.current = pending;
+    setCapturedImageBase64(null);
+
+    // Arka planda kayıt sürecini başlat
+    runBackgroundSave(user.id, base64, items, mealType);
+  }
+
+  async function runBackgroundSave(
+    userId: string,
+    base64: string,
+    items: DetectedFoodItem[],
+    mealType: MealType
+  ) {
+    const totalSteps = items.length + 2; // upload + items + mealName
+    let completedSteps = 0;
+
+    function updateProgress(statusText: string) {
+      completedSteps++;
+      const progress = Math.round((completedSteps / totalSteps) * 100);
+      setPendingSave((prev) => prev ? { ...prev, progress, statusText } : null);
+    }
+
+    try {
+      // Adım 1: Fotoğrafı yükle
+      const imageUrl = await uploadFoodPhoto(userId, base64);
+      // imageUrl'yi pendingSave'e kaydet (feed'de çift kartı önlemek için)
+      setPendingSave((prev) => prev ? { ...prev, imageUrl: imageUrl ?? undefined } : null);
+      updateProgress('Besinler kaydediliyor...');
+
+      // Adım 2: Her item için food + log ekle
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const per100 = item.estimatedGrams > 0 ? 100 / item.estimatedGrams : 1;
+        const { data: newFood, error } = await supabase
+          .from('foods')
+          .insert({
+            name: item.name, name_tr: item.name, category: 'AI Tanıma',
+            calories_per_100g: Math.round(item.calories * per100),
+            protein: Math.round(item.protein * per100 * 10) / 10,
+            carbs: Math.round(item.carbs * per100 * 10) / 10,
+            fat: Math.round(item.fat * per100 * 10) / 10,
+            fiber: 0, serving_size: 100, serving_unit: 'g', is_turkish: true, created_by: userId,
+          })
+          .select()
+          .single();
+        if (error || !newFood) {
+          updateProgress(`${item.name} kaydediliyor...`);
+          continue;
+        }
+        await addFoodLog({
+          user_id: userId, food_id: newFood.id, meal_type: mealType,
+          serving_amount: item.estimatedGrams,
+          calories: Math.round(item.calories),
+          protein: Math.round(item.protein * 10) / 10,
+          carbs: Math.round(item.carbs * 10) / 10,
+          fat: Math.round(item.fat * 10) / 10,
+          image_url: imageUrl,
+          logged_at: new Date().toISOString(),
+        });
+        updateProgress(i < items.length - 1 ? `${items[i + 1].name} kaydediliyor...` : 'İsim oluşturuluyor...');
+      }
+
+      // Adım 3: Espritüel isim üret
+      if (imageUrl) {
+        try {
+          const name = await generateMealName(items.map((i) => i.name));
+          setMealNames((prev) => ({ ...prev, [imageUrl!]: name }));
+        } catch {}
+      }
+
+      // Tamamlandı
+      setPendingSave((prev) => prev ? { ...prev, progress: 100, statusText: 'Tamamlandı!' } : null);
+
+      // Kısa bekleme sonra pending'i kaldır
+      setTimeout(() => {
+        setPendingSave(null);
+        pendingSaveRef.current = null;
+      }, 600);
+    } catch {
+      Alert.alert('Hata', 'Kayıt sırasında bir sorun oluştu.');
+      setPendingSave(null);
+      pendingSaveRef.current = null;
+    }
   }
 
   async function handleBarcodeScanned({ data }: { type: string; data: string }) {
@@ -320,6 +393,8 @@ export default function FoodLogScreen() {
 
     logs.forEach((log) => {
       if (log.image_url) {
+        // Pending save sırasında aynı image_url'ye sahip logları atla (çift kart önleme)
+        if (pendingSave && pendingSave.imageUrl && log.image_url === pendingSave.imageUrl) return;
         if (seenUrls.has(log.image_url)) return;
         seenUrls.add(log.image_url);
         const group = logs.filter((l) => l.image_url === log.image_url);
@@ -425,7 +500,7 @@ export default function FoodLogScreen() {
           <Text style={styles.sectionCalories}>{Math.round(totalCaloriesToday)} kcal</Text>
         </View>
 
-        {foodLogs.length === 0 ? (
+        {foodLogs.length === 0 && !pendingSave ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyIcon}>
               <Ionicons name="restaurant-outline" size={28} color={Colors.textMuted} />
@@ -434,7 +509,10 @@ export default function FoodLogScreen() {
             <Text style={styles.emptySubtext}>Sağ alttaki + butonuna bas</Text>
           </View>
         ) : (
-          <View style={styles.feedSection}>{renderFeedItems(foodLogs, false)}</View>
+          <View style={styles.feedSection}>
+            {renderFeedItems(foodLogs, false)}
+            {pendingSave && <PendingPhotoCard pending={pendingSave} />}
+          </View>
         )}
 
         {/* Dün */}
@@ -462,21 +540,21 @@ export default function FoodLogScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* FAB */}
-      <TouchableOpacity style={styles.fab} onPress={() => setShowSearch(true)} activeOpacity={0.85}>
-        <Ionicons name="add" size={28} color="#fff" />
-      </TouchableOpacity>
-
-      {/* Analiz Sürüyor Banner */}
-      {recognizing && (
-        <View style={styles.analyzingBanner}>
-          <ActivityIndicator size="small" color={Colors.primary} />
-          <View style={styles.analyzingTexts}>
-            <Text style={styles.analyzingTitle}>Analiz Sürüyor</Text>
-            <Text style={styles.analyzingSubtext}>AI yemeğinizi analiz ediyor, lütfen bekleyin...</Text>
+      {/* FAB + Analiz Sürüyor Banner — yan yana, ekranın altında */}
+      <View style={styles.fabRow}>
+        {recognizing && (
+          <View style={styles.analyzingBanner}>
+            <ActivityIndicator size="small" color={Colors.primary} />
+            <View style={styles.analyzingTexts}>
+              <Text style={styles.analyzingTitle}>Analiz Sürüyor</Text>
+              <Text style={styles.analyzingSubtext}>AI yemeğinizi analiz ediyor, lütfen bekleyin...</Text>
+            </View>
           </View>
-        </View>
-      )}
+        )}
+        <TouchableOpacity style={styles.fab} onPress={() => setShowSearch(true)} activeOpacity={0.85}>
+          <Ionicons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
+      </View>
 
       <MealPhotoDetailModal
         visible={photoDetailGroup.length > 0}
@@ -500,19 +578,24 @@ export default function FoodLogScreen() {
 
       {/* Fotoğraf Hint Prompt Modal */}
       <Modal visible={showHintPrompt} animationType="slide" presentationStyle="pageSheet">
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <SafeAreaView style={styles.hintModal}>
-            <View style={styles.hintHeader}>
-              <TouchableOpacity
-                onPress={() => { setShowHintPrompt(false); setPendingBase64(null); }}
-                style={styles.hintCloseBtn}
-              >
-                <Ionicons name="close" size={22} color={Colors.textPrimary} />
-              </TouchableOpacity>
-              <Text style={styles.hintHeaderTitle}>Fotoğrafı Analiz Et</Text>
-              <View style={{ width: 36 }} />
-            </View>
+        <SafeAreaView style={styles.hintModal}>
+          <View style={styles.hintHeader}>
+            <TouchableOpacity
+              onPress={() => { setShowHintPrompt(false); setPendingBase64(null); }}
+              style={styles.hintCloseBtn}
+            >
+              <Ionicons name="close" size={22} color={Colors.textPrimary} />
+            </TouchableOpacity>
+            <Text style={styles.hintHeaderTitle}>Fotoğrafı Analiz Et</Text>
+            <View style={{ width: 36 }} />
+          </View>
 
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ flexGrow: 1 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {pendingBase64 && (
               <Image
                 source={{ uri: `data:image/jpeg;base64,${pendingBase64}` }}
@@ -536,7 +619,9 @@ export default function FoodLogScreen() {
                 returnKeyType="done"
               />
             </View>
+          </ScrollView>
 
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={styles.hintFooter}>
               <TouchableOpacity
                 style={styles.hintSkipBtn}
@@ -552,8 +637,8 @@ export default function FoodLogScreen() {
                 <Text style={styles.hintAnalyzeText}>Analiz Et</Text>
               </TouchableOpacity>
             </View>
-          </SafeAreaView>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
       </Modal>
 
       {/* Yemek Ekle Modal — Yeniden Tasarım */}
@@ -882,9 +967,13 @@ const styles = StyleSheet.create({
   textItemActions: { flexDirection: 'row', alignItems: 'center', paddingRight: 4 },
   textActionBtn: { padding: 6 },
 
-  // FAB
+  // FAB row — banner ve FAB yan yana alt köşede
+  fabRow: {
+    position: 'absolute', bottom: 28, left: 24, right: 24,
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'flex-end',
+    gap: Spacing.sm,
+  },
   fab: {
-    position: 'absolute', bottom: 28, right: 24,
     width: 56, height: 56, borderRadius: 28,
     backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
     shadowColor: Colors.primaryDark, shadowOffset: { width: 0, height: 4 },
@@ -952,15 +1041,12 @@ const styles = StyleSheet.create({
   recognizingText: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
   recognizingSubtext: { fontSize: FontSize.sm, color: Colors.textMuted },
 
-  // Analiz sürüyor banner (food-log ana ekran)
+  // Analiz sürüyor banner (food-log ana ekran — FAB'ın solunda)
   analyzingBanner: {
-    position: 'absolute',
-    bottom: 100,
-    left: Spacing.lg,
-    right: Spacing.lg,
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.md,
+    gap: Spacing.sm,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
@@ -1102,4 +1188,198 @@ const styles = StyleSheet.create({
 
   macroRow: { flexDirection: 'row', gap: Spacing.md },
   macroItem: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
+});
+
+// ------------------------------------------------------------------
+// PendingPhotoCard — arka plan kaydı sırasında gösterilen blur kartı
+// ------------------------------------------------------------------
+function PendingPhotoCard({ pending }: { pending: PendingSave }) {
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const fadeInAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const isComplete = pending.progress >= 100;
+
+  // Giriş animasyonu
+  useEffect(() => {
+    Animated.timing(fadeInAnim, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  // Shimmer animasyonu
+  useEffect(() => {
+    if (!isComplete) {
+      const loop = Animated.loop(
+        Animated.timing(shimmerAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        })
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [isComplete]);
+
+  // Progress bar animasyonu
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: pending.progress,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  }, [pending.progress]);
+
+  const shimmerTranslateX = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SCREEN_WIDTH, SCREEN_WIDTH],
+  });
+
+  const progressWidth = progressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+    extrapolate: 'clamp',
+  });
+
+  return (
+    <Animated.View style={[pendingStyles.container, { opacity: fadeInAnim }]}>
+      {/* Büyük fotoğraf */}
+      <Image
+        source={{ uri: `data:image/jpeg;base64,${pending.imageBase64}` }}
+        style={pendingStyles.image}
+        resizeMode="cover"
+        blurRadius={isComplete ? 0 : 12}
+      />
+
+      {/* Karanlık overlay */}
+      {!isComplete && (
+        <View style={pendingStyles.darkOverlay}>
+          {/* Shimmer efekti */}
+          <Animated.View
+            style={[pendingStyles.shimmer, { transform: [{ translateX: shimmerTranslateX }] }]}
+          >
+            <LinearGradient
+              colors={['transparent', 'rgba(255,255,255,0.08)', 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+          </Animated.View>
+
+          {/* Merkezdeki durum kutusu — glassmorphism */}
+          <View style={pendingStyles.statusBox}>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={pendingStyles.statusTitle}>Kaydediliyor</Text>
+            <Text style={pendingStyles.statusText}>{pending.statusText}</Text>
+
+            {/* Progress bar */}
+            <View style={pendingStyles.progressTrack}>
+              <Animated.View style={[pendingStyles.progressFill, { width: progressWidth }]}>
+                <LinearGradient
+                  colors={['#6EE7B7', Colors.primary, '#059669']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              </Animated.View>
+            </View>
+
+            <Text style={pendingStyles.progressPercent}>{pending.progress}%</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Tamamlandı badge */}
+      {isComplete && (
+        <View style={pendingStyles.completeBadge}>
+          <Ionicons name="checkmark-circle" size={18} color="#fff" />
+          <Text style={pendingStyles.completeText}>Kaydedildi</Text>
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
+const pendingStyles = StyleSheet.create({
+  container: {
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    height: 220,
+    backgroundColor: Colors.borderLight,
+  },
+  image: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  darkOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shimmer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: SCREEN_WIDTH * 0.6,
+  },
+  statusBox: {
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    minWidth: 200,
+  },
+  statusTitle: {
+    fontSize: FontSize.md,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 0.3,
+  },
+  statusText: {
+    fontSize: FontSize.xs,
+    color: 'rgba(255,255,255,0.75)',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  progressTrack: {
+    width: '100%',
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    overflow: 'hidden',
+    marginTop: 4,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressPercent: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.6)',
+  },
+  completeBadge: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+  completeText: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: '#fff',
+  },
 });

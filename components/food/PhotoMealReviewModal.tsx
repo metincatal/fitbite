@@ -50,7 +50,7 @@ interface Props {
   onClose: () => void;
   items: DetectedFoodItem[];
   imageBase64: string | null;
-  onSave: (items: DetectedFoodItem[], mealType: MealType) => Promise<void>;
+  onSave: (items: DetectedFoodItem[], mealType: MealType) => void;
 }
 
 type ViewMode = 'review' | 'reanalysis';
@@ -300,15 +300,10 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     }
   }
 
-  async function handleSave() {
+  function handleSave() {
     if (items.length === 0) { Alert.alert('Uyarı', 'Kaydedilecek yiyecek yok.'); return; }
-    setSaving(true);
-    try {
-      const scaledItems = items.map((item, i) => getScaledItem(item, i)).filter((item) => item.calories > 0 || item.estimatedGrams > 0);
-      await onSave(scaledItems, selectedMeal);
-    } finally {
-      setSaving(false);
-    }
+    const scaledItems = items.map((item, i) => getScaledItem(item, i)).filter((item) => item.calories > 0 || item.estimatedGrams > 0);
+    onSave(scaledItems, selectedMeal);
   }
 
   const suggestedMeal = getSuggestedMeal();
@@ -506,7 +501,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                             </TouchableOpacity>
 
                             {/* Porsiyon Slider */}
-                            <View style={styles.portionRow}>
+                            <View style={[styles.portionRow, saving && { opacity: 0.5 }]} pointerEvents={saving ? 'none' : 'auto'}>
                               <SliderControl
                                 min={0} max={100}
                                 value={pct}
@@ -523,16 +518,18 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                                   <MacroBox label="Karb" value={scaled.carbs} color={Colors.carbs} />
                                   <MacroBox label="Yağ" value={scaled.fat} color={Colors.fat} />
                                 </View>
-                                <View style={styles.itemActions}>
-                                  <TouchableOpacity style={styles.editItemBtn} onPress={() => startEdit(index)}>
-                                    <Ionicons name="create-outline" size={14} color={Colors.primary} />
-                                    <Text style={styles.editItemText}>Düzenle</Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity style={styles.deleteItemBtn} onPress={() => removeItem(index)}>
-                                    <Ionicons name="trash-outline" size={14} color="#E74C3C" />
-                                    <Text style={styles.deleteItemText}>Kaldır</Text>
-                                  </TouchableOpacity>
-                                </View>
+                                {!saving && (
+                                  <View style={styles.itemActions}>
+                                    <TouchableOpacity style={styles.editItemBtn} onPress={() => startEdit(index)}>
+                                      <Ionicons name="create-outline" size={14} color={Colors.primary} />
+                                      <Text style={styles.editItemText}>Düzenle</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={styles.deleteItemBtn} onPress={() => removeItem(index)}>
+                                      <Ionicons name="trash-outline" size={14} color="#E74C3C" />
+                                      <Text style={styles.deleteItemText}>Kaldır</Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
                               </View>
                             )}
                           </>
@@ -542,7 +539,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                   })}
 
                   {/* Manuel Ekle */}
-                  {!showAddForm && (
+                  {!showAddForm && !saving && (
                     <TouchableOpacity style={styles.addItemBtn} onPress={() => setShowAddForm(true)}>
                       <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
                       <Text style={styles.addItemText}>Yiyecek Ekle</Text>
@@ -633,8 +630,10 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                             styles.mealChip,
                             isSelected && styles.mealChipActive,
                             isSuggested && !isSelected && styles.mealChipSuggested,
+                            saving && { opacity: 0.5 },
                           ]}
                           onPress={() => handleMealSelect(m.key)}
+                          disabled={saving}
                         >
                           <Ionicons
                             name={m.icon as any}
