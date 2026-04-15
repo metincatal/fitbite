@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  PanResponder,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -66,6 +68,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
   const [showAddForm, setShowAddForm] = useState(false);
   const [addDraft, setAddDraft] = useState({ name: '', estimatedGrams: '100', calories: '0', protein: '0', carbs: '0', fat: '0' });
   const [estimatingNutrition, setEstimatingNutrition] = useState(false);
+  const [estimatingEditMacros, setEstimatingEditMacros] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('review');
   const [reanalysisQuestions, setReanalysisQuestions] = useState<string[]>([]);
   const [reanalysisAnswers, setReanalysisAnswers] = useState<string[]>([]);
@@ -136,6 +139,28 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     });
     setEditingIndex(index);
     setExpandedIndex(index);
+  }
+
+  async function estimateEditMacros() {
+    const name = editDraft.name.trim();
+    const grams = parseFloat(editDraft.estimatedGrams);
+    if (!name) { Alert.alert('Eksik Bilgi', 'Önce yiyecek adını girin.'); return; }
+    if (!grams || grams <= 0) { Alert.alert('Eksik Bilgi', 'Geçerli bir gram değeri girin.'); return; }
+    setEstimatingEditMacros(true);
+    try {
+      const result = await estimateNutritionFromText({ foodName: name, grams });
+      setEditDraft((d) => ({
+        ...d,
+        calories: String(Math.round(result.calories)),
+        protein: String(Math.round(result.protein * 10) / 10),
+        carbs: String(Math.round(result.carbs * 10) / 10),
+        fat: String(Math.round(result.fat * 10) / 10),
+      }));
+    } catch {
+      Alert.alert('Hata', 'Besin değerleri hesaplanamadı. Lütfen manuel girin.');
+    } finally {
+      setEstimatingEditMacros(false);
+    }
   }
 
   function commitEdit() {
@@ -403,12 +428,31 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                               style={styles.editInput} value={editDraft.name}
                               onChangeText={(v) => setEditDraft((d) => ({ ...d, name: v }))} placeholder="Yiyecek adı"
                             />
+
+                            <Text style={[styles.editLabel, { marginTop: Spacing.xs }]}>
+                              Gram — {editDraft.estimatedGrams}g
+                            </Text>
+                            <SliderControl
+                              min={10} max={600}
+                              value={parseFloat(editDraft.estimatedGrams) || 100}
+                              onChange={(v) => setEditDraft((d) => ({ ...d, estimatedGrams: String(v) }))}
+                              unit="g"
+                            />
+
+                            {/* AI Makro Hesapla */}
+                            <TouchableOpacity
+                              style={[styles.aiEstimateEditBtn, estimatingEditMacros && { opacity: 0.6 }]}
+                              onPress={estimateEditMacros}
+                              disabled={estimatingEditMacros}
+                            >
+                              {estimatingEditMacros ? (
+                                <><ActivityIndicator size="small" color={Colors.primary} /><Text style={styles.aiEstimateEditText}>Hesaplanıyor...</Text></>
+                              ) : (
+                                <><Ionicons name="sparkles-outline" size={15} color={Colors.primary} /><Text style={styles.aiEstimateEditText}>AI ile Makroları Hesapla</Text></>
+                              )}
+                            </TouchableOpacity>
+
                             <View style={styles.editRow}>
-                              <View style={{ flex: 1 }}>
-                                <Text style={styles.editLabel}>Gram</Text>
-                                <TextInput style={styles.editInput} value={editDraft.estimatedGrams}
-                                  onChangeText={(v) => setEditDraft((d) => ({ ...d, estimatedGrams: v }))} keyboardType="numeric" />
-                              </View>
                               <View style={{ flex: 1 }}>
                                 <Text style={styles.editLabel}>Kalori</Text>
                                 <TextInput style={styles.editInput} value={editDraft.calories}
@@ -461,37 +505,15 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                               </View>
                             </TouchableOpacity>
 
-                            {/* Porsiyon Slider (her zaman görünür, kompakt) */}
+                            {/* Porsiyon Slider */}
                             <View style={styles.portionRow}>
-                              <Text style={styles.portionLabel}>Ne kadarını yedin?</Text>
-                              <View style={styles.portionControls}>
-                                <TouchableOpacity
-                                  style={styles.portionBtn}
-                                  onPress={() => setPortionValue(index, pct - 10)}
-                                >
-                                  <Ionicons name="remove" size={16} color={Colors.primary} />
-                                </TouchableOpacity>
-                                <View style={styles.portionTrack}>
-                                  <View style={[styles.portionFill, { width: `${pct}%` as any }]} />
-                                </View>
-                                <TouchableOpacity
-                                  style={styles.portionBtn}
-                                  onPress={() => setPortionValue(index, pct + 10)}
-                                >
-                                  <Ionicons name="add" size={16} color={Colors.primary} />
-                                </TouchableOpacity>
-                                <TextInput
-                                  style={styles.portionInput}
-                                  value={String(pct)}
-                                  onChangeText={(v) => {
-                                    const n = parseInt(v);
-                                    if (!isNaN(n)) setPortionValue(index, n);
-                                  }}
-                                  keyboardType="numeric"
-                                  selectTextOnFocus
-                                />
-                                <Text style={styles.portionPct}>%</Text>
-                              </View>
+                              <SliderControl
+                                min={0} max={100}
+                                value={pct}
+                                onChange={(v) => setPortionValue(index, v)}
+                                unit="%"
+                                label="Ne kadarını yedin?"
+                              />
                             </View>
 
                             {expandedIndex === index && (
@@ -669,6 +691,117 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
   );
 }
 
+function SliderControl({
+  min, max, value, onChange, unit, label,
+}: {
+  min: number; max: number; value: number; onChange: (v: number) => void;
+  unit?: string; label?: string;
+}) {
+  const containerRef = useRef<View>(null);
+  const containerPageXRef = useRef(0);  // absolute screen X of container left edge
+  const trackWidthRef = useRef(200);    // container width
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const [bubbleValue, setBubbleValue] = useState(value);
+  const currentValueRef = useRef(value);
+  const isGestureRef = useRef(false);
+  const lastTextUpdateRef = useRef(0);  // throttle bubble text to 30fps
+
+  // Animated ratio [0,1] — drives fill & thumb visually, NO React re-render
+  const animRatio = useRef(new Animated.Value(toRatio(value, min, max))).current;
+
+  // Sync from parent only when user is not dragging
+  useEffect(() => {
+    if (!isGestureRef.current) {
+      const r = toRatio(value, min, max);
+      animRatio.setValue(r);
+      setBubbleValue(value);
+      currentValueRef.current = value;
+    }
+  }, [value, min, max]);
+
+  // Measure container absolute position so we can use pageX for accurate tracking
+  function measureContainer() {
+    containerRef.current?.measure((_x, _y, width, _h, pageX) => {
+      containerPageXRef.current = pageX;
+      trackWidthRef.current = Math.max(1, width);
+    });
+  }
+
+  function updateFromPageX(pageX: number) {
+    // Compute offset from container left edge (fully clamped: allows reaching 0 and max)
+    const offsetX = pageX - containerPageXRef.current;
+    const ratio = Math.max(0, Math.min(1, offsetX / trackWidthRef.current));
+    const v = Math.round(min + ratio * (max - min));
+    // Update visual immediately via Animated (no React re-render)
+    animRatio.setValue(ratio);
+    currentValueRef.current = v;
+    // Throttle bubble text to ~30fps to avoid flicker
+    const now = Date.now();
+    if (now - lastTextUpdateRef.current >= 33) {
+      lastTextUpdateRef.current = now;
+      setBubbleValue(v);  // re-renders only this component, not parent
+    }
+  }
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        isGestureRef.current = true;
+        lastTextUpdateRef.current = 0;
+        measureContainer();  // refresh position before gesture begins
+        updateFromPageX(evt.nativeEvent.pageX);
+        setBubbleValue(currentValueRef.current);  // show immediately on tap
+      },
+      onPanResponderMove: (evt) => {
+        updateFromPageX(evt.nativeEvent.pageX);
+      },
+      onPanResponderRelease: () => {
+        isGestureRef.current = false;
+        setBubbleValue(currentValueRef.current);  // final value in bubble
+        onChangeRef.current(currentValueRef.current);  // parent state update — once
+      },
+      onPanResponderTerminate: () => {
+        isGestureRef.current = false;
+        onChangeRef.current(currentValueRef.current);
+      },
+    })
+  ).current;
+
+  const fillPct = animRatio.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'], extrapolate: 'clamp' });
+
+  return (
+    <View style={sliderStyles.wrapper}>
+      {label && <Text style={sliderStyles.label}>{label}</Text>}
+      <View
+        ref={containerRef}
+        style={sliderStyles.hitArea}
+        onLayout={measureContainer}
+        {...panResponder.panHandlers}
+      >
+        {/* Rail */}
+        <View style={sliderStyles.rail} />
+        {/* Fill */}
+        <Animated.View style={[sliderStyles.fill, { width: fillPct }]} />
+        {/* Thumb + floating bubble — positioned via interpolated left% */}
+        <Animated.View style={[sliderStyles.thumbWrap, { left: fillPct }]}>
+          <View style={sliderStyles.bubble}>
+            <Text style={sliderStyles.bubbleText}>{bubbleValue}{unit ?? ''}</Text>
+          </View>
+          <View style={sliderStyles.thumb} />
+        </Animated.View>
+      </View>
+    </View>
+  );
+}
+
+function toRatio(v: number, min: number, max: number) {
+  return Math.max(0, Math.min(1, (v - min) / (max - min)));
+}
+
 function MacroPill({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <View style={[pillStyles.pill, { backgroundColor: `${color}20` }]}>
@@ -748,29 +881,21 @@ const styles = StyleSheet.create({
   itemHeaderRight: { alignItems: 'flex-end', gap: 4 },
   itemCalories: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
 
-  // Porsiyon kontrolü
+  // Porsiyon satırı
   portionRow: {
-    paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm,
+    paddingHorizontal: Spacing.md, paddingBottom: Spacing.md,
     borderTopWidth: 1, borderTopColor: Colors.borderLight,
     paddingTop: Spacing.sm,
   },
-  portionLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600', marginBottom: 6 },
-  portionControls: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  portionBtn: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: Colors.primaryPale, alignItems: 'center', justifyContent: 'center',
+
+  // AI Makro Hesapla (düzenleme formunda)
+  aiEstimateEditBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.xs,
+    paddingVertical: Spacing.sm, borderRadius: BorderRadius.md,
+    borderWidth: 1.5, borderColor: Colors.primaryLight, backgroundColor: Colors.primaryPale,
+    marginVertical: Spacing.xs,
   },
-  portionTrack: {
-    flex: 1, height: 6, backgroundColor: Colors.borderLight,
-    borderRadius: 3, overflow: 'hidden',
-  },
-  portionFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
-  portionInput: {
-    width: 40, height: 28, borderWidth: 1, borderColor: Colors.border,
-    borderRadius: BorderRadius.sm, textAlign: 'center', fontSize: FontSize.sm,
-    fontWeight: '700', color: Colors.textPrimary,
-  },
-  portionPct: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '600' },
+  aiEstimateEditText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '700' },
 
   expandedSection: { borderTopWidth: 1, borderTopColor: Colors.borderLight, padding: Spacing.md, gap: Spacing.sm },
   macroGrid: { flexDirection: 'row', gap: Spacing.sm },
@@ -910,4 +1035,52 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg, backgroundColor: Colors.primary,
   },
   submitReanalysisText: { fontSize: FontSize.sm, color: Colors.textLight, fontWeight: '700' },
+});
+
+// SliderControl'e özel stiller (ayrı StyleSheet — `styles` ile karışmasın)
+const sliderStyles = StyleSheet.create({
+  wrapper: { width: '100%' },
+  label: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600', marginBottom: Spacing.sm },
+  // Touch alanı: geniş tıklanabilir bölge (48px yükseklik)
+  hitArea: {
+    height: 48, width: '100%',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  rail: {
+    position: 'absolute', left: 0, right: 0,
+    height: 6, borderRadius: 3,
+    backgroundColor: Colors.borderLight,
+  },
+  fill: {
+    position: 'absolute', left: 0,
+    height: 6, borderRadius: 3,
+    backgroundColor: Colors.primary,
+  },
+  // Thumb + bubble wrapper — centered on fill's right edge via negative marginLeft
+  thumbWrap: {
+    position: 'absolute',
+    alignItems: 'center',
+    marginLeft: -14,  // half of thumb(20) + some bubble width to center
+  },
+  bubble: {
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginBottom: 4,
+    minWidth: 34,
+    alignItems: 'center',
+  },
+  bubbleText: {
+    fontSize: 11, fontWeight: '800', color: '#fff',
+  },
+  thumb: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: Colors.primary,
+    shadowColor: Colors.primaryDark,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3, shadowRadius: 3,
+    elevation: 3,
+  },
 });

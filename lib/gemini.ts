@@ -106,12 +106,16 @@ export interface DetectedFoodItem {
   confidence: number;
 }
 
-export async function recognizeMealFromImage(imageBase64: string): Promise<DetectedFoodItem[]> {
+export async function recognizeMealFromImage(imageBase64: string, userHint?: string): Promise<DetectedFoodItem[]> {
   const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+  const hintSection = userHint && userHint.trim()
+    ? `\nKullanıcı notu (öncelikli referans al): "${userHint.trim()}"\n`
+    : '';
 
   const prompt = `Bu yemek fotoğrafını dikkatle analiz et. Fotoğraftaki TÜM yiyecek ve içecekleri ayrı ayrı tespit et.
 Her biri için tahmini gramaj ve o gramaja göre toplam besin değerlerini hesapla.
-
+${hintSection}
 SADECE şu JSON formatında yanıtla (başka hiçbir metin ekleme, açıklama yapma):
 [
   {

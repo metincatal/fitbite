@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Dimensions,
   StatusBar,
   Platform,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
@@ -23,19 +24,37 @@ interface Props {
   onClose: () => void;
   logs: FoodLogWithFood[];
   onRemoveAll: () => void;
+  mealName?: string;
+  onNameChange?: (name: string) => void;
 }
 
-export function MealPhotoDetailModal({ visible, onClose, logs, onRemoveAll }: Props) {
+export function MealPhotoDetailModal({ visible, onClose, logs, onRemoveAll, mealName, onNameChange }: Props) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
+  const [editingName, setEditingName] = useState(false);
+  const [nameText, setNameText] = useState('');
+  const nameInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (visible) {
       setExpandedIndex(0);
+      setEditingName(false);
+      setNameText(mealName ?? '');
       if (Platform.OS === 'ios') StatusBar.setBarStyle('light-content', true);
     } else {
       if (Platform.OS === 'ios') StatusBar.setBarStyle('dark-content', true);
     }
   }, [visible]);
+
+  // mealName prop dışarıdan değişirse güncelle (gesture kapalıyken)
+  useEffect(() => {
+    if (!editingName) setNameText(mealName ?? '');
+  }, [mealName]);
+
+  function commitNameEdit() {
+    setEditingName(false);
+    const trimmed = nameText.trim();
+    if (trimmed && onNameChange) onNameChange(trimmed);
+  }
 
   if (logs.length === 0) return null;
 
@@ -82,10 +101,6 @@ export function MealPhotoDetailModal({ visible, onClose, logs, onRemoveAll }: Pr
               <View style={[styles.heroImage, { backgroundColor: Colors.borderLight }]} />
             )}
 
-            {/* Faded gradient overlay at bottom of photo — simulated with layers */}
-            <View style={styles.heroGradientLayer1} />
-            <View style={styles.heroGradientLayer2} />
-            <View style={styles.heroGradientLayer3} />
 
             {/* Back button — overlaid top-left */}
             <TouchableOpacity style={styles.backBtn} onPress={onClose}>
@@ -108,6 +123,38 @@ export function MealPhotoDetailModal({ visible, onClose, logs, onRemoveAll }: Pr
                 <Text style={styles.heroMealText}>{mealLabel}</Text>
               </View>
               <Text style={styles.heroTime}>{loggedTime}</Text>
+            </View>
+
+            {/* Espritüel isim — fotoğraf üstünde, dokunarak düzenlenebilir */}
+            <View style={styles.heroNameWrap}>
+              {editingName ? (
+                <TextInput
+                  ref={nameInputRef}
+                  style={styles.heroNameInput}
+                  value={nameText}
+                  onChangeText={setNameText}
+                  autoFocus
+                  returnKeyType="done"
+                  onSubmitEditing={commitNameEdit}
+                  onBlur={commitNameEdit}
+                  placeholder="Bir isim ver..."
+                  placeholderTextColor="rgba(255,255,255,0.5)"
+                />
+              ) : (
+                <TouchableOpacity
+                  onPress={() => {
+                    setNameText(mealName ?? '');
+                    setEditingName(true);
+                  }}
+                  style={styles.heroNameBtn}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="pencil-outline" size={13} color="rgba(255,255,255,0.75)" />
+                  <Text style={styles.heroNameText}>
+                    {mealName ?? '+ İsim ekle'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -257,30 +304,6 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     height: PHOTO_HEIGHT,
   },
-  heroGradientLayer1: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 60,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  heroGradientLayer2: {
-    position: 'absolute',
-    bottom: 60,
-    left: 0,
-    right: 0,
-    height: 40,
-    backgroundColor: 'rgba(0,0,0,0.25)',
-  },
-  heroGradientLayer3: {
-    position: 'absolute',
-    bottom: 100,
-    left: 0,
-    right: 0,
-    height: 30,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-  },
   backBtn: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 56 : 36,
@@ -312,6 +335,44 @@ const styles = StyleSheet.create({
   },
   heroMealText: { fontSize: FontSize.sm, fontWeight: '700', color: '#fff' },
   heroTime: { fontSize: FontSize.sm, color: 'rgba(255,255,255,0.75)', fontWeight: '500', backgroundColor: 'rgba(0,0,0,0.3)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: BorderRadius.full },
+
+  // Espritüel isim
+  heroNameWrap: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 56 : 36,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  heroNameBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    maxWidth: '70%',
+  },
+  heroNameText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.92)',
+    fontStyle: 'italic',
+    flexShrink: 1,
+  },
+  heroNameInput: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: '#fff',
+    fontStyle: 'italic',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: BorderRadius.full,
+    minWidth: 180,
+    textAlign: 'center',
+  },
 
   // Summary
   summaryStrip: {

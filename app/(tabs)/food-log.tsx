@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,11 @@ import {
   ActivityIndicator,
   Image,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
@@ -56,8 +58,6 @@ export default function FoodLogScreen() {
   const [yesterdayLogs, setYesterdayLogs] = useState<FoodLogWithFood[]>([]);
   // Espritüel öğün isimleri: image_url → isim
   const [mealNames, setMealNames] = useState<Record<string, string>>({});
-  const [editingNameUrl, setEditingNameUrl] = useState<string | null>(null);
-  const [editingNameText, setEditingNameText] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Food[]>([]);
@@ -72,6 +72,9 @@ export default function FoodLogScreen() {
   const [showPhotoReview, setShowPhotoReview] = useState(false);
 
   const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
+  const [pendingBase64, setPendingBase64] = useState<string | null>(null);
+  const [showHintPrompt, setShowHintPrompt] = useState(false);
+  const [photoHintText, setPhotoHintText] = useState('');
   const [photoDetailGroup, setPhotoDetailGroup] = useState<FoodLogWithFood[]>([]);
 
   const [scanningBarcode, setScanningBarcode] = useState(false);
@@ -79,6 +82,22 @@ export default function FoodLogScreen() {
   const [lookingUpBarcode, setLookingUpBarcode] = useState(false);
   const [barcodeResult, setBarcodeResult] = useState<BarcodeFoodResult | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  // AsyncStorage'dan espritüel isimleri yükle
+  useEffect(() => {
+    AsyncStorage.getItem('fitbite_meal_names').then((raw) => {
+      if (raw) {
+        try { setMealNames(JSON.parse(raw)); } catch {}
+      }
+    });
+  }, []);
+
+  // mealNames değişince AsyncStorage'a kaydet
+  useEffect(() => {
+    if (Object.keys(mealNames).length > 0) {
+      AsyncStorage.setItem('fitbite_meal_names', JSON.stringify(mealNames)).catch(() => {});
+    }
+  }, [mealNames]);
 
   useEffect(() => {
     if (user) {
@@ -248,12 +267,22 @@ export default function FoodLogScreen() {
     }
     if (result.canceled || !result.assets[0].base64) return;
     const base64Data = result.assets[0].base64;
-    setCapturedImageBase64(base64Data);
-    setRecognizing(true);
-    setSelectedFood(null);
+    setPendingBase64(base64Data);
+    setPhotoHintText('');
+    setShowHintPrompt(true);
+  }
+
+  async function startAnalysis(hint: string) {
+    if (!pendingBase64) return;
+    setShowHintPrompt(false);
     setShowSearch(false);
+    const base64Data = pendingBase64;
+    setPendingBase64(null);
+    setCapturedImageBase64(base64Data);
+    setSelectedFood(null);
+    setRecognizing(true);
     try {
-      const items = await recognizeMealFromImage(base64Data);
+      const items = await recognizeMealFromImage(base64Data, hint.trim() || undefined);
       setPhotoMealItems(items);
       setShowPhotoReview(true);
     } catch {
@@ -296,7 +325,6 @@ export default function FoodLogScreen() {
         const group = logs.filter((l) => l.image_url === log.image_url);
         const totalCal = group.reduce((s, l) => s + l.calories, 0);
         const mealName = mealNames[log.image_url];
-        const isEditingName = editingNameUrl === log.image_url;
 
         rendered.push(
           <TouchableOpacity
@@ -307,7 +335,7 @@ export default function FoodLogScreen() {
           >
             <Image source={{ uri: log.image_url }} style={styles.photoCardImage} resizeMode="cover" />
 
-            {/* Üst: öğün badge + kalori chip + silme */}
+            {/* Üst overlay: öğün badge + kalori chip + silme */}
             <View style={styles.photoCardTopRow}>
               <View style={[styles.mealBadge, { backgroundColor: MEAL_COLORS[log.meal_type] ?? Colors.borderLight }]}>
                 <Text style={[styles.mealBadgeText, { color: MEAL_TEXT_COLORS[log.meal_type] ?? Colors.textPrimary }]}>
@@ -329,50 +357,12 @@ export default function FoodLogScreen() {
               </View>
             </View>
 
-            {/* Alt: yumuşak gradient + isim */}
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.55)']}
-              style={styles.photoCardGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-            >
-              {isEditingName ? (
-                <View style={styles.nameEditRow}>
-                  <TextInput
-                    style={styles.nameEditInput}
-                    value={editingNameText}
-                    onChangeText={setEditingNameText}
-                    autoFocus
-                    returnKeyType="done"
-                    onSubmitEditing={() => {
-                      if (editingNameText.trim()) {
-                        setMealNames((prev) => ({ ...prev, [editingNameUrl!]: editingNameText.trim() }));
-                      }
-                      setEditingNameUrl(null);
-                    }}
-                    onBlur={() => {
-                      if (editingNameText.trim()) {
-                        setMealNames((prev) => ({ ...prev, [editingNameUrl!]: editingNameText.trim() }));
-                      }
-                      setEditingNameUrl(null);
-                    }}
-                  />
-                </View>
-              ) : (
-                <TouchableOpacity
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    setEditingNameUrl(log.image_url!);
-                    setEditingNameText(mealName ?? '');
-                  }}
-                  style={styles.nameTouchable}
-                >
-                  <Text style={styles.photoMealName}>
-                    {mealName ? mealName : '+ İsim ekle'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </LinearGradient>
+            {/* Espritüel isim — sol alt köşe, yarı şeffaf arka plan */}
+            {mealName ? (
+              <View style={styles.photoMealNameWrap}>
+                <Text style={styles.photoMealName} numberOfLines={1}>{mealName}</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
         );
       } else {
@@ -477,11 +467,27 @@ export default function FoodLogScreen() {
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
 
+      {/* Analiz Sürüyor Banner */}
+      {recognizing && (
+        <View style={styles.analyzingBanner}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <View style={styles.analyzingTexts}>
+            <Text style={styles.analyzingTitle}>Analiz Sürüyor</Text>
+            <Text style={styles.analyzingSubtext}>AI yemeğinizi analiz ediyor, lütfen bekleyin...</Text>
+          </View>
+        </View>
+      )}
+
       <MealPhotoDetailModal
         visible={photoDetailGroup.length > 0}
         onClose={() => setPhotoDetailGroup([])}
         logs={photoDetailGroup}
         onRemoveAll={() => { photoDetailGroup.forEach((l) => removeFoodLog(l.id)); setPhotoDetailGroup([]); }}
+        mealName={photoDetailGroup[0]?.image_url ? mealNames[photoDetailGroup[0].image_url] : undefined}
+        onNameChange={(name) => {
+          const url = photoDetailGroup[0]?.image_url;
+          if (url) setMealNames((prev) => ({ ...prev, [url]: name }));
+        }}
       />
 
       <PhotoMealReviewModal
@@ -491,6 +497,64 @@ export default function FoodLogScreen() {
         imageBase64={capturedImageBase64}
         onSave={handleSavePhotoMeal}
       />
+
+      {/* Fotoğraf Hint Prompt Modal */}
+      <Modal visible={showHintPrompt} animationType="slide" presentationStyle="pageSheet">
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <SafeAreaView style={styles.hintModal}>
+            <View style={styles.hintHeader}>
+              <TouchableOpacity
+                onPress={() => { setShowHintPrompt(false); setPendingBase64(null); }}
+                style={styles.hintCloseBtn}
+              >
+                <Ionicons name="close" size={22} color={Colors.textPrimary} />
+              </TouchableOpacity>
+              <Text style={styles.hintHeaderTitle}>Fotoğrafı Analiz Et</Text>
+              <View style={{ width: 36 }} />
+            </View>
+
+            {pendingBase64 && (
+              <Image
+                source={{ uri: `data:image/jpeg;base64,${pendingBase64}` }}
+                style={styles.hintPreview}
+                resizeMode="cover"
+              />
+            )}
+
+            <View style={styles.hintBody}>
+              <Text style={styles.hintLabel}>Bu yemeği açıkla (opsiyonel)</Text>
+              <Text style={styles.hintSublabel}>
+                AI'nın daha doğru tanıması için yemeğin ne olduğunu yazabilirsiniz.
+              </Text>
+              <TextInput
+                style={styles.hintInput}
+                placeholder="örn. kazandibi, 2 porsiyon..."
+                placeholderTextColor={Colors.textMuted}
+                value={photoHintText}
+                onChangeText={setPhotoHintText}
+                multiline
+                returnKeyType="done"
+              />
+            </View>
+
+            <View style={styles.hintFooter}>
+              <TouchableOpacity
+                style={styles.hintSkipBtn}
+                onPress={() => startAnalysis('')}
+              >
+                <Text style={styles.hintSkipText}>Atla</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.hintAnalyzeBtn}
+                onPress={() => startAnalysis(photoHintText)}
+              >
+                <Ionicons name="sparkles-outline" size={16} color="#fff" />
+                <Text style={styles.hintAnalyzeText}>Analiz Et</Text>
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Yemek Ekle Modal — Yeniden Tasarım */}
       <Modal visible={showSearch} animationType="slide" presentationStyle="pageSheet">
@@ -506,20 +570,6 @@ export default function FoodLogScreen() {
             <Text style={styles.modalTitle}>Yemek Ekle</Text>
             <View style={{ width: 24 }} />
           </View>
-
-          {/* Öğün seçimi */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.mealTabsContent} style={styles.modalMealTabs}>
-            {mealTypes.map(({ key, label }) => (
-              <TouchableOpacity
-                key={`modal-${key}-${label}`}
-                style={[styles.mealTab, selectedMeal === key && styles.mealTabActive]}
-                onPress={() => setSelectedMeal(key)}
-              >
-                <Text style={[styles.mealTabText, selectedMeal === key && styles.mealTabTextActive]}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
 
           {/* Barkod tarayıcı */}
           {scanningBarcode && (
@@ -545,33 +595,64 @@ export default function FoodLogScreen() {
 
           {!scanningBarcode && (
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-              {/* Fotoğraf / Barkod Butonları */}
-              {!recognizing && !barcodeResult && !selectedFood && (
-                <View style={styles.addMethodSection}>
-                  <Text style={styles.addMethodLabel}>Fotoğrafla Ekle</Text>
-                  <View style={styles.addMethodRow}>
-                    <TouchableOpacity style={styles.addMethodCard} onPress={() => openImagePicker('camera')}>
-                      <View style={[styles.addMethodIcon, { backgroundColor: '#EDF6FF' }]}>
-                        <Ionicons name="camera" size={24} color="#2563EB" />
+
+              {/* Arama kutusu — her zaman üstte */}
+              {!recognizing && !barcodeResult && (
+                <View style={styles.addSearchWrap}>
+                  <View style={[styles.addSearchBox, searchQuery.length > 0 && styles.addSearchBoxActive]}>
+                    <Ionicons name="search-outline" size={20} color={searchQuery.length > 0 ? Colors.primary : Colors.textMuted} />
+                    <TextInput
+                      style={styles.addSearchInput}
+                      placeholder="Yemek adı yazın..."
+                      value={searchQuery}
+                      onChangeText={(t) => { setSearchQuery(t); searchFoods(t); }}
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                    {searchQuery.length > 0 && (
+                      <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
+                        <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* AI Kart Bölümü */}
+              {!recognizing && !barcodeResult && !selectedFood && searchQuery.length === 0 && (
+                <View style={styles.aiSection}>
+                  <Text style={styles.aiSectionLabel}>AI ile Analiz Et</Text>
+                  <Text style={styles.aiSectionSub}>Yemeğin fotoğrafını çek, AI anında tanısın</Text>
+
+                  <View style={styles.aiCardRow}>
+                    <TouchableOpacity style={[styles.aiCard, { backgroundColor: '#EDF6FF', borderColor: '#BFDBFE' }]} onPress={() => openImagePicker('camera')}>
+                      <View style={[styles.aiCardIconWrap, { backgroundColor: '#2563EB' }]}>
+                        <Ionicons name="camera" size={28} color="#fff" />
                       </View>
-                      <Text style={styles.addMethodCardTitle}>Fotoğraf Çek</Text>
-                      <Text style={styles.addMethodCardSub}>AI analiz eder</Text>
+                      <Text style={[styles.aiCardTitle, { color: '#1D4ED8' }]}>Fotoğraf Çek</Text>
+                      <Text style={styles.aiCardSub}>Kamerayla anında analiz</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.addMethodCard} onPress={() => openImagePicker('gallery')}>
-                      <View style={[styles.addMethodIcon, { backgroundColor: '#F5F0FF' }]}>
-                        <Ionicons name="images" size={24} color="#7C3AED" />
+
+                    <TouchableOpacity style={[styles.aiCard, { backgroundColor: '#F5F0FF', borderColor: '#DDD6FE' }]} onPress={() => openImagePicker('gallery')}>
+                      <View style={[styles.aiCardIconWrap, { backgroundColor: '#7C3AED' }]}>
+                        <Ionicons name="images" size={28} color="#fff" />
                       </View>
-                      <Text style={styles.addMethodCardTitle}>Galeriden Seç</Text>
-                      <Text style={styles.addMethodCardSub}>AI analiz eder</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.addMethodCard} onPress={openBarcodeScanner}>
-                      <View style={[styles.addMethodIcon, { backgroundColor: '#FFF7ED' }]}>
-                        <Ionicons name="barcode" size={24} color="#EA580C" />
-                      </View>
-                      <Text style={styles.addMethodCardTitle}>Barkod Tara</Text>
-                      <Text style={styles.addMethodCardSub}>Paketli ürün</Text>
+                      <Text style={[styles.aiCardTitle, { color: '#6D28D9' }]}>Galeriden Seç</Text>
+                      <Text style={styles.aiCardSub}>Daha önce çektiğin fotoğraf</Text>
                     </TouchableOpacity>
                   </View>
+
+                  <TouchableOpacity style={styles.barcodeCard} onPress={openBarcodeScanner}>
+                    <View style={styles.barcodeCardLeft}>
+                      <View style={[styles.barcodeCardIcon, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}>
+                        <Ionicons name="barcode" size={28} color="#EA580C" />
+                      </View>
+                      <View>
+                        <Text style={styles.barcodeCardTitle}>Barkod Tara</Text>
+                        <Text style={styles.barcodeCardSub}>Paketli ürünler için hızlı ekleme</Text>
+                      </View>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                  </TouchableOpacity>
                 </View>
               )}
 
@@ -621,28 +702,9 @@ export default function FoodLogScreen() {
                 </View>
               )}
 
-              {/* Arama Kutusu */}
+              {/* Arama sonuçları ve seçili yemek */}
               {!recognizing && !barcodeResult && (
                 <View style={styles.searchSection}>
-                  {!barcodeResult && !selectedFood && (
-                    <Text style={styles.addMethodLabel}>Manuel Ara</Text>
-                  )}
-                  <View style={styles.searchBox}>
-                    <Ionicons name="search-outline" size={20} color={Colors.textMuted} />
-                    <TextInput
-                      style={styles.searchInput}
-                      placeholder="Yemek adı yazın..."
-                      value={searchQuery}
-                      onChangeText={(t) => { setSearchQuery(t); searchFoods(t); }}
-                      placeholderTextColor={Colors.textMuted}
-                    />
-                    {searchQuery.length > 0 && (
-                      <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
-                        <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
                   {/* Seçili yemek detayı */}
                   {selectedFood && (
                     <View style={styles.selectedFoodCard}>
@@ -783,32 +845,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center', justifyContent: 'center',
   },
-  photoCardGradient: {
+  photoMealNameWrap: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 70,
-    justifyContent: 'flex-end',
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
+    bottom: Spacing.sm,
+    left: Spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    maxWidth: '75%',
   },
-  nameTouchable: {},
   photoMealName: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.9)',
-    fontStyle: 'italic',
-  },
-  nameEditRow: { flexDirection: 'row', alignItems: 'center' },
-  nameEditInput: {
-    flex: 1,
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.6)',
-    paddingVertical: 2,
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.92)',
     fontStyle: 'italic',
   },
 
@@ -850,41 +900,120 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.textPrimary },
 
-  modalMealTabs: { height: 52, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  mealTabsContent: { paddingHorizontal: Spacing.lg, gap: Spacing.sm, alignItems: 'center' },
-  mealTab: {
-    paddingHorizontal: Spacing.md, paddingVertical: 6,
-    borderRadius: BorderRadius.full, backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.border,
-  },
-  mealTabActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  mealTabText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
-  mealTabTextActive: { color: Colors.textLight },
-
-  // Ekle yöntemleri
-  addMethodSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
-  addMethodLabel: {
-    fontSize: FontSize.xs, fontWeight: '700', color: Colors.textMuted,
-    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: Spacing.sm,
-  },
-  addMethodRow: { flexDirection: 'row', gap: Spacing.sm },
-  addMethodCard: {
-    flex: 1, alignItems: 'center', gap: 6,
+  // Arama kutusu (modal üstü)
+  addSearchWrap: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, paddingBottom: Spacing.xs },
+  addSearchBox: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
-    borderWidth: 1, borderColor: Colors.borderLight,
+    paddingHorizontal: Spacing.md, paddingVertical: 12,
+    borderWidth: 1.5, borderColor: Colors.border,
   },
-  addMethodIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  addMethodCardTitle: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' },
-  addMethodCardSub: { fontSize: 10, color: Colors.textMuted, textAlign: 'center' },
+  addSearchBoxActive: { borderColor: Colors.primary },
+  addSearchInput: { flex: 1, fontSize: FontSize.md, color: Colors.textPrimary },
 
-  // Analiz yükleniyor
+  // AI Kart Bölümü
+  aiSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, gap: Spacing.sm },
+  aiSectionLabel: { fontSize: FontSize.md, fontWeight: '800', color: Colors.textPrimary },
+  aiSectionSub: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: -4, marginBottom: 4 },
+  aiCardRow: { flexDirection: 'row', gap: Spacing.sm },
+  aiCard: {
+    flex: 1, borderRadius: BorderRadius.xl, borderWidth: 1.5,
+    paddingVertical: Spacing.lg, paddingHorizontal: Spacing.md,
+    alignItems: 'center', gap: 8,
+  },
+  aiCardIconWrap: {
+    width: 56, height: 56, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 2,
+  },
+  aiCardTitle: { fontSize: FontSize.sm, fontWeight: '800', textAlign: 'center' },
+  aiCardSub: { fontSize: 10, color: Colors.textMuted, textAlign: 'center', lineHeight: 14 },
+
+  // Barkod kart (tam genişlik)
+  barcodeCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    paddingVertical: Spacing.md, paddingHorizontal: Spacing.md,
+  },
+  barcodeCardLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  barcodeCardIcon: {
+    width: 52, height: 52, borderRadius: BorderRadius.md,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
+  },
+  barcodeCardTitle: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.textPrimary },
+  barcodeCardSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+
+  // Analiz yükleniyor (modal içi)
   recognizingContainer: {
     alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm,
     paddingHorizontal: Spacing.lg,
   },
   recognizingText: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
   recognizingSubtext: { fontSize: FontSize.sm, color: Colors.textMuted },
+
+  // Analiz sürüyor banner (food-log ana ekran)
+  analyzingBanner: {
+    position: 'absolute',
+    bottom: 100,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    borderWidth: 1.5,
+    borderColor: `${Colors.primary}40`,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  analyzingTexts: { flex: 1 },
+  analyzingTitle: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.primary },
+  analyzingSubtext: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+
+  // Hint prompt modal
+  hintModal: { flex: 1, backgroundColor: Colors.background },
+  hintHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+  },
+  hintCloseBtn: {
+    width: 36, height: 36, borderRadius: BorderRadius.full,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceSecondary,
+  },
+  hintHeaderTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary },
+  hintPreview: { width: '100%', height: 240, backgroundColor: Colors.borderLight },
+  hintBody: { padding: Spacing.lg, gap: Spacing.sm, flex: 1 },
+  hintLabel: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
+  hintSublabel: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18 },
+  hintInput: {
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.md,
+    borderWidth: 1.5, borderColor: Colors.border,
+    padding: Spacing.md, fontSize: FontSize.md, color: Colors.textPrimary,
+    minHeight: 80, textAlignVertical: 'top', marginTop: Spacing.xs,
+  },
+  hintFooter: {
+    flexDirection: 'row', gap: Spacing.sm,
+    padding: Spacing.lg, borderTopWidth: 1, borderTopColor: Colors.borderLight,
+  },
+  hintSkipBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingVertical: Spacing.md, borderRadius: BorderRadius.md,
+    borderWidth: 1.5, borderColor: Colors.border,
+  },
+  hintSkipText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary },
+  hintAnalyzeBtn: {
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.sm, paddingVertical: Spacing.md, borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primary,
+  },
+  hintAnalyzeText: { fontSize: FontSize.md, fontWeight: '700', color: '#fff' },
 
   // Barkod
   barcodeResultCard: {
@@ -908,7 +1037,7 @@ const styles = StyleSheet.create({
   barcodeAddText: { fontSize: FontSize.sm, color: '#fff', fontWeight: '700' },
 
   // Arama bölümü
-  searchSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
+  searchSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm },
   searchBox: {
     flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
     backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
