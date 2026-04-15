@@ -82,8 +82,10 @@ export function MealPhotoDetailModal({ visible, onClose, logs, onRemoveAll }: Pr
               <View style={[styles.heroImage, { backgroundColor: Colors.borderLight }]} />
             )}
 
-            {/* Dark gradient overlay at bottom of photo */}
-            <View style={styles.heroGradient} />
+            {/* Faded gradient overlay at bottom of photo — simulated with layers */}
+            <View style={styles.heroGradientLayer1} />
+            <View style={styles.heroGradientLayer2} />
+            <View style={styles.heroGradientLayer3} />
 
             {/* Back button — overlaid top-left */}
             <TouchableOpacity style={styles.backBtn} onPress={onClose}>
@@ -255,13 +257,29 @@ const styles = StyleSheet.create({
     width: SCREEN_WIDTH,
     height: PHOTO_HEIGHT,
   },
-  heroGradient: {
+  heroGradientLayer1: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 140,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    height: 60,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  heroGradientLayer2: {
+    position: 'absolute',
+    bottom: 60,
+    left: 0,
+    right: 0,
+    height: 40,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  heroGradientLayer3: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
+    height: 30,
+    backgroundColor: 'rgba(0,0,0,0.08)',
   },
   backBtn: {
     position: 'absolute',

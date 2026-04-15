@@ -10,6 +10,8 @@ import {
   Switch,
   TextInput,
   ActivityIndicator,
+  Linking,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -28,6 +30,8 @@ import {
   cancelWaterReminders,
   requestNotificationPermissions,
 } from '../../lib/notifications';
+import { Pedometer } from 'expo-sensors';
+import { useActivityStore } from '../../store/activityStore';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -44,6 +48,10 @@ export default function ProfileScreen() {
   // Gizlilik & Güvenlik
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [sendingReset, setSendingReset] = useState(false);
+
+  // Pedometer / Fiziksel Aktivite
+  const { isAvailable, permissionGranted } = useActivityStore();
+  const [checkingPedometer, setCheckingPedometer] = useState(false);
 
   useEffect(() => {
     loadReminderSettings().then(setReminderSettings);
@@ -178,6 +186,38 @@ export default function ProfileScreen() {
         ? `Su hatırlatıcıları aktif! Her ${reminderSettings.intervalHours} saatte bir hatırlatılacaksın.`
         : 'Su hatırlatıcıları kapatıldı.'
     );
+  }
+
+  async function handleRequestPedometerPermission() {
+    setCheckingPedometer(true);
+    try {
+      const available = await Pedometer.isAvailableAsync();
+      if (!available) {
+        Alert.alert('Desteklenmiyor', 'Bu cihaz adım sayacını desteklemiyor.');
+        return;
+      }
+      const { granted } = await Pedometer.requestPermissionsAsync();
+      if (granted) {
+        Alert.alert('İzin Verildi', 'Fiziksel aktivite izni alındı. Adımlarınız artık takip edilecek.');
+      } else {
+        const hint = Platform.OS === 'ios'
+          ? 'Ayarlar > Gizlilik > Hareket ve Kondisyon bölümünde FitBite için izni açın.'
+          : 'Ayarlar > Uygulamalar > FitBite > İzinler > Fiziksel Aktivite iznini açın.';
+        Alert.alert(
+          'İzin Gerekli',
+          hint,
+          [
+            { text: 'İptal', style: 'cancel' },
+            {
+              text: 'Ayarları Aç',
+              onPress: () => Platform.OS === 'ios' ? Linking.openURL('app-settings:') : Linking.openSettings(),
+            },
+          ]
+        );
+      }
+    } finally {
+      setCheckingPedometer(false);
+    }
   }
 
   function handleSignOut() {
@@ -324,6 +364,33 @@ export default function ProfileScreen() {
                   <Text style={styles.activeBadgeText}>Açık</Text>
                 </View>
               )}
+              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={handleRequestPedometerPermission}
+            disabled={checkingPedometer}
+          >
+            <Ionicons name="footsteps-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
+            <View style={styles.settingLabelWrap}>
+              <Text style={styles.settingLabelInline}>Fiziksel Aktivite</Text>
+              {isAvailable && (
+                <Text style={styles.settingSubLabel}>
+                  {permissionGranted ? 'Adım takibi aktif' : 'İzin gerekiyor'}
+                </Text>
+              )}
+            </View>
+            <View style={styles.settingRight}>
+              {isAvailable && permissionGranted ? (
+                <View style={styles.activeBadge}>
+                  <Text style={styles.activeBadgeText}>Açık</Text>
+                </View>
+              ) : isAvailable && !permissionGranted ? (
+                <View style={styles.warningBadge}>
+                  <Text style={styles.warningBadgeText}>İzin Ver</Text>
+                </View>
+              ) : null}
               <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
@@ -677,6 +744,9 @@ const styles = StyleSheet.create({
   settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm, gap: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   settingIconView: { width: 24 },
   settingLabel: { flex: 1, fontSize: FontSize.md, fontWeight: '500', color: Colors.textPrimary },
+  settingSubLabel: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 1 },
+  settingLabelWrap: { flex: 1 },
+  settingLabelInline: { fontSize: FontSize.md, fontWeight: '500', color: Colors.textPrimary },
   settingRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   activeBadge: {
     backgroundColor: Colors.primaryPale,
@@ -685,6 +755,13 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
   activeBadgeText: { fontSize: FontSize.xs, color: Colors.primary, fontWeight: '700' },
+  warningBadge: {
+    backgroundColor: '#FFF3CD',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  warningBadgeText: { fontSize: FontSize.xs, color: '#D97706', fontWeight: '700' },
 
   // Bildirim Modal
   notifModal: { flex: 1, backgroundColor: Colors.background },

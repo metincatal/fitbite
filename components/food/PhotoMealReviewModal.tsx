@@ -21,6 +21,7 @@ import {
   DetectedFoodItem,
   generateAnalysisQuestions,
   refineAnalysisWithAnswers,
+  estimateNutritionFromText,
 } from '../../lib/gemini';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -53,6 +54,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
   });
   const [showAddForm, setShowAddForm] = useState(false);
   const [addDraft, setAddDraft] = useState({ name: '', estimatedGrams: '100', calories: '0', protein: '0', carbs: '0', fat: '0' });
+  const [estimatingNutrition, setEstimatingNutrition] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('review');
   const [reanalysisQuestions, setReanalysisQuestions] = useState<string[]>([]);
   const [reanalysisAnswers, setReanalysisAnswers] = useState<string[]>([]);
@@ -145,6 +147,34 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     setItems((prev) => [...prev, newItem]);
     setAddDraft({ name: '', estimatedGrams: '100', calories: '0', protein: '0', carbs: '0', fat: '0' });
     setShowAddForm(false);
+  }
+
+  async function handleEstimateNutrition() {
+    const name = addDraft.name.trim();
+    const grams = parseFloat(addDraft.estimatedGrams);
+    if (!name) {
+      Alert.alert('Eksik Bilgi', 'Önce yiyecek adını girin.');
+      return;
+    }
+    if (!grams || grams <= 0) {
+      Alert.alert('Eksik Bilgi', 'Geçerli bir gram değeri girin.');
+      return;
+    }
+    setEstimatingNutrition(true);
+    try {
+      const result = await estimateNutritionFromText({ foodName: name, grams });
+      setAddDraft((d) => ({
+        ...d,
+        calories: String(Math.round(result.calories)),
+        protein: String(Math.round(result.protein * 10) / 10),
+        carbs: String(Math.round(result.carbs * 10) / 10),
+        fat: String(Math.round(result.fat * 10) / 10),
+      }));
+    } catch {
+      Alert.alert('Hata', 'Besin değerleri hesaplanamadı. Lütfen manuel girin.');
+    } finally {
+      setEstimatingNutrition(false);
+    }
   }
 
   async function startReanalysis() {
@@ -440,66 +470,120 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
 
                   {/* Manuel Ekle Formu */}
                   {showAddForm && (
-                    <View style={[styles.itemCard, { backgroundColor: Colors.primaryPale }]}>
-                      <Text style={styles.addFormTitle}>Yeni Yiyecek</Text>
-                      <Text style={styles.editLabel}>İsim</Text>
-                      <TextInput
-                        style={styles.editInput}
-                        value={addDraft.name}
-                        onChangeText={(v) => setAddDraft((d) => ({ ...d, name: v }))}
-                        placeholder="Yiyecek adı..."
-                        placeholderTextColor={Colors.textMuted}
-                        autoFocus
-                      />
-                      <View style={styles.editRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.editLabel}>Gram</Text>
-                          <TextInput
-                            style={styles.editInput}
-                            value={addDraft.estimatedGrams}
-                            onChangeText={(v) => setAddDraft((d) => ({ ...d, estimatedGrams: v }))}
-                            keyboardType="numeric"
-                          />
+                    <View style={styles.addFormCard}>
+                      {/* Form Başlığı */}
+                      <View style={styles.addFormHeader}>
+                        <View style={styles.addFormHeaderLeft}>
+                          <View style={styles.addFormIconWrap}>
+                            <Ionicons name="add" size={18} color={Colors.primary} />
+                          </View>
+                          <Text style={styles.addFormTitle}>Yeni Yiyecek Ekle</Text>
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.editLabel}>Kalori</Text>
+                        <TouchableOpacity onPress={() => setShowAddForm(false)} style={styles.addFormCloseBtn}>
+                          <Ionicons name="close" size={18} color={Colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* İsim */}
+                      <View style={styles.addFormField}>
+                        <Text style={styles.addFormLabel}>Yiyecek Adı</Text>
+                        <TextInput
+                          style={styles.addFormInput}
+                          value={addDraft.name}
+                          onChangeText={(v) => setAddDraft((d) => ({ ...d, name: v }))}
+                          placeholder="örn. Haşlanmış yumurta, elma..."
+                          placeholderTextColor={Colors.textMuted}
+                          autoFocus
+                        />
+                      </View>
+
+                      {/* Gram */}
+                      <View style={styles.addFormField}>
+                        <Text style={styles.addFormLabel}>Miktar (gram)</Text>
+                        <TextInput
+                          style={styles.addFormInput}
+                          value={addDraft.estimatedGrams}
+                          onChangeText={(v) => setAddDraft((d) => ({ ...d, estimatedGrams: v }))}
+                          keyboardType="numeric"
+                          placeholder="100"
+                          placeholderTextColor={Colors.textMuted}
+                        />
+                      </View>
+
+                      {/* AI Hesapla Butonu */}
+                      <TouchableOpacity
+                        style={[styles.aiEstimateBtn, estimatingNutrition && { opacity: 0.7 }]}
+                        onPress={handleEstimateNutrition}
+                        disabled={estimatingNutrition}
+                      >
+                        {estimatingNutrition ? (
+                          <>
+                            <ActivityIndicator size="small" color={Colors.primary} />
+                            <Text style={styles.aiEstimateBtnText}>Hesaplanıyor...</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Ionicons name="sparkles-outline" size={16} color={Colors.primary} />
+                            <Text style={styles.aiEstimateBtnText}>AI ile Değerleri Hesapla</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+
+                      {/* Makro Değerleri */}
+                      <View style={styles.addFormDivider} />
+                      <Text style={styles.addFormSectionLabel}>Besin Değerleri</Text>
+                      <View style={styles.addFormMacroGrid}>
+                        <View style={styles.addFormMacroItem}>
+                          <Text style={[styles.addFormMacroLabel, { color: '#E67E22' }]}>Kalori</Text>
                           <TextInput
-                            style={styles.editInput}
+                            style={[styles.addFormMacroInput, { borderColor: '#E67E2230' }]}
                             value={addDraft.calories}
                             onChangeText={(v) => setAddDraft((d) => ({ ...d, calories: v }))}
                             keyboardType="numeric"
+                            placeholder="0"
+                            placeholderTextColor={Colors.textMuted}
                           />
+                          <Text style={styles.addFormMacroUnit}>kcal</Text>
                         </View>
-                      </View>
-                      <View style={styles.editRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.editLabel}>Protein</Text>
+                        <View style={styles.addFormMacroItem}>
+                          <Text style={[styles.addFormMacroLabel, { color: Colors.protein }]}>Protein</Text>
                           <TextInput
-                            style={styles.editInput}
+                            style={[styles.addFormMacroInput, { borderColor: `${Colors.protein}30` }]}
                             value={addDraft.protein}
                             onChangeText={(v) => setAddDraft((d) => ({ ...d, protein: v }))}
                             keyboardType="numeric"
+                            placeholder="0"
+                            placeholderTextColor={Colors.textMuted}
                           />
+                          <Text style={styles.addFormMacroUnit}>g</Text>
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.editLabel}>Karb</Text>
+                        <View style={styles.addFormMacroItem}>
+                          <Text style={[styles.addFormMacroLabel, { color: Colors.carbs }]}>Karb</Text>
                           <TextInput
-                            style={styles.editInput}
+                            style={[styles.addFormMacroInput, { borderColor: `${Colors.carbs}30` }]}
                             value={addDraft.carbs}
                             onChangeText={(v) => setAddDraft((d) => ({ ...d, carbs: v }))}
                             keyboardType="numeric"
+                            placeholder="0"
+                            placeholderTextColor={Colors.textMuted}
                           />
+                          <Text style={styles.addFormMacroUnit}>g</Text>
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.editLabel}>Yağ</Text>
+                        <View style={styles.addFormMacroItem}>
+                          <Text style={[styles.addFormMacroLabel, { color: Colors.fat }]}>Yağ</Text>
                           <TextInput
-                            style={styles.editInput}
+                            style={[styles.addFormMacroInput, { borderColor: `${Colors.fat}30` }]}
                             value={addDraft.fat}
                             onChangeText={(v) => setAddDraft((d) => ({ ...d, fat: v }))}
                             keyboardType="numeric"
+                            placeholder="0"
+                            placeholderTextColor={Colors.textMuted}
                           />
+                          <Text style={styles.addFormMacroUnit}>g</Text>
                         </View>
                       </View>
+
+                      {/* Butonlar */}
                       <View style={styles.editActions}>
                         <TouchableOpacity
                           style={styles.editCancelBtn}
@@ -508,7 +592,8 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                           <Text style={styles.editCancelText}>İptal</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.editSaveBtn} onPress={commitAddItem}>
-                          <Text style={styles.editSaveText}>Ekle</Text>
+                          <Ionicons name="add-circle-outline" size={16} color={Colors.textLight} />
+                          <Text style={styles.editSaveText}>Listeye Ekle</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -725,7 +810,8 @@ const styles = StyleSheet.create({
   },
   editCancelText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
   editSaveBtn: {
-    flex: 2, alignItems: 'center', paddingVertical: Spacing.sm,
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md, backgroundColor: Colors.primary,
   },
   editSaveText: { fontSize: FontSize.sm, color: Colors.textLight, fontWeight: '700' },
@@ -744,7 +830,77 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
   },
   addItemText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '700' },
-  addFormTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.primary, marginBottom: Spacing.xs },
+
+  // New add form styles
+  addFormCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1.5,
+    borderColor: `${Colors.primary}30`,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  addFormHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  addFormHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  addFormIconWrap: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: Colors.primaryPale,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addFormTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.primary },
+  addFormCloseBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: Colors.surfaceSecondary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addFormField: { gap: 4 },
+  addFormLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600' },
+  addFormInput: {
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+    fontSize: FontSize.md,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.background,
+  },
+  aiEstimateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.primaryPale,
+    borderWidth: 1.5,
+    borderColor: `${Colors.primary}40`,
+    marginVertical: 2,
+  },
+  aiEstimateBtnText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '700' },
+  addFormDivider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: 2 },
+  addFormSectionLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  addFormMacroGrid: { flexDirection: 'row', gap: Spacing.sm },
+  addFormMacroItem: { flex: 1, alignItems: 'center', gap: 3 },
+  addFormMacroLabel: { fontSize: 11, fontWeight: '700' },
+  addFormMacroInput: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    fontSize: FontSize.sm,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.background,
+    textAlign: 'center',
+  },
+  addFormMacroUnit: { fontSize: 10, color: Colors.textMuted, fontWeight: '500' },
 
   mealSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
   mealSectionTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm },

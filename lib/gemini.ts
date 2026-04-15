@@ -332,6 +332,33 @@ export interface RecipeResult {
   nutrition: { calories: number; protein: number; carbs: number; fat: number };
 }
 
+/**
+ * Yiyecek adı ve gramaja göre besin değerlerini tahmin eder
+ */
+export async function estimateNutritionFromText(params: {
+  foodName: string;
+  grams: number;
+}): Promise<{ calories: number; protein: number; carbs: number; fat: number }> {
+  const { foodName, grams } = params;
+  const prompt = `"${foodName}" adlı yiyeceğin ${grams} gram için besin değerlerini tahmin et.
+
+SADECE şu JSON formatında yanıtla (başka metin ekleme):
+{
+  "calories": toplam kalori (sayı),
+  "protein": toplam protein gram (sayı),
+  "carbs": toplam karbonhidrat gram (sayı),
+  "fat": toplam yağ gram (sayı)
+}
+
+Gerçekçi ve bilimsel değerler kullan. Türk mutfağı referans al.`;
+
+  const result = await geminiFlash.generateContent(prompt);
+  const text = result.response.text();
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Besin değerleri hesaplanamadı');
+  return JSON.parse(jsonMatch[0]);
+}
+
 export async function generateRecipe(params: {
   request: string;
   profile: Profile;
