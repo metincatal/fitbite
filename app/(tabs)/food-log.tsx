@@ -11,8 +11,10 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
@@ -20,20 +22,43 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
-import { Colors, Spacing, FontSize, BorderRadius, getMealTypes, MealType } from '../../lib/constants';
+import { Colors, Spacing, FontSize, BorderRadius, getMealTypes, MealType, MEAL_TYPES } from '../../lib/constants';
 import { Food, FoodLogWithFood } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { recognizeMealFromImage, DetectedFoodItem } from '../../lib/gemini';
+import { recognizeMealFromImage, DetectedFoodItem, generateMealName } from '../../lib/gemini';
 import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 import { uploadFoodPhoto } from '../../lib/storage';
 import { PhotoMealReviewModal } from '../../components/food/PhotoMealReviewModal';
 import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const MEAL_COLORS: Record<string, string> = {
+  breakfast: '#F9B8A3',
+  lunch: '#B7E4C7',
+  dinner: '#8ECAE6',
+  snack: '#FFD6A5',
+};
+
+const MEAL_TEXT_COLORS: Record<string, string> = {
+  breakfast: '#C05C3A',
+  lunch: '#2D6A4F',
+  dinner: '#1A5276',
+  snack: '#B7791F',
+};
+
 export default function FoodLogScreen() {
   const router = useRouter();
   const { user, profile } = useAuthStore();
   const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, selectedDate } = useNutritionStore();
+
+  const [yesterdayLogs, setYesterdayLogs] = useState<FoodLogWithFood[]>([]);
+  // Espritüel öğün isimleri: image_url → isim
+  const [mealNames, setMealNames] = useState<Record<string, string>>({});
+  const [editingNameUrl, setEditingNameUrl] = useState<string | null>(null);
+  const [editingNameText, setEditingNameText] = useState('');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Food[]>([]);
   const [selectedMeal, setSelectedMeal] = useState<string>('breakfast');
@@ -42,16 +67,13 @@ export default function FoodLogScreen() {
   const [selectedFood, setSelectedFood] = useState<Food | null>(null);
   const [searching, setSearching] = useState(false);
 
-  // Fotoğraf tanıma state
   const [recognizing, setRecognizing] = useState(false);
   const [photoMealItems, setPhotoMealItems] = useState<DetectedFoodItem[]>([]);
   const [showPhotoReview, setShowPhotoReview] = useState(false);
 
-  // Yakalanan fotograf
   const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
   const [photoDetailGroup, setPhotoDetailGroup] = useState<FoodLogWithFood[]>([]);
 
-  // Barkod okuyucu state
   const [scanningBarcode, setScanningBarcode] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [lookingUpBarcode, setLookingUpBarcode] = useState(false);
@@ -59,14 +81,28 @@ export default function FoodLogScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   useEffect(() => {
-    if (user) fetchDayLogs(user.id, selectedDate);
+    if (user) {
+      fetchDayLogs(user.id, selectedDate);
+      fetchYesterdayLogs(user.id);
+    }
   }, [user, selectedDate]);
 
+  async function fetchYesterdayLogs(userId: string) {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 1);
+    const yesterday = d.toISOString().split('T')[0];
+    const { data } = await supabase
+      .from('food_logs')
+      .select('*, food:foods(*)')
+      .eq('user_id', userId)
+      .gte('logged_at', `${yesterday}T00:00:00`)
+      .lte('logged_at', `${yesterday}T23:59:59`)
+      .order('logged_at', { ascending: true });
+    setYesterdayLogs((data as FoodLogWithFood[]) ?? []);
+  }
+
   async function searchFoods(query: string) {
-    if (query.length < 2) {
-      setSearchResults([]);
-      return;
-    }
+    if (query.length < 2) { setSearchResults([]); return; }
     setSearching(true);
     const { data } = await supabase
       .from('foods')
@@ -80,11 +116,7 @@ export default function FoodLogScreen() {
   async function handleAddFood() {
     if (!selectedFood || !user) return;
     const amount = parseFloat(servingAmount);
-    if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin');
-      return;
-    }
-
+    if (isNaN(amount) || amount <= 0) { Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin'); return; }
     const ratio = amount / 100;
     await addFoodLog({
       user_id: user.id,
@@ -97,7 +129,6 @@ export default function FoodLogScreen() {
       fat: Math.round(selectedFood.fat * ratio * 10) / 10,
       logged_at: new Date().toISOString(),
     });
-
     setSelectedFood(null);
     setSearchQuery('');
     setSearchResults([]);
@@ -107,41 +138,28 @@ export default function FoodLogScreen() {
   async function handleSavePhotoMeal(items: DetectedFoodItem[], mealType: MealType) {
     if (!user) return;
 
-    // Fotoğrafı Storage'a yükle (bir kez)
     let imageUrl: string | null = null;
     if (capturedImageBase64) {
       imageUrl = await uploadFoodPhoto(user.id, capturedImageBase64);
     }
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
+    for (const item of items) {
       const per100 = item.estimatedGrams > 0 ? 100 / item.estimatedGrams : 1;
-
       const { data: newFood, error } = await supabase
         .from('foods')
         .insert({
-          name: item.name,
-          name_tr: item.name,
-          category: 'AI Tanıma',
+          name: item.name, name_tr: item.name, category: 'AI Tanıma',
           calories_per_100g: Math.round(item.calories * per100),
           protein: Math.round(item.protein * per100 * 10) / 10,
           carbs: Math.round(item.carbs * per100 * 10) / 10,
           fat: Math.round(item.fat * per100 * 10) / 10,
-          fiber: 0,
-          serving_size: 100,
-          serving_unit: 'g',
-          is_turkish: true,
-          created_by: user.id,
+          fiber: 0, serving_size: 100, serving_unit: 'g', is_turkish: true, created_by: user.id,
         })
         .select()
         .single();
-
       if (error || !newFood) continue;
-
       await addFoodLog({
-        user_id: user.id,
-        food_id: newFood.id,
-        meal_type: mealType,
+        user_id: user.id, food_id: newFood.id, meal_type: mealType,
         serving_amount: item.estimatedGrams,
         calories: Math.round(item.calories),
         protein: Math.round(item.protein * 10) / 10,
@@ -150,6 +168,14 @@ export default function FoodLogScreen() {
         image_url: imageUrl,
         logged_at: new Date().toISOString(),
       });
+    }
+
+    // Espritüel isim üret
+    if (imageUrl) {
+      try {
+        const name = await generateMealName(items.map((i) => i.name));
+        setMealNames((prev) => ({ ...prev, [imageUrl!]: name }));
+      } catch {}
     }
 
     setCapturedImageBase64(null);
@@ -161,27 +187,14 @@ export default function FoodLogScreen() {
     if (scanned || lookingUpBarcode) return;
     setScanned(true);
     setLookingUpBarcode(true);
-
     const food = await lookupBarcode(data);
     setLookingUpBarcode(false);
-
     if (!food || food.calories === 0) {
-      Alert.alert(
-        'Ürün Bulunamadı',
-        'Bu barkod için besin değerleri bulunamadı. Manuel arama yapabilirsiniz.',
-        [
-          {
-            text: 'Tamam',
-            onPress: () => {
-              setScanned(false);
-              setScanningBarcode(false);
-            },
-          },
-        ]
-      );
+      Alert.alert('Ürün Bulunamadı', 'Bu barkod için besin değerleri bulunamadı.', [
+        { text: 'Tamam', onPress: () => { setScanned(false); setScanningBarcode(false); } },
+      ]);
       return;
     }
-
     setBarcodeResult(food);
     setScanningBarcode(false);
     setServingAmount('100');
@@ -190,113 +203,58 @@ export default function FoodLogScreen() {
   async function handleAddBarcodeFood() {
     if (!barcodeResult || !user) return;
     const amount = parseFloat(servingAmount);
-    if (isNaN(amount) || amount <= 0) {
-      Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin');
-      return;
-    }
-
-    const fullName = barcodeResult.brand
-      ? `${barcodeResult.brand} - ${barcodeResult.name}`
-      : barcodeResult.name;
-
+    if (isNaN(amount) || amount <= 0) { Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin'); return; }
+    const fullName = barcodeResult.brand ? `${barcodeResult.brand} - ${barcodeResult.name}` : barcodeResult.name;
     const { data: newFood, error } = await supabase
       .from('foods')
       .insert({
-        name: fullName,
-        name_tr: barcodeResult.name,
-        category: 'Paketli Ürün',
-        calories_per_100g: barcodeResult.calories,
-        protein: barcodeResult.protein,
-        carbs: barcodeResult.carbs,
-        fat: barcodeResult.fat,
-        fiber: barcodeResult.fiber,
-        serving_size: 100,
-        serving_unit: 'g',
-        is_turkish: false,
-        created_by: user.id,
+        name: fullName, name_tr: barcodeResult.name, category: 'Paketli Ürün',
+        calories_per_100g: barcodeResult.calories, protein: barcodeResult.protein,
+        carbs: barcodeResult.carbs, fat: barcodeResult.fat, fiber: barcodeResult.fiber,
+        serving_size: 100, serving_unit: 'g', is_turkish: false, created_by: user.id,
       })
-      .select()
-      .single();
-
-    if (error || !newFood) {
-      Alert.alert('Hata', 'Yemek kaydedilemedi');
-      return;
-    }
-
+      .select().single();
+    if (error || !newFood) { Alert.alert('Hata', 'Yemek kaydedilemedi'); return; }
     const ratio = amount / 100;
     await addFoodLog({
-      user_id: user.id,
-      food_id: newFood.id,
-      meal_type: selectedMeal as MealType,
-      serving_amount: amount,
+      user_id: user.id, food_id: newFood.id, meal_type: selectedMeal as MealType, serving_amount: amount,
       calories: Math.round(barcodeResult.calories * ratio),
       protein: Math.round(barcodeResult.protein * ratio * 10) / 10,
       carbs: Math.round(barcodeResult.carbs * ratio * 10) / 10,
       fat: Math.round(barcodeResult.fat * ratio * 10) / 10,
       logged_at: new Date().toISOString(),
     });
-
-    setBarcodeResult(null);
-    setScanned(false);
-    setServingAmount('100');
-    setShowSearch(false);
+    setBarcodeResult(null); setScanned(false); setServingAmount('100'); setShowSearch(false);
   }
 
   async function openBarcodeScanner() {
     if (!cameraPermission?.granted) {
       const { granted } = await requestCameraPermission();
-      if (!granted) {
-        Alert.alert('İzin Gerekli', 'Barkod okumak için kamera iznine ihtiyaç var.');
-        return;
-      }
+      if (!granted) { Alert.alert('İzin Gerekli', 'Barkod okumak için kamera iznine ihtiyaç var.'); return; }
     }
-    setScanned(false);
-    setBarcodeResult(null);
-    setScanningBarcode(true);
+    setScanned(false); setBarcodeResult(null); setScanningBarcode(true);
   }
 
   async function openImagePicker(source: 'camera' | 'gallery') {
     let result: ImagePicker.ImagePickerResult;
-
     if (source === 'camera') {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('İzin Gerekli', 'Kamera kullanmak için izin vermeniz gerekiyor.');
-        return;
-      }
-      result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        quality: 0.7,
-        base64: true,
-        allowsEditing: true,
-        aspect: [1, 1],
-      });
+      if (status !== 'granted') { Alert.alert('İzin Gerekli', 'Kamera kullanmak için izin vermeniz gerekiyor.'); return; }
+      result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7, base64: true, allowsEditing: true, aspect: [1, 1] });
     } else {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('İzin Gerekli', 'Galeriye erişmek için izin vermeniz gerekiyor.');
-        return;
-      }
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.7,
-        base64: true,
-        allowsEditing: true,
-        aspect: [1, 1],
-      });
+      if (status !== 'granted') { Alert.alert('İzin Gerekli', 'Galeriye erişmek için izin vermeniz gerekiyor.'); return; }
+      result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, base64: true, allowsEditing: true, aspect: [1, 1] });
     }
-
     if (result.canceled || !result.assets[0].base64) return;
-
     const base64Data = result.assets[0].base64;
     setCapturedImageBase64(base64Data);
     setRecognizing(true);
     setSelectedFood(null);
-
+    setShowSearch(false);
     try {
       const items = await recognizeMealFromImage(base64Data);
       setPhotoMealItems(items);
-      setShowSearch(false);
       setShowPhotoReview(true);
     } catch {
       setCapturedImageBase64(null);
@@ -307,420 +265,444 @@ export default function FoodLogScreen() {
   }
 
   const mealTypes = getMealTypes(profile?.meal_count ?? 3);
+  const totalCaloriesToday = foodLogs.reduce((s, l) => s + l.calories, 0);
+  const totalCaloriesYesterday = yesterdayLogs.reduce((s, l) => s + l.calories, 0);
 
-  const getMealLogs = (meal: string) =>
-    foodLogs.filter((l) => l.meal_type === meal);
+  function formatDate(dateStr: string) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
+  }
 
-  const getMealCalories = (meal: string) =>
-    getMealLogs(meal).reduce((sum, l) => sum + l.calories, 0);
+  const todayLabel = formatDate(selectedDate);
+  const yesterdayDate = (() => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  })();
+  const yesterdayLabel = formatDate(yesterdayDate);
+
+  function getMealLabel(mealType: string) {
+    return mealTypes.find((m) => m.key === mealType)?.label ?? MEAL_TYPES[mealType as MealType] ?? mealType;
+  }
+
+  function renderFeedItems(logs: FoodLogWithFood[], readonly = false) {
+    const rendered: React.ReactNode[] = [];
+    const seenUrls = new Set<string>();
+
+    logs.forEach((log) => {
+      if (log.image_url) {
+        if (seenUrls.has(log.image_url)) return;
+        seenUrls.add(log.image_url);
+        const group = logs.filter((l) => l.image_url === log.image_url);
+        const totalCal = group.reduce((s, l) => s + l.calories, 0);
+        const mealName = mealNames[log.image_url];
+        const isEditingName = editingNameUrl === log.image_url;
+
+        rendered.push(
+          <TouchableOpacity
+            key={`photo-${log.image_url}`}
+            style={styles.photoCard}
+            onPress={() => !readonly && setPhotoDetailGroup(group)}
+            activeOpacity={0.92}
+          >
+            <Image source={{ uri: log.image_url }} style={styles.photoCardImage} resizeMode="cover" />
+
+            {/* Üst: öğün badge + kalori chip + silme */}
+            <View style={styles.photoCardTopRow}>
+              <View style={[styles.mealBadge, { backgroundColor: MEAL_COLORS[log.meal_type] ?? Colors.borderLight }]}>
+                <Text style={[styles.mealBadgeText, { color: MEAL_TEXT_COLORS[log.meal_type] ?? Colors.textPrimary }]}>
+                  {getMealLabel(log.meal_type)}
+                </Text>
+              </View>
+              <View style={styles.photoCardTopRight}>
+                <View style={styles.caloriePill}>
+                  <Text style={styles.caloriePillText}>{Math.round(totalCal)} kcal</Text>
+                </View>
+                {!readonly && (
+                  <TouchableOpacity
+                    style={styles.photoDeleteBtn}
+                    onPress={() => group.forEach((l) => removeFoodLog(l.id))}
+                  >
+                    <Ionicons name="trash-outline" size={14} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+
+            {/* Alt: yumuşak gradient + isim */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.55)']}
+              style={styles.photoCardGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+            >
+              {isEditingName ? (
+                <View style={styles.nameEditRow}>
+                  <TextInput
+                    style={styles.nameEditInput}
+                    value={editingNameText}
+                    onChangeText={setEditingNameText}
+                    autoFocus
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      if (editingNameText.trim()) {
+                        setMealNames((prev) => ({ ...prev, [editingNameUrl!]: editingNameText.trim() }));
+                      }
+                      setEditingNameUrl(null);
+                    }}
+                    onBlur={() => {
+                      if (editingNameText.trim()) {
+                        setMealNames((prev) => ({ ...prev, [editingNameUrl!]: editingNameText.trim() }));
+                      }
+                      setEditingNameUrl(null);
+                    }}
+                  />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    setEditingNameUrl(log.image_url!);
+                    setEditingNameText(mealName ?? '');
+                  }}
+                  style={styles.nameTouchable}
+                >
+                  <Text style={styles.photoMealName}>
+                    {mealName ? mealName : '+ İsim ekle'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        );
+      } else {
+        const bg = MEAL_COLORS[log.meal_type] ?? Colors.borderLight;
+        const tc = MEAL_TEXT_COLORS[log.meal_type] ?? Colors.textPrimary;
+        rendered.push(
+          <View key={log.id} style={[styles.textItem, readonly && styles.textItemReadonly]}>
+            <View style={[styles.textItemAccent, { backgroundColor: bg }]} />
+            <View style={styles.textItemBody}>
+              <Text style={styles.textItemName} numberOfLines={1}>
+                {log.food?.name_tr ?? log.food?.name}
+              </Text>
+              <View style={styles.textItemMeta}>
+                <View style={[styles.mealPill, { backgroundColor: bg }]}>
+                  <Text style={[styles.mealPillText, { color: tc }]}>{getMealLabel(log.meal_type)}</Text>
+                </View>
+                <Text style={styles.textItemServing}>{log.serving_amount}g</Text>
+              </View>
+            </View>
+            <View style={styles.textItemRight}>
+              <Text style={styles.textItemCalories}>{Math.round(log.calories)}</Text>
+              <Text style={styles.textItemKcal}>kcal</Text>
+            </View>
+            {!readonly && (
+              <View style={styles.textItemActions}>
+                <TouchableOpacity onPress={() => router.push(`/food/${log.food_id}`)} style={styles.textActionBtn}>
+                  <Ionicons name="information-circle-outline" size={19} color={Colors.textMuted} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => removeFoodLog(log.id)} style={styles.textActionBtn}>
+                  <Ionicons name="close" size={18} color={Colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        );
+      }
+    });
+
+    return rendered;
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Başlık */}
       <View style={styles.header}>
         <Text style={styles.title}>Yemek Günlüğü</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowSearch(true)}
-        >
-          <Text style={styles.addButtonText}>+ Ekle</Text>
-        </TouchableOpacity>
+        <View style={styles.headerMeta}>
+          <Text style={styles.headerCalories}>{Math.round(totalCaloriesToday)} kcal</Text>
+          <Text style={styles.headerCaloriesLabel}>bugün</Text>
+        </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Öğün Seçici */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.mealTabs}
-          contentContainerStyle={styles.mealTabsContent}
-        >
-          {mealTypes.map(({ key, label }) => (
-            <TouchableOpacity
-              key={`${key}-${label}`}
-              style={[styles.mealTab, selectedMeal === key && styles.mealTabActive]}
-              onPress={() => setSelectedMeal(key)}
-            >
-              <Text style={[styles.mealTabText, selectedMeal === key && styles.mealTabTextActive]}>
-                {label}
-              </Text>
-              <Text style={[styles.mealTabCalories, selectedMeal === key && styles.mealTabCaloriesActive]}>
-                {Math.round(getMealCalories(key))} kcal
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* Seçili Öğünün Yemekleri */}
-        <View style={styles.foodList}>
-          {getMealLogs(selectedMeal).length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="restaurant-outline" size={40} color={Colors.textMuted} style={{ marginBottom: Spacing.md }} />
-              <Text style={styles.emptyTitle}>{mealTypes.find((m) => m.key === selectedMeal)?.label ?? selectedMeal} için henüz yemek eklenmedi</Text>
-              <Text style={styles.emptySubtitle}>Yemek eklemek için + Ekle butonuna bas</Text>
-            </View>
-          ) : (() => {
-            // Aynı image_url'e sahip kayıtları grupla
-            const logs = getMealLogs(selectedMeal);
-            const rendered: React.ReactNode[] = [];
-            const seenUrls = new Set<string>();
-
-            logs.forEach((log) => {
-              if (log.image_url) {
-                if (seenUrls.has(log.image_url)) return;
-                seenUrls.add(log.image_url);
-                const group = logs.filter((l) => l.image_url === log.image_url);
-                const totalCal = group.reduce((s, l) => s + l.calories, 0);
-                const totalP = group.reduce((s, l) => s + l.protein, 0);
-                const totalK = group.reduce((s, l) => s + l.carbs, 0);
-                const totalY = group.reduce((s, l) => s + l.fat, 0);
-
-                rendered.push(
-                  <TouchableOpacity
-                    key={`photo-${log.image_url}`}
-                    style={styles.photoMealCard}
-                    onPress={() => setPhotoDetailGroup(group)}
-                    activeOpacity={0.85}
-                  >
-                    <Image
-                      source={{ uri: log.image_url }}
-                      style={styles.photoMealImage}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.photoMealOverlay}>
-                      <View style={styles.photoMealBadge}>
-                        <Ionicons name="camera" size={11} color="rgba(255,255,255,0.9)" />
-                        <Text style={styles.photoMealBadgeText}>{group.length} yiyecek</Text>
-                      </View>
-                    </View>
-                    <View style={styles.photoMealInfo}>
-                      <View style={styles.photoMealInfoLeft}>
-                        <Text style={styles.photoMealCalories}>{Math.round(totalCal)} kcal</Text>
-                        <View style={styles.photoMealMacros}>
-                          <Text style={[styles.photoMealMacro, { color: Colors.protein }]}>P {Math.round(totalP)}g</Text>
-                          <Text style={[styles.photoMealMacro, { color: Colors.carbs }]}>K {Math.round(totalK)}g</Text>
-                          <Text style={[styles.photoMealMacro, { color: Colors.fat }]}>Y {Math.round(totalY)}g</Text>
-                        </View>
-                      </View>
-                      <View style={styles.photoMealInfoRight}>
-                        <TouchableOpacity
-                          style={styles.photoMealDeleteBtn}
-                          onPress={() => group.forEach((l) => removeFoodLog(l.id))}
-                        >
-                          <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
-                        </TouchableOpacity>
-                        <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-                      </View>
-                    </View>
-                  </TouchableOpacity>
-                );
-              } else {
-                rendered.push(
-                  <Card key={log.id} style={styles.foodItem}>
-                    <View style={styles.foodItemContent}>
-                      <View style={styles.foodItemHeader}>
-                        <Text style={styles.foodName}>{log.food?.name_tr ?? log.food?.name}</Text>
-                        <View style={styles.foodItemActions}>
-                          <TouchableOpacity
-                            onPress={() => router.push(`/food/${log.food_id}`)}
-                            style={styles.infoBtn}
-                          >
-                            <Ionicons name="information-circle-outline" size={20} color={Colors.textMuted} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => removeFoodLog(log.id)}>
-                            <Text style={styles.deleteIcon}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      <Text style={styles.foodServing}>{log.serving_amount}g</Text>
-                      <View style={styles.foodMacros}>
-                        <Text style={styles.foodCalories}>{Math.round(log.calories)} kcal</Text>
-                        <Text style={styles.foodMacro}>P: {log.protein}g</Text>
-                        <Text style={styles.foodMacro}>K: {log.carbs}g</Text>
-                        <Text style={styles.foodMacro}>Y: {log.fat}g</Text>
-                      </View>
-                    </View>
-                  </Card>
-                );
-              }
-            });
-            return rendered;
-          })()}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Bugün */}
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionHeaderLeft}>
+            <View style={styles.sectionDot} />
+            <Text style={styles.sectionTitle}>Bugün</Text>
+            <Text style={styles.sectionDate}>{todayLabel}</Text>
+          </View>
+          <Text style={styles.sectionCalories}>{Math.round(totalCaloriesToday)} kcal</Text>
         </View>
 
-        <View style={{ height: Spacing.xl }} />
+        {foodLogs.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="restaurant-outline" size={28} color={Colors.textMuted} />
+            </View>
+            <Text style={styles.emptyText}>Henüz yemek eklenmedi</Text>
+            <Text style={styles.emptySubtext}>Sağ alttaki + butonuna bas</Text>
+          </View>
+        ) : (
+          <View style={styles.feedSection}>{renderFeedItems(foodLogs, false)}</View>
+        )}
+
+        {/* Dün */}
+        <View style={[styles.sectionHeader, { marginTop: Spacing.lg }]}>
+          <View style={styles.sectionHeaderLeft}>
+            <View style={[styles.sectionDot, { backgroundColor: Colors.textMuted }]} />
+            <Text style={[styles.sectionTitle, { color: Colors.textMuted }]}>Dün</Text>
+            <Text style={styles.sectionDate}>{yesterdayLabel}</Text>
+          </View>
+          {yesterdayLogs.length > 0 && (
+            <Text style={[styles.sectionCalories, { color: Colors.textMuted }]}>
+              {Math.round(totalCaloriesYesterday)} kcal
+            </Text>
+          )}
+        </View>
+
+        {yesterdayLogs.length === 0 ? (
+          <View style={[styles.emptyState, { paddingVertical: Spacing.md }]}>
+            <Text style={styles.emptySubtext}>Dün kayıt yok</Text>
+          </View>
+        ) : (
+          <View style={[styles.feedSection, { opacity: 0.75 }]}>{renderFeedItems(yesterdayLogs, true)}</View>
+        )}
+
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Fotoğraf Analiz Detay Modal */}
+      {/* FAB */}
+      <TouchableOpacity style={styles.fab} onPress={() => setShowSearch(true)} activeOpacity={0.85}>
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
+
       <MealPhotoDetailModal
         visible={photoDetailGroup.length > 0}
         onClose={() => setPhotoDetailGroup([])}
         logs={photoDetailGroup}
-        onRemoveAll={() => {
-          photoDetailGroup.forEach((l) => removeFoodLog(l.id));
-          setPhotoDetailGroup([]);
-        }}
+        onRemoveAll={() => { photoDetailGroup.forEach((l) => removeFoodLog(l.id)); setPhotoDetailGroup([]); }}
       />
 
-      {/* Çoklu Yemek AI Analiz Modal */}
       <PhotoMealReviewModal
         visible={showPhotoReview}
-        onClose={() => {
-          setShowPhotoReview(false);
-          setCapturedImageBase64(null);
-          setPhotoMealItems([]);
-        }}
+        onClose={() => { setShowPhotoReview(false); setCapturedImageBase64(null); setPhotoMealItems([]); }}
         items={photoMealItems}
         imageBase64={capturedImageBase64}
         onSave={handleSavePhotoMeal}
       />
 
-      {/* Yemek Arama Modal */}
+      {/* Yemek Ekle Modal — Yeniden Tasarım */}
       <Modal visible={showSearch} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modal}>
+          {/* Header */}
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Yemek Ara</Text>
             <TouchableOpacity onPress={() => {
-            setShowSearch(false);
-            setSelectedFood(null);
-            setSearchQuery('');
-            setBarcodeResult(null);
-            setScanned(false);
-            setScanningBarcode(false);
-            setSearchResults([]);
-          }}>
-              <Text style={styles.modalClose}>Kapat</Text>
+              setShowSearch(false); setSelectedFood(null); setSearchQuery('');
+              setBarcodeResult(null); setScanned(false); setScanningBarcode(false); setSearchResults([]);
+            }}>
+              <Ionicons name="close" size={24} color={Colors.textPrimary} />
             </TouchableOpacity>
+            <Text style={styles.modalTitle}>Yemek Ekle</Text>
+            <View style={{ width: 24 }} />
           </View>
 
-          {/* Öğün Seçimi */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.modalMealTabs}
-            contentContainerStyle={[styles.mealTabsContent, { alignItems: 'center' }]}
-          >
+          {/* Öğün seçimi */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.mealTabsContent} style={styles.modalMealTabs}>
             {mealTypes.map(({ key, label }) => (
               <TouchableOpacity
                 key={`modal-${key}-${label}`}
                 style={[styles.mealTab, selectedMeal === key && styles.mealTabActive]}
                 onPress={() => setSelectedMeal(key)}
               >
-                <Text style={[styles.mealTabText, selectedMeal === key && styles.mealTabTextActive]}>
-                  {label}
-                </Text>
+                <Text style={[styles.mealTabText, selectedMeal === key && styles.mealTabTextActive]}>{label}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
-          {/* Barkod Tarayıcı (Tam Ekran) */}
+          {/* Barkod tarayıcı */}
           {scanningBarcode && (
-            <View style={styles.barcodeContainer}>
+            <View style={StyleSheet.absoluteFillObject}>
               <CameraView
                 style={StyleSheet.absoluteFillObject}
                 facing="back"
                 onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
-                barcodeScannerSettings={{
-                  barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'],
-                }}
+                barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'] }}
               />
-              {/* Tarama çerçevesi */}
               <View style={styles.barcodeScanFrame}>
                 <View style={styles.barcodeScanBox} />
                 <Text style={styles.barcodeScanHint}>
                   {lookingUpBarcode ? 'Ürün aranıyor...' : 'Barkodu çerçeveye hizalayın'}
                 </Text>
-                {lookingUpBarcode && (
-                  <ActivityIndicator
-                    size="large"
-                    color={Colors.textLight}
-                    style={{ marginTop: Spacing.md }}
-                  />
-                )}
+                {lookingUpBarcode && <ActivityIndicator size="large" color="#fff" style={{ marginTop: Spacing.md }} />}
               </View>
-              <TouchableOpacity
-                style={styles.barcodeClose}
-                onPress={() => {
-                  setScanningBarcode(false);
-                  setScanned(false);
-                }}
-              >
-                <Text style={styles.barcodeCloseText}>✕ Kapat</Text>
+              <TouchableOpacity style={styles.barcodeClose} onPress={() => { setScanningBarcode(false); setScanned(false); }}>
+                <Text style={styles.barcodeCloseText}>Kapat</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {/* Fotoğrafla Tara & Barkod Butonları */}
           {!scanningBarcode && (
-          <View style={styles.photoSection}>
-            <TouchableOpacity
-              style={styles.photoButton}
-              onPress={() => openImagePicker('camera')}
-              disabled={recognizing}
-            >
-              <Ionicons name="camera-outline" size={22} color={Colors.primary} />
-              <Text style={styles.photoButtonText}>Kamera</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.photoButton}
-              onPress={() => openImagePicker('gallery')}
-              disabled={recognizing}
-            >
-              <Ionicons name="image-outline" size={22} color={Colors.primary} />
-              <Text style={styles.photoButtonText}>Galeri</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.photoButton}
-              onPress={openBarcodeScanner}
-              disabled={recognizing}
-            >
-              <Ionicons name="barcode-outline" size={22} color={Colors.primary} />
-              <Text style={styles.photoButtonText}>Barkod</Text>
-            </TouchableOpacity>
-          </View>
-          )}
-
-          {/* Tanıma Yükleniyor */}
-          {recognizing && (
-            <View style={styles.recognizingContainer}>
-              <ActivityIndicator size="large" color={Colors.primary} />
-              <Text style={styles.recognizingText}>Yemekler analiz ediliyor...</Text>
-            </View>
-          )}
-
-          {/* Barkod Sonucu */}
-          {barcodeResult && !scanningBarcode && (
-            <Card style={styles.recognizedCard}>
-              <View style={styles.recognizedHeader}>
-                <Text style={styles.recognizedLabel}>Barkod Sonucu</Text>
-                <View style={[styles.confidenceBadge, { backgroundColor: Colors.primaryLight }]}>
-                  <Ionicons name="checkmark" size={12} color={Colors.textLight} />
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {/* Fotoğraf / Barkod Butonları */}
+              {!recognizing && !barcodeResult && !selectedFood && (
+                <View style={styles.addMethodSection}>
+                  <Text style={styles.addMethodLabel}>Fotoğrafla Ekle</Text>
+                  <View style={styles.addMethodRow}>
+                    <TouchableOpacity style={styles.addMethodCard} onPress={() => openImagePicker('camera')}>
+                      <View style={[styles.addMethodIcon, { backgroundColor: '#EDF6FF' }]}>
+                        <Ionicons name="camera" size={24} color="#2563EB" />
+                      </View>
+                      <Text style={styles.addMethodCardTitle}>Fotoğraf Çek</Text>
+                      <Text style={styles.addMethodCardSub}>AI analiz eder</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.addMethodCard} onPress={() => openImagePicker('gallery')}>
+                      <View style={[styles.addMethodIcon, { backgroundColor: '#F5F0FF' }]}>
+                        <Ionicons name="images" size={24} color="#7C3AED" />
+                      </View>
+                      <Text style={styles.addMethodCardTitle}>Galeriden Seç</Text>
+                      <Text style={styles.addMethodCardSub}>AI analiz eder</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.addMethodCard} onPress={openBarcodeScanner}>
+                      <View style={[styles.addMethodIcon, { backgroundColor: '#FFF7ED' }]}>
+                        <Ionicons name="barcode" size={24} color="#EA580C" />
+                      </View>
+                      <Text style={styles.addMethodCardTitle}>Barkod Tara</Text>
+                      <Text style={styles.addMethodCardSub}>Paketli ürün</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-              {barcodeResult.brand ? (
-                <Text style={styles.barcodeBrand}>{barcodeResult.brand}</Text>
-              ) : null}
-              <Text style={styles.selectedFoodName}>{barcodeResult.name}</Text>
-              <Text style={styles.selectedFoodCalories}>
-                {barcodeResult.calories} kcal / 100g
-              </Text>
-              <View style={styles.macroRow}>
-                <Text style={styles.macroItem}>P: {barcodeResult.protein}g</Text>
-                <Text style={styles.macroItem}>K: {barcodeResult.carbs}g</Text>
-                <Text style={styles.macroItem}>Y: {barcodeResult.fat}g</Text>
-              </View>
-              <View style={styles.servingRow}>
-                <Text style={styles.servingLabel}>Porsiyon (g):</Text>
-                <TextInput
-                  style={styles.servingInput}
-                  value={servingAmount}
-                  onChangeText={setServingAmount}
-                  keyboardType="numeric"
-                  selectTextOnFocus
-                />
-              </View>
-              <Text style={styles.calculatedCalories}>
-                = {Math.round(barcodeResult.calories * (parseFloat(servingAmount) || 0) / 100)} kcal
-              </Text>
-              <View style={styles.recognizedActions}>
-                <Button
-                  title="Ekle"
-                  onPress={handleAddBarcodeFood}
-                  style={styles.addFoodButton}
-                />
-                <TouchableOpacity
-                  style={styles.retryButton}
-                  onPress={() => {
-                    setBarcodeResult(null);
-                    setScanned(false);
-                  }}
-                >
-                  <Text style={styles.retryText}>Yeniden Tara</Text>
-                </TouchableOpacity>
-              </View>
-            </Card>
-          )}
+              )}
 
-          {/* Ayırıcı */}
-          {!recognizing && !barcodeResult && !scanningBarcode && (
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>veya ara</Text>
-              <View style={styles.dividerLine} />
-            </View>
-          )}
-
-          {/* Arama Kutusu */}
-          {!recognizing && !barcodeResult && !scanningBarcode && (
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={18} color={Colors.textMuted} style={{ marginRight: Spacing.sm }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Yemek adı ara... (örn: tavuk, pilav)"
-              value={searchQuery}
-              onChangeText={(text) => {
-                setSearchQuery(text);
-                searchFoods(text);
-              }}
-              placeholderTextColor={Colors.textMuted}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
-                <Text style={styles.clearSearch}>✕</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          )}
-
-          {/* Seçili Yemek Detayı */}
-          {/* Seçili Yemek Detayı */}
-          {selectedFood && !barcodeResult && (
-            <Card style={styles.selectedFoodCard}>
-              <Text style={styles.selectedFoodName}>{selectedFood.name_tr}</Text>
-              <Text style={styles.selectedFoodCalories}>
-                {selectedFood.calories_per_100g} kcal / 100g
-              </Text>
-              <View style={styles.servingRow}>
-                <Text style={styles.servingLabel}>Porsiyon (g):</Text>
-                <TextInput
-                  style={styles.servingInput}
-                  value={servingAmount}
-                  onChangeText={setServingAmount}
-                  keyboardType="numeric"
-                  selectTextOnFocus
-                />
-              </View>
-              <Text style={styles.calculatedCalories}>
-                = {Math.round(selectedFood.calories_per_100g * (parseFloat(servingAmount) || 0) / 100)} kcal
-              </Text>
-              <Button title="Ekle" onPress={handleAddFood} style={styles.addFoodButton} />
-            </Card>
-          )}
-
-          {/* Arama Sonuçları */}
-          <FlatList
-            data={recognizing || barcodeResult || scanningBarcode ? [] : searchResults}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[styles.searchResult, selectedFood?.id === item.id && styles.searchResultSelected]}
-                onPress={() => setSelectedFood(item)}
-              >
-                <View style={styles.searchResultInfo}>
-                  <Text style={styles.searchResultName}>{item.name_tr}</Text>
-                  <Text style={styles.searchResultCategory}>{item.category}</Text>
+              {/* Analiz yükleniyor */}
+              {recognizing && (
+                <View style={styles.recognizingContainer}>
+                  <ActivityIndicator size="large" color={Colors.primary} />
+                  <Text style={styles.recognizingText}>Yemekler analiz ediliyor...</Text>
+                  <Text style={styles.recognizingSubtext}>AI görselinizi inceliyor</Text>
                 </View>
-                <Text style={styles.searchResultCalories}>{item.calories_per_100g} kcal/100g</Text>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              searchQuery.length >= 2 && !searching ? (
-                <View style={styles.noResults}>
-                  <Text style={styles.noResultsText}>"{searchQuery}" için sonuç bulunamadı</Text>
+              )}
+
+              {/* Barkod Sonucu */}
+              {barcodeResult && !scanningBarcode && (
+                <View style={styles.barcodeResultCard}>
+                  <View style={styles.barcodeResultHeader}>
+                    <Ionicons name="barcode-outline" size={20} color={Colors.primary} />
+                    <Text style={styles.barcodeResultTitle}>Ürün Bulundu</Text>
+                  </View>
+                  {barcodeResult.brand && <Text style={styles.barcodeBrand}>{barcodeResult.brand}</Text>}
+                  <Text style={styles.selectedFoodName}>{barcodeResult.name}</Text>
+                  <Text style={styles.selectedFoodCalories}>{barcodeResult.calories} kcal / 100g</Text>
+                  <View style={styles.macroRow}>
+                    <Text style={styles.macroItem}>P: {barcodeResult.protein}g</Text>
+                    <Text style={styles.macroItem}>K: {barcodeResult.carbs}g</Text>
+                    <Text style={styles.macroItem}>Y: {barcodeResult.fat}g</Text>
+                  </View>
+                  <View style={styles.servingRow}>
+                    <Text style={styles.servingLabel}>Porsiyon (g):</Text>
+                    <TextInput
+                      style={styles.servingInput} value={servingAmount}
+                      onChangeText={setServingAmount} keyboardType="numeric" selectTextOnFocus
+                    />
+                  </View>
+                  <Text style={styles.calculatedCalories}>
+                    = {Math.round(barcodeResult.calories * (parseFloat(servingAmount) || 0) / 100)} kcal
+                  </Text>
+                  <View style={styles.barcodeResultActions}>
+                    <TouchableOpacity style={styles.barcodeRetryBtn} onPress={() => { setBarcodeResult(null); setScanned(false); }}>
+                      <Text style={styles.barcodeRetryText}>Yeniden Tara</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.barcodeAddBtn} onPress={handleAddBarcodeFood}>
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                      <Text style={styles.barcodeAddText}>Günlüğe Ekle</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              ) : null
-            }
-          />
+              )}
+
+              {/* Arama Kutusu */}
+              {!recognizing && !barcodeResult && (
+                <View style={styles.searchSection}>
+                  {!barcodeResult && !selectedFood && (
+                    <Text style={styles.addMethodLabel}>Manuel Ara</Text>
+                  )}
+                  <View style={styles.searchBox}>
+                    <Ionicons name="search-outline" size={20} color={Colors.textMuted} />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Yemek adı yazın..."
+                      value={searchQuery}
+                      onChangeText={(t) => { setSearchQuery(t); searchFoods(t); }}
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                    {searchQuery.length > 0 && (
+                      <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
+                        <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Seçili yemek detayı */}
+                  {selectedFood && (
+                    <View style={styles.selectedFoodCard}>
+                      <View style={styles.selectedFoodHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.selectedFoodName}>{selectedFood.name_tr}</Text>
+                          <Text style={styles.selectedFoodCalories}>{selectedFood.calories_per_100g} kcal / 100g</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => setSelectedFood(null)}>
+                          <Ionicons name="close" size={20} color={Colors.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.servingRow}>
+                        <Text style={styles.servingLabel}>Porsiyon (g):</Text>
+                        <TextInput
+                          style={styles.servingInput} value={servingAmount}
+                          onChangeText={setServingAmount} keyboardType="numeric" selectTextOnFocus
+                        />
+                      </View>
+                      <Text style={styles.calculatedCalories}>
+                        = {Math.round(selectedFood.calories_per_100g * (parseFloat(servingAmount) || 0) / 100)} kcal
+                      </Text>
+                      <TouchableOpacity style={styles.addFoodBtn} onPress={handleAddFood}>
+                        <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                        <Text style={styles.addFoodBtnText}>Günlüğe Ekle</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* Arama sonuçları */}
+                  {!selectedFood && searchResults.length > 0 && (
+                    <View style={styles.searchResultsList}>
+                      {searchResults.map((item) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={[styles.searchResult, selectedFood && (selectedFood as Food).id === item.id && styles.searchResultSelected]}
+                          onPress={() => { setSelectedFood(item); setServingAmount('100'); }}
+                        >
+                          <View style={styles.searchResultInfo}>
+                            <Text style={styles.searchResultName}>{item.name_tr}</Text>
+                            <Text style={styles.searchResultCategory}>{item.category}</Text>
+                          </View>
+                          <Text style={styles.searchResultCalories}>{item.calories_per_100g} kcal/100g</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  {searchQuery.length >= 2 && !searching && searchResults.length === 0 && (
+                    <View style={styles.noResults}>
+                      <Ionicons name="search-outline" size={32} color={Colors.textMuted} />
+                      <Text style={styles.noResultsText}>"{searchQuery}" bulunamadı</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={{ height: Spacing.xxl }} />
+            </ScrollView>
+          )}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -729,272 +711,266 @@ export default function FoodLogScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+  scrollContent: { paddingBottom: Spacing.xl },
+
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
   },
   title: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.textPrimary },
-  addButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-  },
-  addButtonText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.sm },
-  mealTabs: { marginBottom: Spacing.md },
-  mealTabsContent: { paddingHorizontal: Spacing.lg, gap: Spacing.sm },
-  mealTab: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    minWidth: 80,
-  },
-  mealTabActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  mealTabText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
-  mealTabTextActive: { color: Colors.textLight },
-  mealTabCalories: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  mealTabCaloriesActive: { color: Colors.primaryPale },
-  foodList: { paddingHorizontal: Spacing.lg },
-  emptyState: { alignItems: 'center', paddingVertical: Spacing.xxl },
-  emptyTitle: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center' },
-  emptySubtitle: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: Spacing.xs, textAlign: 'center' },
+  headerMeta: { alignItems: 'flex-end' },
+  headerCalories: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.primary },
+  headerCaloriesLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '500' },
 
-  // Fotoğraf öğün kart
-  photoMealCard: {
-    marginBottom: Spacing.sm,
+  sectionHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm,
+  },
+  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  sectionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
+  sectionTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
+  sectionDate: { fontSize: FontSize.sm, color: Colors.textMuted },
+  sectionCalories: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.primary },
+
+  feedSection: { paddingHorizontal: Spacing.lg, gap: Spacing.sm },
+
+  emptyState: { alignItems: 'center', paddingVertical: Spacing.xl, paddingHorizontal: Spacing.lg, gap: Spacing.sm },
+  emptyIcon: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: Colors.surfaceSecondary, alignItems: 'center', justifyContent: 'center',
+  },
+  emptyText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary },
+  emptySubtext: { fontSize: FontSize.sm, color: Colors.textMuted },
+
+  // Fotoğraflı kart
+  photoCard: {
     borderRadius: BorderRadius.lg,
     overflow: 'hidden',
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+    height: 220,
+    backgroundColor: Colors.borderLight,
   },
-  photoMealImage: {
-    width: '100%',
-    height: 160,
-  },
-  photoMealOverlay: {
+  photoCardImage: { ...StyleSheet.absoluteFillObject },
+  photoCardTopRow: {
     position: 'absolute',
     top: Spacing.sm,
     left: Spacing.sm,
-  },
-  photoMealBadge: {
+    right: Spacing.sm,
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 4,
+    zIndex: 10,
+  },
+  mealBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+  mealBadgeText: { fontSize: FontSize.xs, fontWeight: '700' },
+  photoCardTopRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  caloriePill: {
     backgroundColor: 'rgba(0,0,0,0.5)',
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.full,
   },
-  photoMealBadgeText: { fontSize: 11, color: '#fff', fontWeight: '700' },
-  photoMealInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  caloriePillText: { fontSize: FontSize.xs, fontWeight: '700', color: '#fff' },
+  photoDeleteBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  photoCardGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 70,
+    justifyContent: 'flex-end',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    paddingBottom: Spacing.sm,
   },
-  photoMealInfoLeft: {},
-  photoMealCalories: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.textPrimary },
-  photoMealMacros: { flexDirection: 'row', gap: Spacing.sm, marginTop: 2 },
-  photoMealMacro: { fontSize: FontSize.xs, fontWeight: '700' },
-  photoMealInfoRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  photoMealDeleteBtn: { padding: 6 },
+  nameTouchable: {},
+  photoMealName: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.9)',
+    fontStyle: 'italic',
+  },
+  nameEditRow: { flexDirection: 'row', alignItems: 'center' },
+  nameEditInput: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.6)',
+    paddingVertical: 2,
+    fontStyle: 'italic',
+  },
 
-  foodItem: { marginBottom: Spacing.sm, overflow: 'hidden' },
-  foodItemRow: { flexDirection: 'row', gap: Spacing.md },
-  foodThumbnail: {
-    width: '100%',
-    height: 160,
-    borderRadius: 0,
-    backgroundColor: Colors.borderLight,
-    marginBottom: Spacing.sm,
+  // Metin kart
+  textItem: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.md,
+    overflow: 'hidden', borderWidth: 1, borderColor: Colors.borderLight,
   },
-  foodItemContent: { flex: 1, padding: Spacing.md },
-  foodItemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  foodName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, flex: 1 },
-  foodItemActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  infoBtn: { padding: 4 },
-  deleteIcon: { fontSize: FontSize.sm, color: Colors.textMuted, padding: 4 },
-  foodServing: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
-  foodMacros: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.sm },
-  foodCalories: { fontSize: FontSize.md, fontWeight: '700', color: Colors.accent },
-  foodMacro: { fontSize: FontSize.sm, color: Colors.textSecondary },
+  textItemReadonly: {},
+  textItemAccent: { width: 4, alignSelf: 'stretch' },
+  textItemBody: { flex: 1, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md },
+  textItemName: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
+  textItemMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 4 },
+  mealPill: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.full },
+  mealPillText: { fontSize: FontSize.xs, fontWeight: '700' },
+  textItemServing: { fontSize: FontSize.xs, color: Colors.textMuted },
+  textItemRight: { alignItems: 'flex-end', paddingRight: 4 },
+  textItemCalories: { fontSize: FontSize.md, fontWeight: '800', color: Colors.accent },
+  textItemKcal: { fontSize: FontSize.xs, color: Colors.textMuted },
+  textItemActions: { flexDirection: 'row', alignItems: 'center', paddingRight: 4 },
+  textActionBtn: { padding: 6 },
+
+  // FAB
+  fab: {
+    position: 'absolute', bottom: 28, right: 24,
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
+    shadowColor: Colors.primaryDark, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 8, elevation: 8,
+  },
+
+  // Modal
   modal: { flex: 1, backgroundColor: Colors.background },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+  },
+  modalTitle: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.textPrimary },
+
+  modalMealTabs: { height: 52, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
+  mealTabsContent: { paddingHorizontal: Spacing.lg, gap: Spacing.sm, alignItems: 'center' },
+  mealTab: {
+    paddingHorizontal: Spacing.md, paddingVertical: 6,
+    borderRadius: BorderRadius.full, backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  mealTabActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  mealTabText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
+  mealTabTextActive: { color: Colors.textLight },
+
+  // Ekle yöntemleri
+  addMethodSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
+  addMethodLabel: {
+    fontSize: FontSize.xs, fontWeight: '700', color: Colors.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: Spacing.sm,
+  },
+  addMethodRow: { flexDirection: 'row', gap: Spacing.sm },
+  addMethodCard: {
+    flex: 1, alignItems: 'center', gap: 6,
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    borderWidth: 1, borderColor: Colors.borderLight,
   },
-  modalTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
-  modalClose: { fontSize: FontSize.md, color: Colors.primary, fontWeight: '600' },
-  modalMealTabs: { paddingVertical: Spacing.sm, height: 60 },
+  addMethodIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  addMethodCardTitle: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' },
+  addMethodCardSub: { fontSize: 10, color: Colors.textMuted, textAlign: 'center' },
+
+  // Analiz yükleniyor
+  recognizingContainer: {
+    alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+  },
+  recognizingText: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
+  recognizingSubtext: { fontSize: FontSize.sm, color: Colors.textMuted },
+
+  // Barkod
+  barcodeResultCard: {
+    margin: Spacing.lg, backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg, padding: Spacing.md,
+    borderWidth: 1, borderColor: Colors.borderLight, gap: Spacing.xs,
+  },
+  barcodeResultHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: 4 },
+  barcodeResultTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.primary },
+  barcodeBrand: { fontSize: FontSize.sm, color: Colors.textMuted },
+  barcodeResultActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
+  barcodeRetryBtn: {
+    flex: 1, alignItems: 'center', paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border,
+  },
+  barcodeRetryText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
+  barcodeAddBtn: {
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: Spacing.sm, borderRadius: BorderRadius.md, backgroundColor: Colors.primary,
+  },
+  barcodeAddText: { fontSize: FontSize.sm, color: '#fff', fontWeight: '700' },
+
+  // Arama bölümü
+  searchSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
   searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderWidth: 1.5, borderColor: Colors.border, marginBottom: Spacing.sm,
   },
-  searchInput: { flex: 1, fontSize: FontSize.md, color: Colors.textPrimary, paddingVertical: Spacing.sm + 2 },
-  clearSearch: { fontSize: FontSize.sm, color: Colors.textMuted, padding: Spacing.sm },
-  selectedFoodCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
+  searchInput: { flex: 1, fontSize: FontSize.md, color: Colors.textPrimary },
+
+  selectedFoodCard: {
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
+    padding: Spacing.md, borderWidth: 1, borderColor: Colors.borderLight,
+    gap: Spacing.xs, marginBottom: Spacing.sm,
+  },
+  selectedFoodHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   selectedFoodName: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary },
-  selectedFoodCalories: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2, marginBottom: Spacing.sm },
-  servingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginBottom: Spacing.xs },
+  selectedFoodCalories: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
+  servingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: 4 },
   servingLabel: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: '600' },
   servingInput: {
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    fontSize: FontSize.md,
-    width: 80,
-    textAlign: 'center',
+    borderWidth: 1.5, borderColor: Colors.border, borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
+    fontSize: FontSize.md, width: 80, textAlign: 'center',
   },
-  calculatedCalories: { fontSize: FontSize.md, fontWeight: '700', color: Colors.accent, marginBottom: Spacing.sm },
-  addFoodButton: {},
+  calculatedCalories: { fontSize: FontSize.md, fontWeight: '700', color: Colors.accent },
+  addFoodBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.sm, backgroundColor: Colors.primary, borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm, marginTop: 4,
+  },
+  addFoodBtnText: { color: '#fff', fontSize: FontSize.md, fontWeight: '700' },
+
+  searchResultsList: { borderRadius: BorderRadius.lg, overflow: 'hidden', borderWidth: 1, borderColor: Colors.borderLight },
   searchResult: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.md,
+    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
   searchResultSelected: { backgroundColor: Colors.primaryPale },
   searchResultInfo: { flex: 1 },
   searchResultName: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
   searchResultCategory: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
   searchResultCalories: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.accent },
-  noResults: { alignItems: 'center', padding: Spacing.xl },
+  noResults: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm },
   noResultsText: { fontSize: FontSize.md, color: Colors.textMuted },
 
-  // Fotoğraf tanıma
-  photoSection: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    marginBottom: Spacing.xs,
-  },
-  photoButton: {
-    flex: 1,
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    backgroundColor: Colors.primaryPale,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xs,
-    borderWidth: 1.5,
-    borderColor: Colors.primaryLight,
-  },
-  photoButtonText: { fontSize: FontSize.xs, fontWeight: '600', color: Colors.primary, textAlign: 'center' },
-  recognizingContainer: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl,
-    gap: Spacing.md,
-  },
-  recognizingText: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: '500' },
-  recognizedCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md, overflow: 'hidden' },
-  recognizedImage: {
-    width: '100%',
-    height: 180,
-    borderRadius: BorderRadius.sm,
-    marginBottom: Spacing.md,
-  },
-  recognizedHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.xs,
-  },
-  recognizedLabel: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
-  confidenceBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-  },
-  confidenceText: { fontSize: FontSize.xs, fontWeight: '700', color: Colors.textLight },
-  macroRow: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.xs, marginBottom: Spacing.sm },
-  macroItem: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
-  recognizedActions: { gap: Spacing.sm },
-  retryButton: { alignItems: 'center', paddingVertical: Spacing.sm },
-  retryText: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '600' },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    marginVertical: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.borderLight },
-  dividerText: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600' },
-
   // Barkod tarayıcı
-  barcodeContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  barcodeScanFrame: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  barcodeScanFrame: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   barcodeScanBox: {
-    width: 260,
-    height: 140,
-    borderWidth: 3,
-    borderColor: Colors.primaryLight,
-    borderRadius: BorderRadius.md,
-    backgroundColor: 'transparent',
+    width: 260, height: 140, borderWidth: 3,
+    borderColor: Colors.primaryLight, borderRadius: BorderRadius.md, backgroundColor: 'transparent',
   },
   barcodeScanHint: {
-    marginTop: Spacing.lg,
-    fontSize: FontSize.md,
-    color: Colors.textLight,
-    fontWeight: '600',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    marginTop: Spacing.lg, fontSize: FontSize.md, color: '#fff', fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
   },
   barcodeClose: {
-    position: 'absolute',
-    top: Spacing.lg,
-    right: Spacing.lg,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
+    position: 'absolute', top: Spacing.lg, right: Spacing.lg,
+    backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm, borderRadius: BorderRadius.full,
   },
-  barcodeCloseText: {
-    color: Colors.textLight,
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-  },
-  barcodeBrand: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    marginBottom: 2,
-    fontWeight: '500',
-  },
+  barcodeCloseText: { color: '#fff', fontSize: FontSize.sm, fontWeight: '700' },
+
+  macroRow: { flexDirection: 'row', gap: Spacing.md },
+  macroItem: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
 });

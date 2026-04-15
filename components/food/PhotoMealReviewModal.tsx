@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius, MEAL_TYPES, MealType } from '../../lib/constants';
+import { Colors, Spacing, FontSize, BorderRadius, MealType } from '../../lib/constants';
 import {
   DetectedFoodItem,
   generateAnalysisQuestions,
@@ -25,13 +25,22 @@ import {
 } from '../../lib/gemini';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const PHOTO_HEIGHT = Math.round(SCREEN_WIDTH * 0.56); // 16:9-ish
+const PHOTO_HEIGHT = Math.round(SCREEN_WIDTH * 0.6);
 
-const MEAL_OPTIONS: { key: MealType; label: string; icon: string }[] = [
-  { key: 'breakfast', label: 'Kahvaltı', icon: 'sunny-outline' },
-  { key: 'lunch', label: 'Öğle', icon: 'partly-sunny-outline' },
-  { key: 'dinner', label: 'Akşam', icon: 'moon-outline' },
-  { key: 'snack', label: 'Atıştırmalık', icon: 'cafe-outline' },
+// Şu anki saate göre önerilen öğünü belirle
+function getSuggestedMeal(): MealType {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 11) return 'breakfast';
+  if (hour >= 11 && hour < 15) return 'lunch';
+  if (hour >= 15 && hour < 18) return 'snack';
+  return 'dinner';
+}
+
+const MEAL_OPTIONS: { key: MealType; label: string; icon: string; hours: string }[] = [
+  { key: 'breakfast', label: 'Kahvaltı', icon: 'sunny-outline', hours: '05:00–11:00' },
+  { key: 'lunch', label: 'Öğle', icon: 'partly-sunny-outline', hours: '11:00–15:00' },
+  { key: 'snack', label: 'Ara Öğün', icon: 'cafe-outline', hours: '15:00–18:00' },
+  { key: 'dinner', label: 'Akşam', icon: 'moon-outline', hours: '18:00–05:00' },
 ];
 
 interface Props {
@@ -42,16 +51,18 @@ interface Props {
   onSave: (items: DetectedFoodItem[], mealType: MealType) => Promise<void>;
 }
 
-type ViewMode = 'review' | 'reanalysis' | 'mealPicker';
+type ViewMode = 'review' | 'reanalysis';
+
+// Her item için porsiyon yüzdesi (0-100)
+type Portions = Record<number, number>;
 
 export function PhotoMealReviewModal({ visible, onClose, items: initialItems, imageBase64, onSave }: Props) {
   const [items, setItems] = useState<DetectedFoodItem[]>([]);
+  const [portions, setPortions] = useState<Portions>({});
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   type EditDraft = { name: string; estimatedGrams: string; calories: string; protein: string; carbs: string; fat: string };
-  const [editDraft, setEditDraft] = useState<EditDraft>({
-    name: '', estimatedGrams: '', calories: '', protein: '', carbs: '', fat: '',
-  });
+  const [editDraft, setEditDraft] = useState<EditDraft>({ name: '', estimatedGrams: '', calories: '', protein: '', carbs: '', fat: '' });
   const [showAddForm, setShowAddForm] = useState(false);
   const [addDraft, setAddDraft] = useState({ name: '', estimatedGrams: '100', calories: '0', protein: '0', carbs: '0', fat: '0' });
   const [estimatingNutrition, setEstimatingNutrition] = useState(false);
@@ -61,26 +72,55 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [selectedMeal, setSelectedMeal] = useState<MealType>('breakfast');
+  const [selectedMeal, setSelectedMeal] = useState<MealType>(getSuggestedMeal());
 
-  // initialItems değişince state'i güncelle
   React.useEffect(() => {
     if (visible) {
       setItems(initialItems);
+      // Başlangıçta tüm porsiyonlar %100
+      const initPortions: Portions = {};
+      initialItems.forEach((_, i) => { initPortions[i] = 100; });
+      setPortions(initPortions);
       setExpandedIndex(null);
       setEditingIndex(null);
       setShowAddForm(false);
       setViewMode('review');
+      setSelectedMeal(getSuggestedMeal());
     }
   }, [visible, initialItems]);
 
-  const totals = items.reduce(
-    (acc, item) => ({
-      calories: acc.calories + item.calories,
-      protein: acc.protein + item.protein,
-      carbs: acc.carbs + item.carbs,
-      fat: acc.fat + item.fat,
-    }),
+  function getPortion(index: number) {
+    return portions[index] ?? 100;
+  }
+
+  function setPortionValue(index: number, value: number) {
+    const clamped = Math.max(0, Math.min(100, Math.round(value)));
+    setPortions((prev) => ({ ...prev, [index]: clamped }));
+  }
+
+  // Porsiyona göre ölçeklendirilen değerleri hesapla
+  function getScaledItem(item: DetectedFoodItem, index: number): DetectedFoodItem {
+    const pct = getPortion(index) / 100;
+    return {
+      ...item,
+      estimatedGrams: Math.round(item.estimatedGrams * pct),
+      calories: Math.round(item.calories * pct),
+      protein: Math.round(item.protein * pct * 10) / 10,
+      carbs: Math.round(item.carbs * pct * 10) / 10,
+      fat: Math.round(item.fat * pct * 10) / 10,
+    };
+  }
+
+  const scaledTotals = items.reduce(
+    (acc, item, i) => {
+      const pct = getPortion(i) / 100;
+      return {
+        calories: acc.calories + item.calories * pct,
+        protein: acc.protein + item.protein * pct,
+        carbs: acc.carbs + item.carbs * pct,
+        fat: acc.fat + item.fat * pct,
+      };
+    },
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
 
@@ -122,10 +162,18 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     Alert.alert('Sil', 'Bu yiyeceği listeden çıkarmak istiyor musunuz?', [
       { text: 'İptal', style: 'cancel' },
       {
-        text: 'Sil',
-        style: 'destructive',
+        text: 'Sil', style: 'destructive',
         onPress: () => {
           setItems((prev) => prev.filter((_, i) => i !== index));
+          setPortions((prev) => {
+            const next: Portions = {};
+            Object.entries(prev).forEach(([k, v]) => {
+              const ki = parseInt(k);
+              if (ki < index) next[ki] = v;
+              else if (ki > index) next[ki - 1] = v;
+            });
+            return next;
+          });
           if (expandedIndex === index) setExpandedIndex(null);
           if (editingIndex === index) setEditingIndex(null);
         },
@@ -144,7 +192,11 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
       fat: parseFloat(addDraft.fat) || 0,
       confidence: 1,
     };
-    setItems((prev) => [...prev, newItem]);
+    setItems((prev) => {
+      const next = [...prev, newItem];
+      setPortions((p) => ({ ...p, [next.length - 1]: 100 }));
+      return next;
+    });
     setAddDraft({ name: '', estimatedGrams: '100', calories: '0', protein: '0', carbs: '0', fat: '0' });
     setShowAddForm(false);
   }
@@ -152,14 +204,8 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
   async function handleEstimateNutrition() {
     const name = addDraft.name.trim();
     const grams = parseFloat(addDraft.estimatedGrams);
-    if (!name) {
-      Alert.alert('Eksik Bilgi', 'Önce yiyecek adını girin.');
-      return;
-    }
-    if (!grams || grams <= 0) {
-      Alert.alert('Eksik Bilgi', 'Geçerli bir gram değeri girin.');
-      return;
-    }
+    if (!name) { Alert.alert('Eksik Bilgi', 'Önce yiyecek adını girin.'); return; }
+    if (!grams || grams <= 0) { Alert.alert('Eksik Bilgi', 'Geçerli bir gram değeri girin.'); return; }
     setEstimatingNutrition(true);
     try {
       const result = await estimateNutritionFromText({ foodName: name, grams });
@@ -198,6 +244,9 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     try {
       const qa = reanalysisQuestions.map((q, i) => ({ question: q, answer: reanalysisAnswers[i] ?? '' }));
       const newItems = await refineAnalysisWithAnswers(imageBase64, items, qa);
+      const initPortions: Portions = {};
+      newItems.forEach((_, i) => { initPortions[i] = 100; });
+      setPortions(initPortions);
       setItems(newItems);
       setViewMode('review');
       setExpandedIndex(null);
@@ -208,25 +257,41 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     }
   }
 
-  async function handleSave() {
-    if (items.length === 0) {
-      Alert.alert('Uyarı', 'Kaydedilecek yiyecek yok.');
-      return;
+  function handleMealSelect(meal: MealType) {
+    const suggested = getSuggestedMeal();
+    if (meal !== suggested) {
+      const suggLabel = MEAL_OPTIONS.find((m) => m.key === suggested)?.label ?? suggested;
+      const selLabel = MEAL_OPTIONS.find((m) => m.key === meal)?.label ?? meal;
+      Alert.alert(
+        'Farklı Öğün Seçiyorsun',
+        `Şu an ${suggLabel} saatindesin ama ${selLabel} öğününü seçiyorsun. Düzenli kayıt için öğün vakti geldiğinde fotoğraf çekmen önerilir.\n\nYine de ${selLabel} olarak kaydetmek istiyor musun?`,
+        [
+          { text: 'Hayır, değiştir', style: 'cancel' },
+          { text: `Evet, ${selLabel}`, onPress: () => setSelectedMeal(meal) },
+        ]
+      );
+    } else {
+      setSelectedMeal(meal);
     }
+  }
+
+  async function handleSave() {
+    if (items.length === 0) { Alert.alert('Uyarı', 'Kaydedilecek yiyecek yok.'); return; }
     setSaving(true);
     try {
-      await onSave(items, selectedMeal);
+      const scaledItems = items.map((item, i) => getScaledItem(item, i)).filter((item) => item.calories > 0 || item.estimatedGrams > 0);
+      await onSave(scaledItems, selectedMeal);
     } finally {
       setSaving(false);
     }
   }
 
-  const confidenceColor = (c: number) => (c >= 0.75 ? Colors.primary : c >= 0.5 ? Colors.accent : '#E74C3C');
+  const suggestedMeal = getSuggestedMeal();
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-        {/* ── Header ── */}
+        {/* Sabit Header — kaydırmadan etkilenmiyor */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
             <Ionicons name="close" size={22} color={Colors.textPrimary} />
@@ -246,7 +311,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-            {/* ── Fotoğraf ── */}
+            {/* Fotoğraf */}
             {imageBase64 && (
               <Image
                 source={{ uri: `data:image/jpeg;base64,${imageBase64}` }}
@@ -255,7 +320,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
               />
             )}
 
-            {/* ── Re-analysis view ── */}
+            {/* Re-analysis */}
             {viewMode === 'reanalysis' && (
               <View style={styles.reanalysisSection}>
                 {loadingQuestions ? (
@@ -266,9 +331,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                 ) : (
                   <>
                     <Text style={styles.reanalysisTitle}>Daha iyi analiz için birkaç soru</Text>
-                    <Text style={styles.reanalysisSubtitle}>
-                      Cevaplarınıza göre AI yeni bir analiz yapacak.
-                    </Text>
+                    <Text style={styles.reanalysisSubtitle}>Cevaplarınıza göre AI yeni bir analiz yapacak.</Text>
                     {reanalysisQuestions.map((q, i) => (
                       <View key={i} style={styles.questionCard}>
                         <Text style={styles.questionText}>{q}</Text>
@@ -277,24 +340,18 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                           placeholder="Cevabınız..."
                           placeholderTextColor={Colors.textMuted}
                           value={reanalysisAnswers[i]}
-                          onChangeText={(v) =>
-                            setReanalysisAnswers((prev) => prev.map((a, j) => (j === i ? v : a)))
-                          }
+                          onChangeText={(v) => setReanalysisAnswers((prev) => prev.map((a, j) => (j === i ? v : a)))}
                           multiline
                         />
                       </View>
                     ))}
                     <View style={styles.reanalysisActions}>
-                      <TouchableOpacity
-                        style={styles.cancelReanalysisBtn}
-                        onPress={() => setViewMode('review')}
-                      >
+                      <TouchableOpacity style={styles.cancelReanalysisBtn} onPress={() => setViewMode('review')}>
                         <Text style={styles.cancelReanalysisText}>Vazgeç</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.submitReanalysisBtn, reanalyzing && { opacity: 0.6 }]}
-                        onPress={submitReanalysis}
-                        disabled={reanalyzing}
+                        onPress={submitReanalysis} disabled={reanalyzing}
                       >
                         {reanalyzing ? (
                           <ActivityIndicator size="small" color={Colors.textLight} />
@@ -308,159 +365,161 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
               </View>
             )}
 
-            {/* ── Review view ── */}
+            {/* Review view */}
             {viewMode === 'review' && (
               <>
-                {/* Toplam Özet */}
+                {/* Özet bar */}
                 <View style={styles.summaryBar}>
-                  <View style={styles.summaryLeft}>
-                    <Text style={styles.summaryCount}>{items.length} yiyecek</Text>
-                    <Text style={styles.summaryCalories}>{Math.round(totals.calories)} kcal</Text>
+                  <View>
+                    <Text style={styles.summaryCount}>{items.length} yiyecek tespit edildi</Text>
+                    <Text style={styles.summaryCalories}>{Math.round(scaledTotals.calories)} kcal</Text>
                   </View>
                   <View style={styles.summaryMacros}>
-                    <MacroPill label="P" value={Math.round(totals.protein)} color={Colors.protein} />
-                    <MacroPill label="K" value={Math.round(totals.carbs)} color={Colors.carbs} />
-                    <MacroPill label="Y" value={Math.round(totals.fat)} color={Colors.fat} />
+                    <MacroPill label="P" value={Math.round(scaledTotals.protein)} color={Colors.protein} />
+                    <MacroPill label="K" value={Math.round(scaledTotals.carbs)} color={Colors.carbs} />
+                    <MacroPill label="Y" value={Math.round(scaledTotals.fat)} color={Colors.fat} />
                   </View>
+                </View>
+
+                {/* Porsiyon Açıklaması */}
+                <View style={styles.portionHintCard}>
+                  <Ionicons name="people-outline" size={18} color={Colors.primary} />
+                  <Text style={styles.portionHintText}>
+                    AI tüm porsiyonu senin yediğini varsayıyor. Kendi payını aşağıdan ayarla.
+                  </Text>
                 </View>
 
                 {/* Yiyecek Listesi */}
                 <View style={styles.itemsList}>
-                  {items.map((item, index) => (
-                    <View key={index} style={styles.itemCard}>
-                      {editingIndex === index ? (
-                        /* ── Edit mode ── */
-                        <View style={styles.editForm}>
-                          <Text style={styles.editLabel}>İsim</Text>
-                          <TextInput
-                            style={styles.editInput}
-                            value={editDraft.name}
-                            onChangeText={(v) => setEditDraft((d) => ({ ...d, name: v }))}
-                            placeholder="Yiyecek adı"
-                          />
-                          <View style={styles.editRow}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.editLabel}>Gram</Text>
-                              <TextInput
-                                style={styles.editInput}
-                                value={editDraft.estimatedGrams}
-                                onChangeText={(v) => setEditDraft((d) => ({ ...d, estimatedGrams: v }))}
-                                keyboardType="numeric"
-                              />
+                  {items.map((item, index) => {
+                    const pct = getPortion(index);
+                    const scaled = getScaledItem(item, index);
+                    return (
+                      <View key={index} style={styles.itemCard}>
+                        {editingIndex === index ? (
+                          <View style={styles.editForm}>
+                            <Text style={styles.editLabel}>İsim</Text>
+                            <TextInput
+                              style={styles.editInput} value={editDraft.name}
+                              onChangeText={(v) => setEditDraft((d) => ({ ...d, name: v }))} placeholder="Yiyecek adı"
+                            />
+                            <View style={styles.editRow}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.editLabel}>Gram</Text>
+                                <TextInput style={styles.editInput} value={editDraft.estimatedGrams}
+                                  onChangeText={(v) => setEditDraft((d) => ({ ...d, estimatedGrams: v }))} keyboardType="numeric" />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.editLabel}>Kalori</Text>
+                                <TextInput style={styles.editInput} value={editDraft.calories}
+                                  onChangeText={(v) => setEditDraft((d) => ({ ...d, calories: v }))} keyboardType="numeric" />
+                              </View>
                             </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.editLabel}>Kalori</Text>
-                              <TextInput
-                                style={styles.editInput}
-                                value={editDraft.calories}
-                                onChangeText={(v) => setEditDraft((d) => ({ ...d, calories: v }))}
-                                keyboardType="numeric"
-                              />
+                            <View style={styles.editRow}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.editLabel}>Protein (g)</Text>
+                                <TextInput style={styles.editInput} value={editDraft.protein}
+                                  onChangeText={(v) => setEditDraft((d) => ({ ...d, protein: v }))} keyboardType="numeric" />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.editLabel}>Karb (g)</Text>
+                                <TextInput style={styles.editInput} value={editDraft.carbs}
+                                  onChangeText={(v) => setEditDraft((d) => ({ ...d, carbs: v }))} keyboardType="numeric" />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.editLabel}>Yağ (g)</Text>
+                                <TextInput style={styles.editInput} value={editDraft.fat}
+                                  onChangeText={(v) => setEditDraft((d) => ({ ...d, fat: v }))} keyboardType="numeric" />
+                              </View>
                             </View>
-                          </View>
-                          <View style={styles.editRow}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.editLabel}>Protein (g)</Text>
-                              <TextInput
-                                style={styles.editInput}
-                                value={editDraft.protein}
-                                onChangeText={(v) => setEditDraft((d) => ({ ...d, protein: v }))}
-                                keyboardType="numeric"
-                              />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.editLabel}>Karb (g)</Text>
-                              <TextInput
-                                style={styles.editInput}
-                                value={editDraft.carbs}
-                                onChangeText={(v) => setEditDraft((d) => ({ ...d, carbs: v }))}
-                                keyboardType="numeric"
-                              />
-                            </View>
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.editLabel}>Yağ (g)</Text>
-                              <TextInput
-                                style={styles.editInput}
-                                value={editDraft.fat}
-                                onChangeText={(v) => setEditDraft((d) => ({ ...d, fat: v }))}
-                                keyboardType="numeric"
-                              />
+                            <View style={styles.editActions}>
+                              <TouchableOpacity style={styles.editCancelBtn} onPress={() => setEditingIndex(null)}>
+                                <Text style={styles.editCancelText}>İptal</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity style={styles.editSaveBtn} onPress={commitEdit}>
+                                <Text style={styles.editSaveText}>Kaydet</Text>
+                              </TouchableOpacity>
                             </View>
                           </View>
-                          <View style={styles.editActions}>
+                        ) : (
+                          <>
                             <TouchableOpacity
-                              style={styles.editCancelBtn}
-                              onPress={() => setEditingIndex(null)}
+                              style={styles.itemHeader}
+                              onPress={() => setExpandedIndex(expandedIndex === index ? null : index)}
+                              activeOpacity={0.7}
                             >
-                              <Text style={styles.editCancelText}>İptal</Text>
+                              <View style={styles.itemHeaderLeft}>
+                                <Text style={styles.itemName}>{item.name}</Text>
+                                <Text style={styles.itemGram}>~{item.estimatedGrams}g toplam</Text>
+                              </View>
+                              <View style={styles.itemHeaderRight}>
+                                <Text style={styles.itemCalories}>{Math.round(scaled.calories)} kcal</Text>
+                                <Ionicons
+                                  name={expandedIndex === index ? 'chevron-up' : 'chevron-down'}
+                                  size={16} color={Colors.textMuted}
+                                />
+                              </View>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.editSaveBtn} onPress={commitEdit}>
-                              <Text style={styles.editSaveText}>Kaydet</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      ) : (
-                        /* ── Normal mode ── */
-                        <>
-                          <TouchableOpacity
-                            style={styles.itemHeader}
-                            onPress={() => setExpandedIndex(expandedIndex === index ? null : index)}
-                            activeOpacity={0.7}
-                          >
-                            <View style={styles.itemHeaderLeft}>
-                              <Text style={styles.itemName}>{item.name}</Text>
-                              <View style={styles.itemMeta}>
-                                <View style={styles.gramBadge}>
-                                  <Text style={styles.gramBadgeText}>~{item.estimatedGrams}g</Text>
-                                </View>
-                                <View style={[styles.confBadge, { backgroundColor: confidenceColor(item.confidence) }]}>
-                                  <Text style={styles.confBadgeText}>
-                                    %{Math.round(item.confidence * 100)}
-                                  </Text>
-                                </View>
-                              </View>
-                            </View>
-                            <View style={styles.itemHeaderRight}>
-                              <Text style={styles.itemCalories}>{Math.round(item.calories)} kcal</Text>
-                              <Ionicons
-                                name={expandedIndex === index ? 'chevron-up' : 'chevron-down'}
-                                size={16}
-                                color={Colors.textMuted}
-                              />
-                            </View>
-                          </TouchableOpacity>
 
-                          {expandedIndex === index && (
-                            <View style={styles.expandedSection}>
-                              <View style={styles.macroGrid}>
-                                <MacroBox label="Protein" value={item.protein} color={Colors.protein} />
-                                <MacroBox label="Karb" value={item.carbs} color={Colors.carbs} />
-                                <MacroBox label="Yağ" value={item.fat} color={Colors.fat} />
-                              </View>
-                              <View style={styles.itemActions}>
+                            {/* Porsiyon Slider (her zaman görünür, kompakt) */}
+                            <View style={styles.portionRow}>
+                              <Text style={styles.portionLabel}>Ne kadarını yedin?</Text>
+                              <View style={styles.portionControls}>
                                 <TouchableOpacity
-                                  style={styles.editItemBtn}
-                                  onPress={() => startEdit(index)}
+                                  style={styles.portionBtn}
+                                  onPress={() => setPortionValue(index, pct - 10)}
                                 >
-                                  <Ionicons name="create-outline" size={14} color={Colors.primary} />
-                                  <Text style={styles.editItemText}>Düzenle</Text>
+                                  <Ionicons name="remove" size={16} color={Colors.primary} />
                                 </TouchableOpacity>
+                                <View style={styles.portionTrack}>
+                                  <View style={[styles.portionFill, { width: `${pct}%` as any }]} />
+                                </View>
                                 <TouchableOpacity
-                                  style={styles.deleteItemBtn}
-                                  onPress={() => removeItem(index)}
+                                  style={styles.portionBtn}
+                                  onPress={() => setPortionValue(index, pct + 10)}
                                 >
-                                  <Ionicons name="trash-outline" size={14} color="#E74C3C" />
-                                  <Text style={styles.deleteItemText}>Kaldır</Text>
+                                  <Ionicons name="add" size={16} color={Colors.primary} />
                                 </TouchableOpacity>
+                                <TextInput
+                                  style={styles.portionInput}
+                                  value={String(pct)}
+                                  onChangeText={(v) => {
+                                    const n = parseInt(v);
+                                    if (!isNaN(n)) setPortionValue(index, n);
+                                  }}
+                                  keyboardType="numeric"
+                                  selectTextOnFocus
+                                />
+                                <Text style={styles.portionPct}>%</Text>
                               </View>
                             </View>
-                          )}
-                        </>
-                      )}
-                    </View>
-                  ))}
 
-                  {/* Manuel Ekle Butonu */}
+                            {expandedIndex === index && (
+                              <View style={styles.expandedSection}>
+                                <View style={styles.macroGrid}>
+                                  <MacroBox label="Protein" value={scaled.protein} color={Colors.protein} />
+                                  <MacroBox label="Karb" value={scaled.carbs} color={Colors.carbs} />
+                                  <MacroBox label="Yağ" value={scaled.fat} color={Colors.fat} />
+                                </View>
+                                <View style={styles.itemActions}>
+                                  <TouchableOpacity style={styles.editItemBtn} onPress={() => startEdit(index)}>
+                                    <Ionicons name="create-outline" size={14} color={Colors.primary} />
+                                    <Text style={styles.editItemText}>Düzenle</Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity style={styles.deleteItemBtn} onPress={() => removeItem(index)}>
+                                    <Ionicons name="trash-outline" size={14} color="#E74C3C" />
+                                    <Text style={styles.deleteItemText}>Kaldır</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              </View>
+                            )}
+                          </>
+                        )}
+                      </View>
+                    );
+                  })}
+
+                  {/* Manuel Ekle */}
                   {!showAddForm && (
                     <TouchableOpacity style={styles.addItemBtn} onPress={() => setShowAddForm(true)}>
                       <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
@@ -468,131 +527,64 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                     </TouchableOpacity>
                   )}
 
-                  {/* Manuel Ekle Formu */}
                   {showAddForm && (
                     <View style={styles.addFormCard}>
-                      {/* Form Başlığı */}
                       <View style={styles.addFormHeader}>
-                        <View style={styles.addFormHeaderLeft}>
-                          <View style={styles.addFormIconWrap}>
-                            <Ionicons name="add" size={18} color={Colors.primary} />
-                          </View>
-                          <Text style={styles.addFormTitle}>Yeni Yiyecek Ekle</Text>
-                        </View>
-                        <TouchableOpacity onPress={() => setShowAddForm(false)} style={styles.addFormCloseBtn}>
+                        <Text style={styles.addFormTitle}>Yeni Yiyecek Ekle</Text>
+                        <TouchableOpacity onPress={() => setShowAddForm(false)}>
                           <Ionicons name="close" size={18} color={Colors.textSecondary} />
                         </TouchableOpacity>
                       </View>
-
-                      {/* İsim */}
                       <View style={styles.addFormField}>
                         <Text style={styles.addFormLabel}>Yiyecek Adı</Text>
                         <TextInput
-                          style={styles.addFormInput}
-                          value={addDraft.name}
+                          style={styles.addFormInput} value={addDraft.name}
                           onChangeText={(v) => setAddDraft((d) => ({ ...d, name: v }))}
-                          placeholder="örn. Haşlanmış yumurta, elma..."
-                          placeholderTextColor={Colors.textMuted}
-                          autoFocus
+                          placeholder="örn. Haşlanmış yumurta..." placeholderTextColor={Colors.textMuted} autoFocus
                         />
                       </View>
-
-                      {/* Gram */}
                       <View style={styles.addFormField}>
                         <Text style={styles.addFormLabel}>Miktar (gram)</Text>
                         <TextInput
-                          style={styles.addFormInput}
-                          value={addDraft.estimatedGrams}
+                          style={styles.addFormInput} value={addDraft.estimatedGrams}
                           onChangeText={(v) => setAddDraft((d) => ({ ...d, estimatedGrams: v }))}
-                          keyboardType="numeric"
-                          placeholder="100"
-                          placeholderTextColor={Colors.textMuted}
+                          keyboardType="numeric" placeholder="100" placeholderTextColor={Colors.textMuted}
                         />
                       </View>
-
-                      {/* AI Hesapla Butonu */}
                       <TouchableOpacity
                         style={[styles.aiEstimateBtn, estimatingNutrition && { opacity: 0.7 }]}
-                        onPress={handleEstimateNutrition}
-                        disabled={estimatingNutrition}
+                        onPress={handleEstimateNutrition} disabled={estimatingNutrition}
                       >
                         {estimatingNutrition ? (
-                          <>
-                            <ActivityIndicator size="small" color={Colors.primary} />
-                            <Text style={styles.aiEstimateBtnText}>Hesaplanıyor...</Text>
-                          </>
+                          <><ActivityIndicator size="small" color={Colors.primary} /><Text style={styles.aiEstimateBtnText}>Hesaplanıyor...</Text></>
                         ) : (
-                          <>
-                            <Ionicons name="sparkles-outline" size={16} color={Colors.primary} />
-                            <Text style={styles.aiEstimateBtnText}>AI ile Değerleri Hesapla</Text>
-                          </>
+                          <><Ionicons name="sparkles-outline" size={16} color={Colors.primary} /><Text style={styles.aiEstimateBtnText}>AI ile Değerleri Hesapla</Text></>
                         )}
                       </TouchableOpacity>
-
-                      {/* Makro Değerleri */}
-                      <View style={styles.addFormDivider} />
-                      <Text style={styles.addFormSectionLabel}>Besin Değerleri</Text>
                       <View style={styles.addFormMacroGrid}>
-                        <View style={styles.addFormMacroItem}>
-                          <Text style={[styles.addFormMacroLabel, { color: '#E67E22' }]}>Kalori</Text>
-                          <TextInput
-                            style={[styles.addFormMacroInput, { borderColor: '#E67E2230' }]}
-                            value={addDraft.calories}
-                            onChangeText={(v) => setAddDraft((d) => ({ ...d, calories: v }))}
-                            keyboardType="numeric"
-                            placeholder="0"
-                            placeholderTextColor={Colors.textMuted}
-                          />
-                          <Text style={styles.addFormMacroUnit}>kcal</Text>
-                        </View>
-                        <View style={styles.addFormMacroItem}>
-                          <Text style={[styles.addFormMacroLabel, { color: Colors.protein }]}>Protein</Text>
-                          <TextInput
-                            style={[styles.addFormMacroInput, { borderColor: `${Colors.protein}30` }]}
-                            value={addDraft.protein}
-                            onChangeText={(v) => setAddDraft((d) => ({ ...d, protein: v }))}
-                            keyboardType="numeric"
-                            placeholder="0"
-                            placeholderTextColor={Colors.textMuted}
-                          />
-                          <Text style={styles.addFormMacroUnit}>g</Text>
-                        </View>
-                        <View style={styles.addFormMacroItem}>
-                          <Text style={[styles.addFormMacroLabel, { color: Colors.carbs }]}>Karb</Text>
-                          <TextInput
-                            style={[styles.addFormMacroInput, { borderColor: `${Colors.carbs}30` }]}
-                            value={addDraft.carbs}
-                            onChangeText={(v) => setAddDraft((d) => ({ ...d, carbs: v }))}
-                            keyboardType="numeric"
-                            placeholder="0"
-                            placeholderTextColor={Colors.textMuted}
-                          />
-                          <Text style={styles.addFormMacroUnit}>g</Text>
-                        </View>
-                        <View style={styles.addFormMacroItem}>
-                          <Text style={[styles.addFormMacroLabel, { color: Colors.fat }]}>Yağ</Text>
-                          <TextInput
-                            style={[styles.addFormMacroInput, { borderColor: `${Colors.fat}30` }]}
-                            value={addDraft.fat}
-                            onChangeText={(v) => setAddDraft((d) => ({ ...d, fat: v }))}
-                            keyboardType="numeric"
-                            placeholder="0"
-                            placeholderTextColor={Colors.textMuted}
-                          />
-                          <Text style={styles.addFormMacroUnit}>g</Text>
-                        </View>
+                        {[
+                          { key: 'calories', label: 'Kalori', color: '#E67E22', unit: 'kcal' },
+                          { key: 'protein', label: 'Protein', color: Colors.protein, unit: 'g' },
+                          { key: 'carbs', label: 'Karb', color: Colors.carbs, unit: 'g' },
+                          { key: 'fat', label: 'Yağ', color: Colors.fat, unit: 'g' },
+                        ].map(({ key, label, color, unit }) => (
+                          <View key={key} style={styles.addFormMacroItem}>
+                            <Text style={[styles.addFormMacroLabel, { color }]}>{label}</Text>
+                            <TextInput
+                              style={styles.addFormMacroInput}
+                              value={(addDraft as any)[key]}
+                              onChangeText={(v) => setAddDraft((d) => ({ ...d, [key]: v }))}
+                              keyboardType="numeric" placeholder="0" placeholderTextColor={Colors.textMuted}
+                            />
+                            <Text style={styles.addFormMacroUnit}>{unit}</Text>
+                          </View>
+                        ))}
                       </View>
-
-                      {/* Butonlar */}
                       <View style={styles.editActions}>
-                        <TouchableOpacity
-                          style={styles.editCancelBtn}
-                          onPress={() => setShowAddForm(false)}
-                        >
+                        <TouchableOpacity style={styles.editCancelBtn} onPress={() => setShowAddForm(false)}>
                           <Text style={styles.editCancelText}>İptal</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.editSaveBtn} onPress={commitAddItem}>
-                          <Ionicons name="add-circle-outline" size={16} color={Colors.textLight} />
                           <Text style={styles.editSaveText}>Listeye Ekle</Text>
                         </TouchableOpacity>
                       </View>
@@ -603,32 +595,53 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                 {/* Öğün Seçimi */}
                 <View style={styles.mealSection}>
                   <Text style={styles.mealSectionTitle}>Hangi öğüne eklensin?</Text>
+                  <Text style={styles.mealSectionHint}>
+                    Önerilen: <Text style={{ color: Colors.primary, fontWeight: '700' }}>
+                      {MEAL_OPTIONS.find((m) => m.key === suggestedMeal)?.label}
+                    </Text> — şu anki vaktin öğünü budur
+                  </Text>
                   <View style={styles.mealGrid}>
-                    {MEAL_OPTIONS.map((m) => (
-                      <TouchableOpacity
-                        key={m.key}
-                        style={[styles.mealChip, selectedMeal === m.key && styles.mealChipActive]}
-                        onPress={() => setSelectedMeal(m.key)}
-                      >
-                        <Ionicons
-                          name={m.icon as any}
-                          size={18}
-                          color={selectedMeal === m.key ? Colors.textLight : Colors.textSecondary}
-                        />
-                        <Text style={[styles.mealChipText, selectedMeal === m.key && styles.mealChipTextActive]}>
-                          {m.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                    {MEAL_OPTIONS.map((m) => {
+                      const isSuggested = m.key === suggestedMeal;
+                      const isSelected = selectedMeal === m.key;
+                      return (
+                        <TouchableOpacity
+                          key={m.key}
+                          style={[
+                            styles.mealChip,
+                            isSelected && styles.mealChipActive,
+                            isSuggested && !isSelected && styles.mealChipSuggested,
+                          ]}
+                          onPress={() => handleMealSelect(m.key)}
+                        >
+                          <Ionicons
+                            name={m.icon as any}
+                            size={18}
+                            color={isSelected ? Colors.textLight : isSuggested ? Colors.primary : Colors.textSecondary}
+                          />
+                          <View>
+                            <Text style={[styles.mealChipText, isSelected && styles.mealChipTextActive]}>
+                              {m.label}
+                            </Text>
+                            <Text style={[styles.mealChipTime, isSelected && { color: 'rgba(255,255,255,0.7)' }]}>
+                              {m.hours}
+                            </Text>
+                          </View>
+                          {isSuggested && !isSelected && (
+                            <View style={styles.suggestedDot} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
 
-                <View style={{ height: Spacing.xl }} />
+                <View style={{ height: Spacing.xxl }} />
               </>
             )}
           </ScrollView>
 
-          {/* ── Footer ── */}
+          {/* Footer */}
           {viewMode === 'review' && (
             <View style={styles.footer}>
               <TouchableOpacity style={styles.reanalysisFooterBtn} onPress={startReanalysis}>
@@ -637,8 +650,7 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.saveBtn, (saving || items.length === 0) && { opacity: 0.6 }]}
-                onPress={handleSave}
-                disabled={saving || items.length === 0}
+                onPress={handleSave} disabled={saving || items.length === 0}
               >
                 {saving ? (
                   <ActivityIndicator size="small" color={Colors.textLight} />
@@ -665,7 +677,6 @@ function MacroPill({ label, value, color }: { label: string; value: number; colo
     </View>
   );
 }
-
 const pillStyles = StyleSheet.create({
   pill: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: BorderRadius.full },
   label: { fontSize: 11, fontWeight: '700' },
@@ -680,7 +691,6 @@ function MacroBox({ label, value, color }: { label: string; value: number; color
     </View>
   );
 }
-
 const boxStyles = StyleSheet.create({
   box: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: BorderRadius.md },
   value: { fontSize: FontSize.md, fontWeight: '800' },
@@ -690,117 +700,100 @@ const boxStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
+  // Sabit header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
+    backgroundColor: Colors.background, zIndex: 100,
   },
   headerBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surfaceSecondary,
+    width: 36, height: 36, borderRadius: BorderRadius.full,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceSecondary,
   },
   headerTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary },
 
-  photo: {
-    width: SCREEN_WIDTH,
-    height: PHOTO_HEIGHT,
-    backgroundColor: Colors.borderLight,
-  },
+  photo: { width: SCREEN_WIDTH, height: PHOTO_HEIGHT, backgroundColor: Colors.borderLight },
 
   summaryBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
+    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
   },
-  summaryLeft: {},
   summaryCount: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '500' },
   summaryCalories: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.primary },
   summaryMacros: { flexDirection: 'row', gap: Spacing.xs },
 
+  // Porsiyon hint
+  portionHintCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm,
+    marginHorizontal: Spacing.md, marginTop: Spacing.md,
+    backgroundColor: `${Colors.primary}10`, borderRadius: BorderRadius.md,
+    padding: Spacing.md, borderWidth: 1, borderColor: `${Colors.primary}25`,
+  },
+  portionHintText: { flex: 1, fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18 },
+
   itemsList: { padding: Spacing.md, gap: Spacing.sm },
 
   itemCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
+    overflow: 'hidden', borderWidth: 1, borderColor: Colors.borderLight,
   },
-
   itemHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.md,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.md,
   },
   itemHeaderLeft: { flex: 1, marginRight: Spacing.sm },
-  itemName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
-  itemMeta: { flexDirection: 'row', gap: Spacing.xs },
-  gramBadge: {
-    backgroundColor: Colors.surfaceSecondary,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-  },
-  gramBadgeText: { fontSize: 11, color: Colors.textSecondary, fontWeight: '600' },
-  confBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: BorderRadius.full },
-  confBadgeText: { fontSize: 11, color: Colors.textLight, fontWeight: '700' },
+  itemName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
+  itemGram: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   itemHeaderRight: { alignItems: 'flex-end', gap: 4 },
   itemCalories: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
 
-  expandedSection: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderLight,
-    padding: Spacing.md,
-    gap: Spacing.sm,
+  // Porsiyon kontrolü
+  portionRow: {
+    paddingHorizontal: Spacing.md, paddingBottom: Spacing.sm,
+    borderTopWidth: 1, borderTopColor: Colors.borderLight,
+    paddingTop: Spacing.sm,
   },
+  portionLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600', marginBottom: 6 },
+  portionControls: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  portionBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: Colors.primaryPale, alignItems: 'center', justifyContent: 'center',
+  },
+  portionTrack: {
+    flex: 1, height: 6, backgroundColor: Colors.borderLight,
+    borderRadius: 3, overflow: 'hidden',
+  },
+  portionFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
+  portionInput: {
+    width: 40, height: 28, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: BorderRadius.sm, textAlign: 'center', fontSize: FontSize.sm,
+    fontWeight: '700', color: Colors.textPrimary,
+  },
+  portionPct: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '600' },
+
+  expandedSection: { borderTopWidth: 1, borderTopColor: Colors.borderLight, padding: Spacing.md, gap: Spacing.sm },
   macroGrid: { flexDirection: 'row', gap: Spacing.sm },
   itemActions: { flexDirection: 'row', gap: Spacing.sm, justifyContent: 'flex-end', marginTop: 4 },
   editItemBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.primaryPale,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full, backgroundColor: Colors.primaryPale,
   },
   editItemText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '600' },
   deleteItemBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
-    backgroundColor: '#FEE2E2',
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full, backgroundColor: '#FEE2E2',
   },
   deleteItemText: { fontSize: FontSize.sm, color: '#E74C3C', fontWeight: '600' },
 
   editForm: { padding: Spacing.md, gap: Spacing.xs },
   editLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600', marginTop: 4, marginBottom: 2 },
   editInput: {
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 8,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    backgroundColor: Colors.background,
+    borderWidth: 1.5, borderColor: Colors.border, borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.sm, paddingVertical: 8,
+    fontSize: FontSize.sm, color: Colors.textPrimary, backgroundColor: Colors.background,
   },
   editRow: { flexDirection: 'row', gap: Spacing.sm },
   editActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
@@ -811,182 +804,110 @@ const styles = StyleSheet.create({
   editCancelText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
   editSaveBtn: {
     flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md, backgroundColor: Colors.primary,
+    gap: 6, paddingVertical: Spacing.sm, borderRadius: BorderRadius.md, backgroundColor: Colors.primary,
   },
   editSaveText: { fontSize: FontSize.sm, color: Colors.textLight, fontWeight: '700' },
 
   addItemBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1.5,
-    borderColor: Colors.primaryLight,
-    borderStyle: 'dashed',
-    backgroundColor: Colors.primaryPale,
-    marginTop: Spacing.xs,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.xs,
+    paddingVertical: Spacing.md, borderRadius: BorderRadius.lg,
+    borderWidth: 1.5, borderColor: Colors.primaryLight, borderStyle: 'dashed',
+    backgroundColor: Colors.primaryPale, marginTop: Spacing.xs,
   },
   addItemText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '700' },
 
-  // New add form styles
   addFormCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1.5,
-    borderColor: `${Colors.primary}30`,
-    padding: Spacing.md,
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.xl,
+    borderWidth: 1, borderColor: Colors.borderLight,
+    padding: Spacing.md, gap: Spacing.sm, marginTop: Spacing.xs,
   },
-  addFormHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  addFormHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  addFormIconWrap: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: Colors.primaryPale,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  addFormTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.primary },
-  addFormCloseBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: Colors.surfaceSecondary,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  addFormHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  addFormTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
   addFormField: { gap: 4 },
   addFormLabel: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600' },
   addFormInput: {
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
-    backgroundColor: Colors.background,
+    borderWidth: 1.5, borderColor: Colors.border, borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.sm, paddingVertical: 8,
+    fontSize: FontSize.md, color: Colors.textPrimary,
   },
   aiEstimateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primaryPale,
-    borderWidth: 1.5,
-    borderColor: `${Colors.primary}40`,
-    marginVertical: 2,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.xs,
+    paddingVertical: Spacing.sm, borderRadius: BorderRadius.md,
+    borderWidth: 1.5, borderColor: Colors.primaryLight, backgroundColor: Colors.primaryPale,
   },
   aiEstimateBtnText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '700' },
-  addFormDivider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: 2 },
-  addFormSectionLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
   addFormMacroGrid: { flexDirection: 'row', gap: Spacing.sm },
-  addFormMacroItem: { flex: 1, alignItems: 'center', gap: 3 },
-  addFormMacroLabel: { fontSize: 11, fontWeight: '700' },
+  addFormMacroItem: { flex: 1, alignItems: 'center', gap: 4 },
+  addFormMacroLabel: { fontSize: 10, fontWeight: '700' },
   addFormMacroInput: {
-    width: '100%',
-    borderWidth: 1.5,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    backgroundColor: Colors.background,
-    textAlign: 'center',
+    width: '100%', borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.sm,
+    paddingVertical: 6, textAlign: 'center', fontSize: FontSize.sm, color: Colors.textPrimary,
   },
-  addFormMacroUnit: { fontSize: 10, color: Colors.textMuted, fontWeight: '500' },
+  addFormMacroUnit: { fontSize: 10, color: Colors.textMuted },
 
-  mealSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
-  mealSectionTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm },
-  mealGrid: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap' },
+  // Öğün seçimi
+  mealSection: { paddingHorizontal: Spacing.md, paddingBottom: Spacing.lg },
+  mealSectionTitle: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
+  mealSectionHint: { fontSize: FontSize.sm, color: Colors.textMuted, marginBottom: Spacing.md },
+  mealGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   mealChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg, borderWidth: 1.5, borderColor: Colors.border,
+    backgroundColor: Colors.surface, position: 'relative',
   },
   mealChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  mealChipText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
+  mealChipSuggested: { borderColor: Colors.primary, backgroundColor: Colors.primaryPale },
+  mealChipText: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.textSecondary },
   mealChipTextActive: { color: Colors.textLight },
+  mealChipTime: { fontSize: 10, color: Colors.textMuted, fontWeight: '500' },
+  suggestedDot: {
+    position: 'absolute', top: 6, right: 6,
+    width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.primary,
+  },
 
   footer: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Colors.borderLight,
-    backgroundColor: Colors.surface,
+    flexDirection: 'row', gap: Spacing.sm,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.md,
+    borderTopWidth: 1, borderTopColor: Colors.borderLight, backgroundColor: Colors.background,
   },
   reanalysisFooterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1.5,
-    borderColor: Colors.primaryLight,
-    backgroundColor: Colors.primaryPale,
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.xs, paddingVertical: Spacing.sm, borderRadius: BorderRadius.lg,
+    borderWidth: 1.5, borderColor: Colors.primaryLight, backgroundColor: Colors.primaryPale,
   },
-  reanalysisFooterText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '600' },
+  reanalysisFooterText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '700' },
   saveBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primary,
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.xs, paddingVertical: Spacing.sm, borderRadius: BorderRadius.lg, backgroundColor: Colors.primary,
   },
   saveBtnText: { fontSize: FontSize.md, color: Colors.textLight, fontWeight: '700' },
 
-  // Re-analysis
-  reanalysisSection: { padding: Spacing.lg, gap: Spacing.md },
+  // Reanalysis
+  reanalysisSection: { padding: Spacing.md, gap: Spacing.md },
   centerLoader: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.md },
   loaderText: { fontSize: FontSize.md, color: Colors.textSecondary },
   reanalysisTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary },
-  reanalysisSubtitle: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: -Spacing.xs },
+  reanalysisSubtitle: { fontSize: FontSize.sm, color: Colors.textMuted },
   questionCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    gap: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
+    padding: Spacing.md, gap: Spacing.sm, borderWidth: 1, borderColor: Colors.borderLight,
   },
   questionText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
   answerInput: {
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    fontSize: FontSize.sm,
-    color: Colors.textPrimary,
-    minHeight: 50,
-    textAlignVertical: 'top',
+    borderWidth: 1, borderColor: Colors.border, borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
+    fontSize: FontSize.md, color: Colors.textPrimary, minHeight: 60,
   },
   reanalysisActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
   cancelReanalysisBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md, borderWidth: 1.5, borderColor: Colors.border,
+    flex: 1, alignItems: 'center', paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg, borderWidth: 1.5, borderColor: Colors.border,
   },
   cancelReanalysisText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
   submitReanalysisBtn: {
-    flex: 2, alignItems: 'center', justifyContent: 'center',
-    paddingVertical: Spacing.md, borderRadius: BorderRadius.md, backgroundColor: Colors.primary,
+    flex: 2, alignItems: 'center', paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg, backgroundColor: Colors.primary,
   },
   submitReanalysisText: { fontSize: FontSize.sm, color: Colors.textLight, fontWeight: '700' },
 });

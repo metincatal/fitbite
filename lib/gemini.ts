@@ -335,6 +335,19 @@ export interface RecipeResult {
 /**
  * Yiyecek adı ve gramaja göre besin değerlerini tahmin eder
  */
+/**
+ * Fotoğraf öğünü için espritüel Türkçe isim üret
+ */
+export async function generateMealName(foodNames: string[]): Promise<string> {
+  const list = foodNames.join(', ');
+  const prompt = `Şu yiyecekleri içeren bir öğün için kısa, espritüel, yaratıcı ve Türkçe bir isim üret: ${list}
+SADECE ismi yaz, başka hiçbir şey ekleme. 3-5 kelimelik, eğlenceli ve akılda kalıcı olsun.
+Örnek stiller: "Karbonhidrat Festivali", "Proteinin Şafağı", "Gece Yarısı Keşfi", "Kahramanlık Öğünü"`;
+
+  const result = await geminiFlash.generateContent(prompt);
+  return result.response.text().trim().slice(0, 40);
+}
+
 export async function estimateNutritionFromText(params: {
   foodName: string;
   grams: number;
