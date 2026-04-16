@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,8 +13,6 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
-  PanResponder,
-  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -57,6 +55,12 @@ type ViewMode = 'review' | 'reanalysis';
 
 // Her item için porsiyon yüzdesi (0-100)
 type Portions = Record<number, number>;
+
+// Porsiyon yüzde presetleri
+const PORTION_PRESETS = [25, 50, 75, 100];
+
+// Gram presetleri (düzenleme formu için)
+const GRAM_PRESETS = [50, 100, 150, 200, 300, 500];
 
 export function PhotoMealReviewModal({ visible, onClose, items: initialItems, imageBase64, onSave }: Props) {
   const [items, setItems] = useState<DetectedFoodItem[]>([]);
@@ -425,13 +429,11 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                             />
 
                             <Text style={[styles.editLabel, { marginTop: Spacing.xs }]}>
-                              Gram — {editDraft.estimatedGrams}g
+                              Miktar (gram)
                             </Text>
-                            <SliderControl
-                              min={10} max={600}
+                            <GramStepper
                               value={parseFloat(editDraft.estimatedGrams) || 100}
                               onChange={(v) => setEditDraft((d) => ({ ...d, estimatedGrams: String(v) }))}
-                              unit="g"
                             />
 
                             {/* AI Makro Hesapla */}
@@ -500,14 +502,11 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                               </View>
                             </TouchableOpacity>
 
-                            {/* Porsiyon Slider */}
+                            {/* Porsiyon Stepper */}
                             <View style={[styles.portionRow, saving && { opacity: 0.5 }]} pointerEvents={saving ? 'none' : 'auto'}>
-                              <SliderControl
-                                min={0} max={100}
+                              <PortionStepper
                                 value={pct}
                                 onChange={(v) => setPortionValue(index, v)}
-                                unit="%"
-                                label="Ne kadarını yedin?"
                               />
                             </View>
 
@@ -564,10 +563,9 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                       </View>
                       <View style={styles.addFormField}>
                         <Text style={styles.addFormLabel}>Miktar (gram)</Text>
-                        <TextInput
-                          style={styles.addFormInput} value={addDraft.estimatedGrams}
-                          onChangeText={(v) => setAddDraft((d) => ({ ...d, estimatedGrams: v }))}
-                          keyboardType="numeric" placeholder="100" placeholderTextColor={Colors.textMuted}
+                        <GramStepper
+                          value={parseFloat(addDraft.estimatedGrams) || 100}
+                          onChange={(v) => setAddDraft((d) => ({ ...d, estimatedGrams: String(v) }))}
                         />
                       </View>
                       <TouchableOpacity
@@ -690,116 +688,310 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
   );
 }
 
-function SliderControl({
-  min, max, value, onChange, unit, label,
-}: {
-  min: number; max: number; value: number; onChange: (v: number) => void;
-  unit?: string; label?: string;
-}) {
-  const containerRef = useRef<View>(null);
-  const containerPageXRef = useRef(0);  // absolute screen X of container left edge
-  const trackWidthRef = useRef(200);    // container width
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-
-  const [bubbleValue, setBubbleValue] = useState(value);
-  const currentValueRef = useRef(value);
-  const isGestureRef = useRef(false);
-  const lastTextUpdateRef = useRef(0);  // throttle bubble text to 30fps
-
-  // Animated ratio [0,1] — drives fill & thumb visually, NO React re-render
-  const animRatio = useRef(new Animated.Value(toRatio(value, min, max))).current;
-
-  // Sync from parent only when user is not dragging
-  useEffect(() => {
-    if (!isGestureRef.current) {
-      const r = toRatio(value, min, max);
-      animRatio.setValue(r);
-      setBubbleValue(value);
-      currentValueRef.current = value;
-    }
-  }, [value, min, max]);
-
-  // Measure container absolute position so we can use pageX for accurate tracking
-  function measureContainer() {
-    containerRef.current?.measure((_x, _y, width, _h, pageX) => {
-      containerPageXRef.current = pageX;
-      trackWidthRef.current = Math.max(1, width);
-    });
-  }
-
-  function updateFromPageX(pageX: number) {
-    // Compute offset from container left edge (fully clamped: allows reaching 0 and max)
-    const offsetX = pageX - containerPageXRef.current;
-    const ratio = Math.max(0, Math.min(1, offsetX / trackWidthRef.current));
-    const v = Math.round(min + ratio * (max - min));
-    // Update visual immediately via Animated (no React re-render)
-    animRatio.setValue(ratio);
-    currentValueRef.current = v;
-    // Throttle bubble text to ~30fps to avoid flicker
-    const now = Date.now();
-    if (now - lastTextUpdateRef.current >= 33) {
-      lastTextUpdateRef.current = now;
-      setBubbleValue(v);  // re-renders only this component, not parent
-    }
-  }
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        isGestureRef.current = true;
-        lastTextUpdateRef.current = 0;
-        measureContainer();  // refresh position before gesture begins
-        updateFromPageX(evt.nativeEvent.pageX);
-        setBubbleValue(currentValueRef.current);  // show immediately on tap
-      },
-      onPanResponderMove: (evt) => {
-        updateFromPageX(evt.nativeEvent.pageX);
-      },
-      onPanResponderRelease: () => {
-        isGestureRef.current = false;
-        setBubbleValue(currentValueRef.current);  // final value in bubble
-        onChangeRef.current(currentValueRef.current);  // parent state update — once
-      },
-      onPanResponderTerminate: () => {
-        isGestureRef.current = false;
-        onChangeRef.current(currentValueRef.current);
-      },
-    })
-  ).current;
-
-  const fillPct = animRatio.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'], extrapolate: 'clamp' });
+// ─── PortionStepper ─────────────────────────────────────────────────────────
+// Scroll-safe porsiyon kontrolü: preset chip'ler + stepper butonları
+function PortionStepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const clamp = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
 
   return (
-    <View style={sliderStyles.wrapper}>
-      {label && <Text style={sliderStyles.label}>{label}</Text>}
-      <View
-        ref={containerRef}
-        style={sliderStyles.hitArea}
-        onLayout={measureContainer}
-        {...panResponder.panHandlers}
-      >
-        {/* Rail */}
-        <View style={sliderStyles.rail} />
-        {/* Fill */}
-        <Animated.View style={[sliderStyles.fill, { width: fillPct }]} />
-        {/* Thumb + floating bubble — positioned via interpolated left% */}
-        <Animated.View style={[sliderStyles.thumbWrap, { left: fillPct }]}>
-          <View style={sliderStyles.bubble}>
-            <Text style={sliderStyles.bubbleText}>{bubbleValue}{unit ?? ''}</Text>
-          </View>
-          <View style={sliderStyles.thumb} />
-        </Animated.View>
+    <View style={portionStyles.container}>
+      <View style={portionStyles.topRow}>
+        <Text style={portionStyles.label}>Ne kadarını yedin?</Text>
+        <View style={portionStyles.valueBox}>
+          <Text style={portionStyles.valuePct}>%{value}</Text>
+        </View>
+      </View>
+
+      {/* Preset chips */}
+      <View style={portionStyles.chipRow}>
+        {PORTION_PRESETS.map((p) => (
+          <TouchableOpacity
+            key={p}
+            style={[portionStyles.chip, value === p && portionStyles.chipActive]}
+            onPress={() => onChange(p)}
+            activeOpacity={0.7}
+          >
+            <Text style={[portionStyles.chipText, value === p && portionStyles.chipTextActive]}>
+              {p === 100 ? 'Hepsi' : `%${p}`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Stepper: -10 / -5 / +5 / +10  */}
+      <View style={portionStyles.stepperRow}>
+        <TouchableOpacity
+          style={[portionStyles.stepBtn, value <= 0 && portionStyles.stepBtnDisabled]}
+          onPress={() => onChange(clamp(value - 10))}
+          disabled={value <= 0}
+        >
+          <Text style={[portionStyles.stepBtnText, value <= 0 && portionStyles.stepBtnTextDisabled]}>−10</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[portionStyles.stepBtn, value <= 0 && portionStyles.stepBtnDisabled]}
+          onPress={() => onChange(clamp(value - 5))}
+          disabled={value <= 0}
+        >
+          <Text style={[portionStyles.stepBtnText, value <= 0 && portionStyles.stepBtnTextDisabled]}>−5</Text>
+        </TouchableOpacity>
+
+        {/* Ortadaki yüzde göstergesi: segment bar */}
+        <View style={portionStyles.segmentBar}>
+          <View style={[portionStyles.segmentFill, { width: `${value}%` }]} />
+        </View>
+
+        <TouchableOpacity
+          style={[portionStyles.stepBtn, portionStyles.stepBtnPlus, value >= 100 && portionStyles.stepBtnDisabled]}
+          onPress={() => onChange(clamp(value + 5))}
+          disabled={value >= 100}
+        >
+          <Text style={[portionStyles.stepBtnText, portionStyles.stepBtnTextPlus, value >= 100 && portionStyles.stepBtnTextDisabled]}>+5</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[portionStyles.stepBtn, portionStyles.stepBtnPlus, value >= 100 && portionStyles.stepBtnDisabled]}
+          onPress={() => onChange(clamp(value + 10))}
+          disabled={value >= 100}
+        >
+          <Text style={[portionStyles.stepBtnText, portionStyles.stepBtnTextPlus, value >= 100 && portionStyles.stepBtnTextDisabled]}>+10</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-function toRatio(v: number, min: number, max: number) {
-  return Math.max(0, Math.min(1, (v - min) / (max - min)));
+const portionStyles = StyleSheet.create({
+  container: {
+    gap: 8,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  label: {
+    fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  valueBox: {
+    backgroundColor: `${Colors.primary}12`,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+  },
+  valuePct: {
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+
+  chipRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  chip: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 7,
+    borderRadius: BorderRadius.md,
+    backgroundColor: Colors.surfaceSecondary,
+    borderWidth: 1.5,
+    borderColor: Colors.borderLight,
+  },
+  chipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  chipText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  chipTextActive: {
+    color: '#fff',
+  },
+
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  stepBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.sm,
+    backgroundColor: Colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  stepBtnPlus: {
+    backgroundColor: `${Colors.primary}08`,
+    borderColor: `${Colors.primary}25`,
+  },
+  stepBtnDisabled: {
+    opacity: 0.35,
+  },
+  stepBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  stepBtnTextPlus: {
+    color: Colors.primary,
+  },
+  stepBtnTextDisabled: {
+    color: Colors.textMuted,
+  },
+
+  segmentBar: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.borderLight,
+    overflow: 'hidden',
+  },
+  segmentFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: Colors.primary,
+  },
+});
+
+
+// ─── GramStepper ────────────────────────────────────────────────────────────
+// Scroll-safe gram kontrolü: - / TextInput / + ve preset chip'ler
+function GramStepper({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [inputText, setInputText] = useState(String(value));
+
+  useEffect(() => {
+    setInputText(String(value));
+  }, [value]);
+
+  function commitText() {
+    const parsed = parseFloat(inputText);
+    if (!isNaN(parsed) && parsed > 0) {
+      onChange(Math.round(parsed));
+    } else {
+      setInputText(String(value));
+    }
+  }
+
+  return (
+    <View style={gramStyles.container}>
+      {/* Stepper satırı */}
+      <View style={gramStyles.stepperRow}>
+        <TouchableOpacity
+          style={gramStyles.stepBtn}
+          onPress={() => { const v = Math.max(5, value - 10); onChange(v); }}
+        >
+          <Ionicons name="remove" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+
+        <View style={gramStyles.inputWrap}>
+          <TextInput
+            style={gramStyles.input}
+            value={inputText}
+            onChangeText={setInputText}
+            onBlur={commitText}
+            onSubmitEditing={commitText}
+            keyboardType="numeric"
+            selectTextOnFocus
+          />
+          <Text style={gramStyles.unit}>g</Text>
+        </View>
+
+        <TouchableOpacity
+          style={gramStyles.stepBtn}
+          onPress={() => { const v = value + 10; onChange(v); }}
+        >
+          <Ionicons name="add" size={18} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Preset chip'ler */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={gramStyles.chipScroll}>
+        {GRAM_PRESETS.map((g) => (
+          <TouchableOpacity
+            key={g}
+            style={[gramStyles.chip, value === g && gramStyles.chipActive]}
+            onPress={() => onChange(g)}
+          >
+            <Text style={[gramStyles.chipText, value === g && gramStyles.chipTextActive]}>
+              {g}g
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
 }
+
+const gramStyles = StyleSheet.create({
+  container: {
+    gap: 8,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    justifyContent: 'center',
+  },
+  stepBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.primaryPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inputWrap: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  input: {
+    width: 70,
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+    paddingBottom: 2,
+  },
+  unit: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+  chipScroll: {
+    // padding handled by gaps
+  },
+  chip: {
+    marginRight: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  chipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  chipText: {
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  chipTextActive: {
+    color: '#fff',
+  },
+});
+
+
+// ─── Helper Components ──────────────────────────────────────────────────────
 
 function MacroPill({ label, value, color }: { label: string; value: number; color: string }) {
   return (
@@ -1034,52 +1226,4 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg, backgroundColor: Colors.primary,
   },
   submitReanalysisText: { fontSize: FontSize.sm, color: Colors.textLight, fontWeight: '700' },
-});
-
-// SliderControl'e özel stiller (ayrı StyleSheet — `styles` ile karışmasın)
-const sliderStyles = StyleSheet.create({
-  wrapper: { width: '100%' },
-  label: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '600', marginBottom: Spacing.sm },
-  // Touch alanı: geniş tıklanabilir bölge (48px yükseklik)
-  hitArea: {
-    height: 48, width: '100%',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  rail: {
-    position: 'absolute', left: 0, right: 0,
-    height: 6, borderRadius: 3,
-    backgroundColor: Colors.borderLight,
-  },
-  fill: {
-    position: 'absolute', left: 0,
-    height: 6, borderRadius: 3,
-    backgroundColor: Colors.primary,
-  },
-  // Thumb + bubble wrapper — centered on fill's right edge via negative marginLeft
-  thumbWrap: {
-    position: 'absolute',
-    alignItems: 'center',
-    marginLeft: -14,  // half of thumb(20) + some bubble width to center
-  },
-  bubble: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginBottom: 4,
-    minWidth: 34,
-    alignItems: 'center',
-  },
-  bubbleText: {
-    fontSize: 11, fontWeight: '800', color: '#fff',
-  },
-  thumb: {
-    width: 20, height: 20, borderRadius: 10,
-    backgroundColor: Colors.primary,
-    shadowColor: Colors.primaryDark,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3, shadowRadius: 3,
-    elevation: 3,
-  },
 });

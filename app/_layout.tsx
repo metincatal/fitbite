@@ -63,6 +63,7 @@ export default function RootLayout() {
         <Stack.Screen name="shopping-list" />
         <Stack.Screen name="food/[id]" />
         <Stack.Screen name="recipe" />
+        <Stack.Screen name="exercise" options={{ presentation: 'modal' }} />
       </Stack>
     </GestureHandlerRootView>
   );

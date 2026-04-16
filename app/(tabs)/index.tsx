@@ -18,7 +18,9 @@ import { MacroBar } from '../../components/ui/MacroBar';
 import { Card } from '../../components/ui/Card';
 import { ActivitySection } from '../../components/dashboard/ActivitySection';
 import { useActivityStore } from '../../store/activityStore';
+import { useExerciseStore } from '../../store/exerciseStore';
 import { usePedometer } from '../../hooks/usePedometer';
+import { EXERCISE_CATEGORIES, INTENSITY_LABELS, ExerciseIntensity } from '../../lib/constants';
 
 const WATER_GLASSES = [250, 250, 250, 250, 250, 250, 250, 250]; // 8 bardak = 2000ml
 
@@ -32,15 +34,22 @@ export default function DashboardScreen() {
   const userId = useAuthStore((s) => s.user?.id);
   const { todaySteps, stepGoal, caloriesBurned, distanceKm, activeMinutes, isAvailable, permissionGranted } =
     useActivityStore();
+  const { todayExercises, fetchTodayExercises, getTotalCaloriesBurned } = useExerciseStore();
   usePedometer(userId, profile?.weight_kg, profile?.height_cm);
 
   useEffect(() => {
-    if (userId) fetchDayLogs(userId, selectedDate);
+    if (userId) {
+      fetchDayLogs(userId, selectedDate);
+      fetchTodayExercises(userId, selectedDate);
+    }
   }, [userId, selectedDate]);
 
   async function onRefresh() {
     setRefreshing(true);
-    if (userId) await fetchDayLogs(userId, selectedDate);
+    if (userId) {
+      await fetchDayLogs(userId, selectedDate);
+      await fetchTodayExercises(userId, selectedDate);
+    }
     setRefreshing(false);
   }
 
@@ -156,6 +165,40 @@ export default function DashboardScreen() {
             {8 - waterGlasses > 0 ? `${8 - waterGlasses} bardak daha iç` : 'Günlük su hedefinize ulaştınız! 🎉'}
           </Text>
         </Card>
+
+        {/* Egzersiz Özeti */}
+        {todayExercises.length > 0 && (
+          <Card style={styles.exerciseCard}>
+            <View style={styles.exerciseTitleRow}>
+              <Text style={styles.sectionTitle}>Bugünkü Egzersiz 🏋️</Text>
+              <TouchableOpacity onPress={() => router.push('/exercise')}>
+                <Text style={styles.seeAllText}>Tümünü gör</Text>
+              </TouchableOpacity>
+            </View>
+            {todayExercises.slice(0, 3).map((ex) => {
+              const cat = EXERCISE_CATEGORIES.find((c) => c.key === ex.exercise_type);
+              const intInfo = INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
+              return (
+                <View key={ex.id} style={styles.exerciseRow}>
+                  <View style={[styles.exerciseIconWrap, { backgroundColor: (cat?.color ?? '#6B7280') + '20' }]}>
+                    <Text style={styles.exerciseEmoji}>{cat?.emoji ?? '🏅'}</Text>
+                  </View>
+                  <View style={styles.exerciseInfo}>
+                    <Text style={styles.exerciseName}>{ex.exercise_name}</Text>
+                    <Text style={styles.exerciseMeta}>{ex.duration_minutes} dk · {intInfo.emoji} {intInfo.label}</Text>
+                  </View>
+                  <Text style={styles.exerciseCal}>{ex.calories_burned} kcal</Text>
+                </View>
+              );
+            })}
+            <View style={styles.exerciseTotalRow}>
+              <Ionicons name="flame" size={16} color="#DC2626" />
+              <Text style={styles.exerciseTotalText}>
+                Toplam yakılan: {getTotalCaloriesBurned()} kcal
+              </Text>
+            </View>
+          </Card>
+        )}
 
         {/* Gunluk Aktivite */}
         <ActivitySection
@@ -409,5 +452,64 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     fontWeight: '700',
     color: Colors.textLight,
+  },
+  exerciseCard: {
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+  },
+  exerciseTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  exerciseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  exerciseIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.sm,
+  },
+  exerciseEmoji: {
+    fontSize: 18,
+  },
+  exerciseInfo: {
+    flex: 1,
+  },
+  exerciseName: {
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  exerciseMeta: {
+    fontSize: FontSize.sm,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  exerciseCal: {
+    fontSize: FontSize.md,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  exerciseTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+  },
+  exerciseTotalText: {
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    color: '#DC2626',
   },
 });

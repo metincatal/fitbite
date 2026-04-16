@@ -35,6 +35,7 @@ import { uploadFoodPhoto } from '../../lib/storage';
 import { PhotoMealReviewModal } from '../../components/food/PhotoMealReviewModal';
 import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
 import { LinearGradient } from 'expo-linear-gradient';
+import { setQuickActionCallbacks } from './_layout';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -135,6 +136,25 @@ export default function FoodLogScreen() {
       .order('logged_at', { ascending: true });
     setYesterdayLogs((data as FoodLogWithFood[]) ?? []);
   }
+
+  useEffect(() => {
+    // FAB'dan gelen kamera/galeri aksiyonlarını dinle
+    setQuickActionCallbacks(
+      (base64) => {
+        router.push('/(tabs)/food-log');
+        setPendingBase64(base64);
+        setPhotoHintText('');
+        setShowHintPrompt(true);
+      },
+      (base64) => {
+        router.push('/(tabs)/food-log');
+        setPendingBase64(base64);
+        setPhotoHintText('');
+        setShowHintPrompt(true);
+      }
+    );
+    return () => setQuickActionCallbacks(() => {}, () => {});
+  }, [router]);
 
   async function searchFoods(query: string) {
     if (query.length < 2) { setSearchResults([]); return; }

@@ -9,6 +9,8 @@ export type ChatMessage = Database['public']['Tables']['chat_messages']['Row'];
 export type Conversation = Database['public']['Tables']['conversations']['Row'];
 export type BodyMeasurement = Database['public']['Tables']['body_measurements']['Row'];
 export type StepLog = Database['public']['Tables']['step_logs']['Row'];
+export type ExerciseLog = Database['public']['Tables']['exercise_logs']['Row'];
+export type ExerciseLogInsert = Database['public']['Tables']['exercise_logs']['Insert'];
 
 export interface FoodLogWithFood extends FoodLog {
   food: Food;

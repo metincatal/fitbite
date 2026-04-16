@@ -276,6 +276,34 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['step_logs']['Insert']>;
         Relationships: [];
       };
+      exercise_logs: {
+        Row: {
+          id: string;
+          user_id: string;
+          exercise_type: string;
+          exercise_name: string;
+          duration_minutes: number;
+          intensity: 'low' | 'moderate' | 'high';
+          calories_burned: number;
+          notes: string | null;
+          logged_at: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          exercise_type: string;
+          exercise_name: string;
+          duration_minutes: number;
+          intensity?: 'low' | 'moderate' | 'high';
+          calories_burned: number;
+          notes?: string | null;
+          logged_at?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['exercise_logs']['Insert']>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

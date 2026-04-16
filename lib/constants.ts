@@ -170,3 +170,39 @@ export const MEAL_RHYTHMS = [
   { count: 3, label: '3 Öğün', subtitle: 'Dengeli Akış', icon: 'restaurant-outline' },
   { count: 4, label: '4+ Öğün', subtitle: 'Sık ve Az', icon: 'grid-outline' },
 ] as const;
+
+export const EXERCISE_CATEGORIES = [
+  { key: 'running', label: 'Koşu', icon: 'walk-outline', emoji: '🏃', color: '#EF4444', met: { low: 6.0, moderate: 8.3, high: 11.0 } },
+  { key: 'walking', label: 'Yürüyüş', icon: 'footsteps-outline', emoji: '🚶', color: '#22C55E', met: { low: 2.5, moderate: 3.5, high: 5.0 } },
+  { key: 'cycling', label: 'Bisiklet', icon: 'bicycle-outline', emoji: '🚴', color: '#3B82F6', met: { low: 4.0, moderate: 6.8, high: 10.0 } },
+  { key: 'swimming', label: 'Yüzme', icon: 'water-outline', emoji: '🏊', color: '#06B6D4', met: { low: 4.5, moderate: 7.0, high: 10.0 } },
+  { key: 'weight_training', label: 'Ağırlık', icon: 'barbell-outline', emoji: '🏋️', color: '#8B5CF6', met: { low: 3.0, moderate: 5.0, high: 6.0 } },
+  { key: 'yoga', label: 'Yoga', icon: 'body-outline', emoji: '🧘', color: '#EC4899', met: { low: 2.0, moderate: 3.0, high: 4.0 } },
+  { key: 'hiit', label: 'HIIT', icon: 'flash-outline', emoji: '⚡', color: '#F97316', met: { low: 6.0, moderate: 8.0, high: 12.0 } },
+  { key: 'pilates', label: 'Pilates', icon: 'fitness-outline', emoji: '🤸', color: '#14B8A6', met: { low: 2.5, moderate: 4.0, high: 5.5 } },
+  { key: 'dance', label: 'Dans', icon: 'musical-notes-outline', emoji: '💃', color: '#F43F5E', met: { low: 3.0, moderate: 5.0, high: 7.5 } },
+  { key: 'football', label: 'Futbol', icon: 'football-outline', emoji: '⚽', color: '#10B981', met: { low: 5.0, moderate: 7.0, high: 10.0 } },
+  { key: 'basketball', label: 'Basketbol', icon: 'basketball-outline', emoji: '🏀', color: '#F59E0B', met: { low: 4.5, moderate: 6.5, high: 8.0 } },
+  { key: 'tennis', label: 'Tenis', icon: 'tennisball-outline', emoji: '🎾', color: '#84CC16', met: { low: 4.0, moderate: 7.0, high: 10.0 } },
+  { key: 'stretching', label: 'Esneme', icon: 'resize-outline', emoji: '🙆', color: '#A78BFA', met: { low: 2.0, moderate: 2.5, high: 3.5 } },
+  { key: 'stair_climbing', label: 'Merdiven', icon: 'trending-up-outline', emoji: '🪜', color: '#64748B', met: { low: 4.0, moderate: 8.0, high: 12.0 } },
+  { key: 'other', label: 'Diğer', icon: 'ellipsis-horizontal-outline', emoji: '🏅', color: '#6B7280', met: { low: 3.0, moderate: 5.0, high: 7.0 } },
+] as const;
+
+export type ExerciseIntensity = 'low' | 'moderate' | 'high';
+
+export const INTENSITY_LABELS: Record<ExerciseIntensity, { label: string; emoji: string; color: string }> = {
+  low: { label: 'Hafif', emoji: '😌', color: '#22C55E' },
+  moderate: { label: 'Orta', emoji: '💪', color: '#F59E0B' },
+  high: { label: 'Yoğun', emoji: '🔥', color: '#EF4444' },
+};
+
+export function calculateExerciseCalories(
+  met: number,
+  weightKg: number,
+  durationMinutes: number,
+): number {
+  // Kalori = MET × Kilo(kg) × Süre(saat)
+  return Math.round(met * weightKg * (durationMinutes / 60));
+}
+
