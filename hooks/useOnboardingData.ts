@@ -1,44 +1,61 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityLevel, DietType, Goal } from '../lib/constants';
-import { NotificationPreferences } from '../types/database';
+import {
+  ActivityLevel,
+  DietType,
+  Goal,
+  TTMStage,
+  OccupationalActivity,
+  ExerciseFrequency,
+  BodyFatBand,
+  MedicalCondition,
+} from '../lib/constants';
+import { NotificationPreferences, ScoffAnswers } from '../types/database';
 
 export interface OnboardingData {
-  // Step 2: Name
+  // Name
   name: string;
-  // Step 3: Gender + Birth
+  // Gender + Birth
   gender: 'male' | 'female' | null;
   birth_year: string;
   birth_month: string;
-  // Step 4: Body
+  // Body metrics
   height_cm: string;
   weight_kg: string;
   target_weight_kg: string;
-  // Step 6: Motivations
+  // Motivations
   motivations: string[];
-  // Step 7: Past obstacles
+  // Past obstacles
   past_obstacles: string[];
-  // Step 8: Activity
+  // Legacy activity (fallback — yeni kullanıcılar için kullanılmıyor)
   activity_level: ActivityLevel | null;
-  // Step 9: Diet
+  // Diet
   diet_type: DietType;
-  // Step 10: Allergies
+  // Allergies
   allergies: string[];
-  // Step 11: Meal rhythm
+  // Meal rhythm
   meal_count: number;
-  // Step 12: Meal timing
+  // Meal timing
   first_meal_time: string;
   last_meal_time: string;
-  // Step 13: Weight goal rate
+  // Weekly weight goal rate
   weekly_weight_goal_kg: number;
   // Derived: Goal
   goal: Goal | null;
-  // Step 15: Notifications
+  // Notifications
   notification_preferences: NotificationPreferences;
-  // Step 17: Account Creation
+  // Account
   email: string;
   password: string;
+
+  // v2 — Bilimsel yeniden yapılandırma alanları
+  ttm_stage: TTMStage | null;
+  scoff_answers: ScoffAnswers;
+  medical_conditions: MedicalCondition[];
+  occupational_activity: OccupationalActivity | null;
+  exercise_frequency: ExerciseFrequency | null;
+  body_fat_band: BodyFatBand | null;
 }
 
 interface OnboardingStore {
@@ -46,7 +63,12 @@ interface OnboardingStore {
   currentStep: number;
   setStep: (step: number) => void;
   updateField: <K extends keyof OnboardingData>(key: K, value: OnboardingData[K]) => void;
-  toggleArrayItem: (key: 'motivations' | 'past_obstacles' | 'allergies', item: string) => void;
+  toggleArrayItem: (
+    key: 'motivations' | 'past_obstacles' | 'allergies',
+    item: string
+  ) => void;
+  toggleMedicalCondition: (item: MedicalCondition) => void;
+  setScoffAnswer: (key: keyof ScoffAnswers, value: boolean) => void;
   reset: () => void;
 }
 
@@ -76,6 +98,14 @@ const initialData: OnboardingData = {
   },
   email: '',
   password: '',
+
+  // v2 defaults
+  ttm_stage: null,
+  scoff_answers: {},
+  medical_conditions: [],
+  occupational_activity: null,
+  exercise_frequency: null,
+  body_fat_band: null,
 };
 
 export const useOnboardingData = create<OnboardingStore>()(
@@ -94,11 +124,82 @@ export const useOnboardingData = create<OnboardingStore>()(
           const newArr = arr.includes(item) ? arr.filter((i) => i !== item) : [...arr, item];
           return { data: { ...state.data, [key]: newArr } };
         }),
+      // "Hiçbiri" seçiminde diğerlerini temizle; başka bir seçimde "none"'ı temizle.
+      toggleMedicalCondition: (item) =>
+        set((state) => {
+          const current = state.data.medical_conditions;
+          let next: MedicalCondition[];
+          if (item === 'none') {
+            next = current.includes('none') ? [] : ['none'];
+          } else {
+            const withoutNone = current.filter((c) => c !== 'none');
+            next = withoutNone.includes(item)
+              ? withoutNone.filter((c) => c !== item)
+              : [...withoutNone, item];
+          }
+          return { data: { ...state.data, medical_conditions: next } };
+        }),
+      setScoffAnswer: (key, value) =>
+        set((state) => ({
+          data: {
+            ...state.data,
+            scoff_answers: { ...state.data.scoff_answers, [key]: value },
+          },
+        })),
       reset: () => set({ data: { ...initialData }, currentStep: 0 }),
     }),
     {
       name: 'fitbite-onboarding',
       storage: createJSONStorage(() => AsyncStorage),
+      version: 2,
+      migrate: (persistedState) => {
+        const p = (persistedState ?? {}) as Partial<OnboardingStore>;
+        const pd = (p.data ?? {}) as Partial<OnboardingData>;
+        return {
+          ...p,
+          data: {
+            ...initialData,
+            ...pd,
+            notification_preferences: {
+              ...initialData.notification_preferences,
+              ...(pd.notification_preferences ?? {}),
+            },
+            scoff_answers: {
+              ...initialData.scoff_answers,
+              ...(pd.scoff_answers ?? {}),
+            },
+            medical_conditions: pd.medical_conditions ?? [],
+            motivations: pd.motivations ?? [],
+            past_obstacles: pd.past_obstacles ?? [],
+            allergies: pd.allergies ?? [],
+          },
+          currentStep: p.currentStep ?? 0,
+        } as OnboardingStore;
+      },
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<OnboardingStore>;
+        const pd = (p.data ?? {}) as Partial<OnboardingData>;
+        return {
+          ...current,
+          ...p,
+          data: {
+            ...initialData,
+            ...pd,
+            notification_preferences: {
+              ...initialData.notification_preferences,
+              ...(pd.notification_preferences ?? {}),
+            },
+            scoff_answers: {
+              ...initialData.scoff_answers,
+              ...(pd.scoff_answers ?? {}),
+            },
+            medical_conditions: pd.medical_conditions ?? [],
+            motivations: pd.motivations ?? [],
+            past_obstacles: pd.past_obstacles ?? [],
+            allergies: pd.allergies ?? [],
+          },
+        };
+      },
     }
   )
 );

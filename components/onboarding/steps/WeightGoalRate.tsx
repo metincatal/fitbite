@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
 import { StepContainer } from '../shared/StepContainer';
@@ -26,6 +27,16 @@ export function WeightGoalRate({ onNext, onBack }: Props) {
   const diff = !isNaN(currentWeight) && !isNaN(targetWeight) ? Math.abs(targetWeight - currentWeight) : null;
 
   const isGainMode = !isNaN(currentWeight) && !isNaN(targetWeight) && targetWeight > currentWeight;
+
+  // Seçili tempo vücut ağırlığının %1'inden fazlaysa uyarı göster
+  const rateTooAggressive =
+    !isNaN(currentWeight) &&
+    currentWeight > 0 &&
+    data.weekly_weight_goal_kg > 0 &&
+    data.weekly_weight_goal_kg / currentWeight > 0.01;
+  const aggressivePct = rateTooAggressive
+    ? Math.round((data.weekly_weight_goal_kg / currentWeight) * 1000) / 10
+    : null;
 
   return (
     <StepContainer scrollable={false}>
@@ -73,6 +84,16 @@ export function WeightGoalRate({ onNext, onBack }: Props) {
             );
           })}
         </Animated.View>
+
+        {rateTooAggressive && (
+          <Animated.View entering={FadeInDown.duration(300)} style={styles.warningBanner}>
+            <Ionicons name="warning" size={16} color={Colors.warning} />
+            <Text style={styles.warningText}>
+              Seçtiğin tempo vücut ağırlığının %{aggressivePct}'ine denk geliyor. Hızlı kilo kaybı
+              kas kaybına yol açar. "Dengeli" 0.5 kg/hafta önerilir.
+            </Text>
+          </Animated.View>
+        )}
 
         <View style={styles.footer}>
           <OnboardingButton title="Devam Et →" onPress={onNext} />
@@ -163,6 +184,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.accent,
     marginTop: 2,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    backgroundColor: Colors.accentLight + '40',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm + 2,
+    marginTop: Spacing.sm,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    color: Colors.textSecondary,
+    lineHeight: FontSize.xs * 1.5,
   },
   footer: { gap: Spacing.sm, paddingTop: Spacing.md },
 });

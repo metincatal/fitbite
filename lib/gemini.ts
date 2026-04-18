@@ -1,6 +1,14 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Profile } from '../types';
-import { DIET_TYPES, MOTIVATIONS, OBSTACLES, ALLERGIES } from './constants';
+import {
+  DIET_TYPES,
+  MOTIVATIONS,
+  OBSTACLES,
+  ALLERGIES,
+  MEDICAL_CONDITIONS,
+  TTMStage,
+} from './constants';
+import type { SafetyFlags } from '../types/database';
 
 const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY!);
 
@@ -24,7 +32,45 @@ KURALLAR:
 - Pozitif ve motive edici bir dil kullan
 - Türk mutfağından örnekler ver
 
+BİLİMSEL ZEMİN:
+- Protein tok tutar ve ~%20 termik etki (TEF) ile metabolizmayı artırır — her öğünde yeterli protein öner.
+- Son öğünü uykudan en az 2-3 saat önce bitirmesini hatırlat (sirkadiyen uyum).
+
 Kullanıcı profili aşağıda verilecek.`;
+
+// Transtheoretical Model — aşamaya göre konuşma tonu
+const TTM_PROMPTS: Record<TTMStage, string> = {
+  precontemplation: `
+## KULLANICI DEĞİŞİM AŞAMASI: Farkındalık Öncesi
+Yaklaşım: EĞİTİCİ — yargısız, baskısız.
+- "Yapmalısın" dili kullanma; fayda bilgisi ve farkındalık tetikleyicilerle sınırla.
+- Somut plan dayatma; kullanıcı henüz istemiyor.
+- Nötr, bilgi-odaklı ton kullan.`.trim(),
+  contemplation: `
+## KULLANICI DEĞİŞİM AŞAMASI: Düşünme
+Yaklaşım: FAYDA ODAKLI.
+- "Başladığında neler olabilir" senaryolarını çiz.
+- Ambivalansa saygı göster, küçük test-adımları öner.
+- Engelleri birlikte tartış.`.trim(),
+  preparation: `
+## KULLANICI DEĞİŞİM AŞAMASI: Hazırlık
+Yaklaşım: SOMUT HEDEF.
+- "Bu hafta şunu yap" formatı kullan.
+- Ölçülebilir 7 günlük mini-plan öner.
+- Rutin kurma pratikleri paylaş.`.trim(),
+  action: `
+## KULLANICI DEĞİŞİM AŞAMASI: Aktif Eylem
+Yaklaşım: TEKNİK & TAKİP.
+- Makro ve kalori detayına gir.
+- "Geçen hafta %X hedefi tutturdun" gibi veri-dili kullan.
+- Motivasyon azal, analiz artır.`.trim(),
+  maintenance: `
+## KULLANICI DEĞİŞİM AŞAMASI: Sürdürme
+Yaklaşım: KAYMA ÖNLEME.
+- Tatil/düğün/stres gibi bozucu faktörlere hazırlık yap.
+- Mini-plato stratejileri paylaş.
+- Başarıyı kutlama dilini koru.`.trim(),
+};
 
 /**
  * Profil verilerini kullanarak kişiselleştirilmiş sistem promptu oluşturur.
@@ -32,6 +78,65 @@ Kullanıcı profili aşağıda verilecek.`;
  */
 export function buildSystemPrompt(profile: Partial<Profile>): string {
   const lines: string[] = [DIETITIAN_SYSTEM_PROMPT];
+
+  // TTM aşaması — tüm tonu belirler
+  const ttm = profile.ttm_stage as TTMStage | null | undefined;
+  if (ttm && TTM_PROMPTS[ttm]) {
+    lines.push('\n' + TTM_PROMPTS[ttm]);
+  }
+
+  // Güvenlik bayrakları — AI'ın kırmızı çizgileri
+  const flags = profile.safety_flags as SafetyFlags | undefined;
+  const safetyLines: string[] = [];
+  if (flags?.blockers?.includes('scoff_positive')) {
+    safetyLines.push(
+      '- ⚠️ Kullanıcıda yeme bozukluğu riski var. Kilo verme, kalori kısıtlama, tartı-odaklı dil KULLANMA. Sağlıklı ilişki ve profesyonel destek odaklı kal.'
+    );
+  }
+  if (flags?.blockers?.includes('underweight_bmi')) {
+    safetyLines.push(
+      '- ⚠️ Kullanıcı zayıf kategoride (BMI<18.5). Kilo verme önerisi verme. Sağlıklı dengeleme/kilo alma odaklı ol.'
+    );
+  }
+  if (flags?.warnings?.includes('pregnancy')) {
+    safetyLines.push(
+      '- ⚠️ Kullanıcı hamile. Kalori kısıtlama YOK. Folik asit, demir, kalsiyum önerilerini rehbere uygun ver.'
+    );
+  }
+  if (flags?.warnings?.includes('lactation')) {
+    safetyLines.push(
+      '- ⚠️ Kullanıcı emziriyor. 300-500 kcal ek enerji gerekli; kalori kısıtlama verme.'
+    );
+  }
+  if (flags?.warnings?.includes('chronic_disease')) {
+    safetyLines.push(
+      '- ⚠️ Kullanıcıda kronik hastalık var. Her ciddi öneriyi "doktorunla teyit et" ile kapat.'
+    );
+  }
+  if (flags?.warnings?.includes('rate_too_aggressive')) {
+    safetyLines.push(
+      '- ⚠️ Kullanıcının haftalık hedefi agresif. Sürdürülebilir tempo (≤ %1 vücut ağırlığı/hafta) öner.'
+    );
+  }
+  if (flags?.warnings?.includes('protein_over_amdr')) {
+    safetyLines.push(
+      '- ℹ️ Protein hedefi AMDR üst sınırında. Uzun vadede dengeyi gözeten öneriler sun.'
+    );
+  }
+  if (safetyLines.length > 0) {
+    lines.push('\n## GÜVENLİK KISITLARI (sıkı uy):');
+    lines.push(...safetyLines);
+  }
+
+  // Tıbbi durum detayları (safety flag'ten ayrı bilgi)
+  const conditions = profile.medical_conditions as string[] | null | undefined;
+  if (conditions && conditions.length > 0 && !conditions.includes('none')) {
+    const labels = conditions
+      .map((k) => MEDICAL_CONDITIONS.find((m) => m.key === k)?.label ?? k)
+      .join(', ');
+    lines.push(`\nTıbbi durumlar: ${labels}`);
+    lines.push('→ Öneriler bu durumları gözetmeli; doktor/diyetisyen kontrolüne yönlendir.');
+  }
 
   // Motivasyonlar
   if (profile.motivations && profile.motivations.length > 0) {
@@ -262,7 +367,7 @@ export async function analyzeWeeklyNutrition(params: {
     .map((d) => `  ${d.date}: ${d.calories} kcal, ${d.protein}g protein, ${d.carbs}g karb, ${d.fat}g yağ`)
     .join('\n') || '  (Bu hafta kayıt yok)';
 
-  const prompt = `${DIETITIAN_SYSTEM_PROMPT}
+  const prompt = `${buildSystemPrompt(profile)}
 
 Kullanıcı profili:
 ${profileText}
@@ -303,7 +408,7 @@ export async function generateShoppingList(params: {
 }): Promise<string[]> {
   const { profile, goals, dietType } = params;
 
-  const prompt = `${DIETITIAN_SYSTEM_PROMPT}
+  const prompt = `${buildSystemPrompt(profile)}
 
 Kullanıcı profili:
 - Hedef: ${profile.goal === 'lose' ? 'Kilo vermek' : profile.goal === 'gain' ? 'Kilo almak' : 'Kiloyu korumak'}
@@ -383,7 +488,7 @@ export async function generateRecipe(params: {
   const { request, profile } = params;
   const age = new Date().getFullYear() - new Date(profile.birth_date ?? '').getFullYear();
 
-  const prompt = `${DIETITIAN_SYSTEM_PROMPT}
+  const prompt = `${buildSystemPrompt(profile)}
 
 Kullanıcı profili:
 - Hedef: ${profile.goal === 'lose' ? 'Kilo vermek' : profile.goal === 'gain' ? 'Kilo almak' : 'Kiloyu korumak'}

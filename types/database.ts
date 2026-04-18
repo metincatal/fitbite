@@ -19,6 +19,55 @@ export type NotificationPreferences = {
   motivation: boolean;
 };
 
+// v2 şema ek tipleri
+export type TTMStageDB =
+  | 'precontemplation'
+  | 'contemplation'
+  | 'preparation'
+  | 'action'
+  | 'maintenance';
+
+export type OccupationalActivityDB = 'desk' | 'light' | 'moderate' | 'heavy';
+
+export type ExerciseFrequencyDB = 'none' | 'low' | 'moderate' | 'high' | 'athlete';
+
+export type BodyFatBandDB = 'lean' | 'athletic' | 'average' | 'high';
+
+export type MedicalConditionDB =
+  | 'none'
+  | 'diabetes'
+  | 'hypertension'
+  | 'heart_disease'
+  | 'kidney_disease'
+  | 'thyroid'
+  | 'pregnancy'
+  | 'lactation';
+
+export type BMRFormula = 'mifflin' | 'katch_mcardle';
+
+export type ScoffAnswers = {
+  q1?: boolean;
+  q2?: boolean;
+  q3?: boolean;
+  q4?: boolean;
+  q5?: boolean;
+};
+
+export type SafetyBlocker = 'underweight_bmi' | 'scoff_positive';
+export type SafetyWarning =
+  | 'rate_too_aggressive'
+  | 'chronic_disease'
+  | 'pregnancy'
+  | 'lactation'
+  | 'protein_over_amdr'
+  | 'calorie_floor_hit';
+
+export type SafetyFlags = {
+  canProceed?: boolean;
+  blockers?: SafetyBlocker[];
+  warnings?: SafetyWarning[];
+};
+
 export interface Database {
   public: {
     PostgrestVersion: '12';
@@ -49,6 +98,17 @@ export interface Database {
           daily_carbs_goal: number;
           daily_fat_goal: number;
           daily_water_goal_ml: number;
+          // v2 bilimsel alanları
+          body_fat_band: BodyFatBandDB | null;
+          body_fat_percentage: number | null;
+          occupational_activity: OccupationalActivityDB | null;
+          exercise_frequency: ExerciseFrequencyDB | null;
+          ttm_stage: TTMStageDB | null;
+          scoff_answers: ScoffAnswers;
+          scoff_score: number | null;
+          medical_conditions: MedicalConditionDB[];
+          safety_flags: SafetyFlags;
+          bmr_formula: BMRFormula | null;
           created_at: string;
           updated_at: string;
         };
@@ -77,6 +137,16 @@ export interface Database {
           daily_carbs_goal?: number;
           daily_fat_goal?: number;
           daily_water_goal_ml?: number;
+          body_fat_band?: BodyFatBandDB | null;
+          body_fat_percentage?: number | null;
+          occupational_activity?: OccupationalActivityDB | null;
+          exercise_frequency?: ExerciseFrequencyDB | null;
+          ttm_stage?: TTMStageDB | null;
+          scoff_answers?: ScoffAnswers;
+          scoff_score?: number | null;
+          medical_conditions?: MedicalConditionDB[];
+          safety_flags?: SafetyFlags;
+          bmr_formula?: BMRFormula | null;
           created_at?: string;
           updated_at?: string;
         };

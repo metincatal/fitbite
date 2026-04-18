@@ -206,3 +206,218 @@ export function calculateExerciseCalories(
   return Math.round(met * weightKg * (durationMinutes / 60));
 }
 
+// =============================================================================
+// Bilimsel Yeniden Yapılandırma — Sabitler
+// =============================================================================
+
+export const TTM_STAGES = [
+  {
+    key: 'precontemplation',
+    emoji: '🌱',
+    label: 'Henüz düşünmüyorum',
+    description: 'Şu an değişiklik aklımda yok, merak ediyorum',
+  },
+  {
+    key: 'contemplation',
+    emoji: '💭',
+    label: 'Düşünüyorum',
+    description: 'Bir şey yapmam gerektiğini biliyorum ama başlamadım',
+  },
+  {
+    key: 'preparation',
+    emoji: '🎯',
+    label: 'Hazırlanıyorum',
+    description: 'Önümüzdeki ay içinde başlamaya kararlıyım',
+  },
+  {
+    key: 'action',
+    emoji: '🚀',
+    label: 'Aktif çabalıyorum',
+    description: 'Son 6 aydır değişiklik yapıyorum',
+  },
+  {
+    key: 'maintenance',
+    emoji: '🏆',
+    label: 'Sürdürüyorum',
+    description: '6 aydan uzun süredir hedefimdeyim',
+  },
+] as const;
+
+export type TTMStage = (typeof TTM_STAGES)[number]['key'];
+
+export const OCCUPATIONAL_ACTIVITIES = [
+  {
+    key: 'desk',
+    emoji: '💺',
+    label: 'Masa başında',
+    description: 'Neredeyse tüm gün oturuyorum',
+  },
+  {
+    key: 'light',
+    emoji: '🚶',
+    label: 'Karışık',
+    description: 'Kısmen ayakta, kısmen oturarak',
+  },
+  {
+    key: 'moderate',
+    emoji: '🧹',
+    label: 'Ayakta / yürüyerek',
+    description: 'Çoğunlukla ayaktayım, hareket ediyorum',
+  },
+  {
+    key: 'heavy',
+    emoji: '🏗️',
+    label: 'Fiziksel iş',
+    description: 'Ağır kaldırma, inşaat, saha işi',
+  },
+] as const;
+
+export type OccupationalActivity = (typeof OCCUPATIONAL_ACTIVITIES)[number]['key'];
+
+export const EXERCISE_FREQUENCIES = [
+  {
+    key: 'none',
+    emoji: '🛋️',
+    label: 'Hiç',
+    description: 'Yapılandırılmış antrenman yapmıyorum',
+  },
+  {
+    key: 'low',
+    emoji: '🚶',
+    label: '1–2 gün',
+    description: 'Hafif — yürüyüş, esneme',
+  },
+  {
+    key: 'moderate',
+    emoji: '🏃',
+    label: '3–4 gün',
+    description: 'Orta tempo — koşu, gym, bisiklet',
+  },
+  {
+    key: 'high',
+    emoji: '🔥',
+    label: '5–6 gün',
+    description: 'Yoğun — kuvvet antrenmanı, HIIT',
+  },
+  {
+    key: 'athlete',
+    emoji: '🥇',
+    label: '6–7 gün',
+    description: 'Profesyonel seviye, çift seans olabilir',
+  },
+] as const;
+
+export type ExerciseFrequency = (typeof EXERCISE_FREQUENCIES)[number]['key'];
+
+// Bant ortası yüzdeler Katch-McArdle için kullanılır (cinsiyete göre).
+export const BODY_FAT_BANDS = [
+  {
+    key: 'lean',
+    emoji: '💪',
+    label: 'Zayıf',
+    male: { mid: 12, range: '%10–15' },
+    female: { mid: 18, range: '%16–22' },
+  },
+  {
+    key: 'athletic',
+    emoji: '🏃',
+    label: 'Atletik',
+    male: { mid: 17, range: '%15–22' },
+    female: { mid: 23, range: '%20–26' },
+  },
+  {
+    key: 'average',
+    emoji: '🧍',
+    label: 'Ortalama',
+    male: { mid: 24, range: '%22–30' },
+    female: { mid: 30, range: '%26–34' },
+  },
+  {
+    key: 'high',
+    emoji: '🫂',
+    label: 'Yüksek',
+    male: { mid: 32, range: '%30+' },
+    female: { mid: 38, range: '%34+' },
+  },
+] as const;
+
+export type BodyFatBand = (typeof BODY_FAT_BANDS)[number]['key'];
+
+export function getBodyFatPercentageFromBand(
+  band: BodyFatBand,
+  gender: 'male' | 'female',
+): number {
+  const entry = BODY_FAT_BANDS.find((b) => b.key === band);
+  if (!entry) return gender === 'male' ? 20 : 28;
+  return entry[gender].mid;
+}
+
+export const MEDICAL_CONDITIONS = [
+  {
+    key: 'none',
+    emoji: '✅',
+    label: 'Hiçbiri',
+    description: 'Bilinen kronik durum yok',
+  },
+  {
+    key: 'diabetes',
+    emoji: '💉',
+    label: 'Diyabet',
+    description: 'Tip 1 / Tip 2 / prediyabet',
+  },
+  {
+    key: 'hypertension',
+    emoji: '🩺',
+    label: 'Yüksek Tansiyon',
+    description: 'Hipertansiyon tanısı',
+  },
+  {
+    key: 'heart_disease',
+    emoji: '❤️',
+    label: 'Kalp Rahatsızlığı',
+    description: 'Kardiyovasküler durum',
+  },
+  {
+    key: 'kidney_disease',
+    emoji: '🫘',
+    label: 'Böbrek Hastalığı',
+    description: 'Kronik böbrek rahatsızlığı',
+  },
+  {
+    key: 'thyroid',
+    emoji: '🦋',
+    label: 'Tiroid',
+    description: 'Hipo / hipertiroidi',
+  },
+  {
+    key: 'pregnancy',
+    emoji: '🤰',
+    label: 'Hamileyim',
+    description: 'Hamilelik süreci',
+  },
+  {
+    key: 'lactation',
+    emoji: '🤱',
+    label: 'Emziriyorum',
+    description: 'Emzirme dönemi',
+  },
+] as const;
+
+export type MedicalCondition = (typeof MEDICAL_CONDITIONS)[number]['key'];
+
+export const CHRONIC_DISEASES: MedicalCondition[] = [
+  'diabetes',
+  'hypertension',
+  'heart_disease',
+  'kidney_disease',
+  'thyroid',
+];
+
+// SCOFF — yeme bozukluğu taraması (standart Türkçe çeviri)
+export const SCOFF_QUESTIONS = [
+  'Kendini tok hissettirecek kadar yemek yedikten sonra kusma ihtiyacı duyar mısın?',
+  'Ne yediğin konusunda kontrolü kaybettiğin endişesini taşıyor musun?',
+  'Son 3 ayda 6 kg’dan fazla kilo verdin mi?',
+  'Başkaları seni zayıf bulsa bile kendini kilolu hissediyor musun?',
+  'Yemeğin hayatına hükmettiğini söyler misin?',
+] as const;
