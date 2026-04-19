@@ -52,3 +52,12 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS bmr_formula TEXT
 UPDATE profiles SET medical_conditions = '{}' WHERE medical_conditions IS NULL;
 UPDATE profiles SET scoff_answers = '{}'::jsonb WHERE scoff_answers IS NULL;
 UPDATE profiles SET safety_flags = '{}'::jsonb WHERE safety_flags IS NULL;
+
+-- diet_type constraint genişletmesi
+-- Orijinal şemada sadece 5 değer vardı; uygulama 10 değerli DIET_TYPES kullanıyor.
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_diet_type_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_diet_type_check
+  CHECK (diet_type IN (
+    'normal', 'vegetarian', 'vegan', 'gluten_free', 'lactose_free',
+    'pescatarian', 'keto', 'paleo', 'mediterranean', 'flexitarian'
+  ));

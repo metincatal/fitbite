@@ -17,9 +17,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
-import { Colors, Spacing, FontSize, BorderRadius, ACTIVITY_LEVELS, GOALS, DIET_TYPES, ActivityLevel, Goal, DietType } from '../../lib/constants';
+import { Colors, Spacing, FontSize, BorderRadius, ACTIVITY_LEVELS, GOALS, DIET_TYPES, TTM_STAGES, ActivityLevel, Goal, DietType, OccupationalActivity, ExerciseFrequency, BodyFatBand } from '../../lib/constants';
 import { Card } from '../../components/ui/Card';
-import { calculateBMI, getBMICategory, calculateMacroGoals, UserMetrics } from '../../lib/nutrition';
+import { calculateBMI, getBMICategory, calculateMacroGoals, calculateBMR, UserMetrics } from '../../lib/nutrition';
 import { supabase } from '../../lib/supabase';
 import {
   WaterReminderSettings,
@@ -245,6 +245,21 @@ export default function ProfileScreen() {
   const bmi = calculateBMI(profile.weight_kg, profile.height_cm);
   const age = new Date().getFullYear() - new Date(profile.birth_date).getFullYear();
 
+  const bmrMetrics: UserMetrics = {
+    gender: profile.gender,
+    age,
+    height_cm: profile.height_cm,
+    weight_kg: profile.weight_kg,
+    goal: profile.goal,
+    activity_level: profile.activity_level as ActivityLevel,
+    occupational_activity: profile.occupational_activity ? profile.occupational_activity as OccupationalActivity : undefined,
+    exercise_frequency: profile.exercise_frequency ? profile.exercise_frequency as ExerciseFrequency : undefined,
+    body_fat_band: profile.body_fat_band ? profile.body_fat_band as BodyFatBand : undefined,
+    body_fat_percentage: profile.body_fat_percentage ?? undefined,
+  };
+  const { value: bmrValue, formula: bmrFormula } = calculateBMR(bmrMetrics);
+  const ttmEntry = TTM_STAGES.find(s => s.key === profile.ttm_stage);
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -270,6 +285,11 @@ export default function ProfileScreen() {
                 {DIET_TYPES[profile.diet_type]?.label ?? profile.diet_type}
               </Text>
             </View>
+            {ttmEntry && (
+              <View style={[styles.badge, styles.badgeTTM]}>
+                <Text style={styles.badgeText}>{ttmEntry.emoji} {ttmEntry.label}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -318,6 +338,15 @@ export default function ProfileScreen() {
           <View style={styles.goalRow}>
             <Text style={styles.goalLabel}>Su</Text>
             <Text style={styles.goalValue}>{(profile.daily_water_goal_ml / 1000).toFixed(1)} L</Text>
+          </View>
+          <View style={[styles.goalRow, { borderBottomWidth: 0 }]}>
+            <Text style={styles.goalLabel}>BMR</Text>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.goalValue}>{bmrValue} kcal</Text>
+              <Text style={styles.bmrFormula}>
+                {bmrFormula === 'katch_mcardle' ? 'Katch-McArdle' : 'Mifflin-St Jeor'}
+              </Text>
+            </View>
           </View>
         </Card>
 
@@ -723,7 +752,9 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
   badgeSecondary: { backgroundColor: Colors.primaryLight },
+  badgeTTM: { backgroundColor: Colors.accent },
   badgeText: { fontSize: FontSize.sm, color: Colors.textLight, fontWeight: '600' },
+  bmrFormula: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
   statsCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
   sectionTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.md },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },

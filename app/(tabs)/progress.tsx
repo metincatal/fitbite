@@ -20,7 +20,7 @@ import { useAuthStore } from '../../store/authStore';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
 import { WeightLog, BodyMeasurement } from '../../types';
 import { Card } from '../../components/ui/Card';
-import { calculateBMI, getBMICategory, calculateDailyCalorieGoal, calculateMacroGoals, UserMetrics } from '../../lib/nutrition';
+import { calculateBMI, getBMICategory, calculateDailyCalorieGoal, calculateMacroGoals, AMDR, UserMetrics } from '../../lib/nutrition';
 import { analyzeWeeklyNutrition } from '../../lib/gemini';
 
 const screenWidth = Dimensions.get('window').width;
@@ -581,6 +581,62 @@ export default function ProgressScreen() {
           );
         })()}
 
+        {/* AMDR Makro Dağılım */}
+        {profile?.daily_calorie_goal != null && profile.daily_calorie_goal > 0 && (() => {
+          const totalCal = profile.daily_calorie_goal;
+          const macros = [
+            {
+              label: 'Protein', emoji: '🥩',
+              grams: profile.daily_protein_goal ?? 0,
+              pct: ((profile.daily_protein_goal ?? 0) * 4) / totalCal,
+              min: AMDR.protein.min, max: AMDR.protein.max, barMax: 0.42,
+              inRangeColor: Colors.protein,
+            },
+            {
+              label: 'Karbonhidrat', emoji: '🍞',
+              grams: profile.daily_carbs_goal ?? 0,
+              pct: ((profile.daily_carbs_goal ?? 0) * 4) / totalCal,
+              min: AMDR.carbs.min, max: AMDR.carbs.max, barMax: 0.72,
+              inRangeColor: Colors.carbs,
+            },
+            {
+              label: 'Yağ', emoji: '🥑',
+              grams: profile.daily_fat_goal ?? 0,
+              pct: ((profile.daily_fat_goal ?? 0) * 9) / totalCal,
+              min: AMDR.fat.min, max: AMDR.fat.max, barMax: 0.42,
+              inRangeColor: Colors.fat,
+            },
+          ];
+          return (
+            <Card style={styles.chartCard}>
+              <Text style={styles.sectionTitle}>Makro Dağılım (AMDR)</Text>
+              <Text style={styles.amdrSubtitle}>Günlük hedefinin WHO enerji aralıklarıyla uyumu</Text>
+              {macros.map(({ label, emoji, grams, pct, min, max, barMax, inRangeColor }) => {
+                const inRange = pct >= min && pct <= max;
+                const fillW = `${Math.min((pct / barMax) * 100, 100)}%` as any;
+                return (
+                  <View key={label} style={styles.amdrItem}>
+                    <View style={styles.amdrLabelRow}>
+                      <Text style={styles.amdrEmoji}>{emoji}</Text>
+                      <Text style={styles.amdrLabel}>{label}</Text>
+                      <View style={[styles.amdrPctBadge, { backgroundColor: inRange ? Colors.primaryPale : '#FFF3CD' }]}>
+                        <Text style={[styles.amdrPctText, { color: inRange ? Colors.primary : '#D97706' }]}>
+                          {inRange ? '✓' : '⚠'} {Math.round(pct * 100)}%
+                        </Text>
+                      </View>
+                      <Text style={styles.amdrGrams}>{grams}g</Text>
+                    </View>
+                    <View style={styles.amdrBarBg}>
+                      <View style={[styles.amdrBarFill, { width: fillW, backgroundColor: inRange ? inRangeColor : '#F59E0B' }]} />
+                    </View>
+                    <Text style={styles.amdrRangeText}>Hedef aralık: %{Math.round(min * 100)}–%{Math.round(max * 100)}</Text>
+                  </View>
+                );
+              })}
+            </Card>
+          );
+        })()}
+
         {/* Vücut Ölçüleri */}
         <Card style={styles.measureCard}>
           <View style={styles.sectionHeader}>
@@ -772,6 +828,17 @@ const styles = StyleSheet.create({
   targetRemaining: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center', paddingVertical: Spacing.xs },
   trendChartLabel: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary, marginBottom: 4 },
   trendGoalText: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'right', marginTop: 4 },
+  amdrSubtitle: { fontSize: FontSize.xs, color: Colors.textMuted, marginBottom: Spacing.md, marginTop: -Spacing.xs },
+  amdrItem: { marginBottom: Spacing.md },
+  amdrLabelRow: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.xs, gap: Spacing.xs },
+  amdrEmoji: { fontSize: 16 },
+  amdrLabel: { flex: 1, fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
+  amdrPctBadge: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.full },
+  amdrPctText: { fontSize: FontSize.xs, fontWeight: '700' },
+  amdrGrams: { fontSize: FontSize.sm, color: Colors.textMuted, fontWeight: '500' },
+  amdrBarBg: { height: 8, backgroundColor: Colors.borderLight, borderRadius: BorderRadius.full, overflow: 'hidden', marginBottom: 4 },
+  amdrBarFill: { height: '100%', borderRadius: BorderRadius.full },
+  amdrRangeText: { fontSize: FontSize.xs, color: Colors.textMuted },
   // Vücut ölçüleri
   measureCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
   addMeasureBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primary, paddingHorizontal: Spacing.sm, paddingVertical: 6, borderRadius: BorderRadius.full },
