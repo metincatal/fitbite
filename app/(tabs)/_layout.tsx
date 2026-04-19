@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '../../lib/constants';
 import { View, StyleSheet, TouchableOpacity, Animated, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { ApertureMark } from '../../components/ui/ApertureMark';
 import { QuickActionSheet } from '../../components/ui/QuickActionSheet';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from 'react-native';
@@ -46,11 +46,14 @@ export default function TabLayout() {
   const [showQuickAction, setShowQuickAction] = useState(false);
   const fabRotation = useRef(new Animated.Value(0)).current;
   const fabScale = useRef(new Animated.Value(1)).current;
+  // Separate value for SVG-internal animations (cannot use native driver)
+  const fabProgress = useRef(new Animated.Value(0)).current;
 
   function toggleFab() {
     const toValue = showQuickAction ? 0 : 1;
     Animated.parallel([
       Animated.spring(fabRotation, { toValue, useNativeDriver: true, damping: 15, stiffness: 200 }),
+      Animated.spring(fabProgress, { toValue, useNativeDriver: false, damping: 15, stiffness: 200 }),
       Animated.sequence([
         Animated.timing(fabScale, { toValue: 0.85, duration: 80, useNativeDriver: true }),
         Animated.spring(fabScale, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 250 }),
@@ -60,7 +63,10 @@ export default function TabLayout() {
   }
 
   function closeFab() {
-    Animated.spring(fabRotation, { toValue: 0, useNativeDriver: true, damping: 15, stiffness: 200 }).start();
+    Animated.parallel([
+      Animated.spring(fabRotation, { toValue: 0, useNativeDriver: true, damping: 15, stiffness: 200 }),
+      Animated.spring(fabProgress, { toValue: 0, useNativeDriver: false, damping: 15, stiffness: 200 }),
+    ]).start();
     setShowQuickAction(false);
   }
 
@@ -104,7 +110,7 @@ export default function TabLayout() {
 
   const rotate = fabRotation.interpolate({
     inputRange: [0, 1],
-    outputRange: ['0deg', '45deg'],
+    outputRange: ['0deg', '135deg'],
   });
 
   return (
@@ -147,18 +153,9 @@ export default function TabLayout() {
             tabBarIcon: () => null,
             tabBarButton: () => (
               <View style={styles.fabContainer}>
-                <TouchableOpacity onPress={toggleFab} activeOpacity={0.9}>
-                  <Animated.View style={[styles.fabOuter, { transform: [{ scale: fabScale }] }]}>
-                    <LinearGradient
-                      colors={[Colors.primary, Colors.primaryLight]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.fabGradient}
-                    >
-                      <Animated.View style={{ transform: [{ rotate }] }}>
-                        <Ionicons name="add" size={30} color="#fff" />
-                      </Animated.View>
-                    </LinearGradient>
+                <TouchableOpacity onPress={toggleFab} activeOpacity={0.85}>
+                  <Animated.View style={[styles.fabOuter, { transform: [{ scale: fabScale }, { rotate }] }]}>
+                    <ApertureMark animValue={fabProgress} size={62} />
                   </Animated.View>
                 </TouchableOpacity>
               </View>
@@ -207,20 +204,12 @@ const styles = StyleSheet.create({
     top: -14,
   },
   fabOuter: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    shadowColor: Colors.primary,
+    width: 62,
+    height: 62,
+    shadowColor: Colors.ink,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.28,
     shadowRadius: 10,
     elevation: 12,
-  },
-  fabGradient: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

@@ -8,21 +8,17 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
-import { Colors, Spacing, FontSize, BorderRadius, getMealTypes } from '../../lib/constants';
-import { CalorieRing } from '../../components/charts/CalorieRing';
-import { MacroBar } from '../../components/ui/MacroBar';
-import { Card } from '../../components/ui/Card';
-import { ActivitySection } from '../../components/dashboard/ActivitySection';
+import { Colors, Spacing, BorderRadius, getMealTypes } from '../../lib/constants';
+import { DayPlate } from '../../components/charts/DayPlate';
+import { MacroOrbit } from '../../components/charts/MacroOrbit';
+import { Tide } from '../../components/charts/Tide';
 import { useActivityStore } from '../../store/activityStore';
 import { useExerciseStore } from '../../store/exerciseStore';
 import { usePedometer } from '../../hooks/usePedometer';
 import { EXERCISE_CATEGORIES, INTENSITY_LABELS, ExerciseIntensity } from '../../lib/constants';
-
-const WATER_GLASSES = [250, 250, 250, 250, 250, 250, 250, 250]; // 8 bardak = 2000ml
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -56,17 +52,50 @@ export default function DashboardScreen() {
   const totals = getDailyTotals();
   const waterTotal = getWaterTotal();
   const calorieGoal = profile?.daily_calorie_goal ?? 2000;
-  const proteinGoal = profile?.daily_protein_goal ?? 100;
-  const carbsGoal = profile?.daily_carbs_goal ?? 250;
-  const fatGoal = profile?.daily_fat_goal ?? 65;
+  const proteinGoal = profile?.daily_protein_goal ?? 120;
+  const carbsGoal = profile?.daily_carbs_goal ?? 240;
+  const fatGoal = profile?.daily_fat_goal ?? 70;
   const waterGoal = profile?.daily_water_goal_ml ?? 2000;
   const waterGlasses = Math.floor(waterTotal / 250);
+  const waterGoalGlasses = Math.round(waterGoal / 250);
 
   const todayFormatted = new Date().toLocaleDateString('tr-TR', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-  });
+    year: 'numeric',
+  }).toUpperCase();
+
+  const firstName = profile?.name?.split(' ')[0] ?? 'Kullanıcı';
+
+  // Compute per-meal kcal totals
+  const mealTotals = {
+    breakfast: { kcal: foodLogs.filter((l) => l.meal_type === 'breakfast').reduce((s, l) => s + l.calories, 0) },
+    lunch:     { kcal: foodLogs.filter((l) => l.meal_type === 'lunch').reduce((s, l) => s + l.calories, 0) },
+    dinner:    { kcal: foodLogs.filter((l) => l.meal_type === 'dinner').reduce((s, l) => s + l.calories, 0) },
+    snack:     { kcal: foodLogs.filter((l) => l.meal_type === 'snack').reduce((s, l) => s + l.calories, 0) },
+  };
+
+  const consumed = Math.round(totals.calories);
+  const remaining = Math.max(0, calorieGoal - consumed);
+
+  const mealLabels: Record<string, string> = {
+    breakfast: 'Kahvaltı',
+    lunch: 'Öğle',
+    dinner: 'Akşam',
+    snack: 'Atıştırmalık',
+  };
+
+  const mealColors: Record<string, string> = {
+    breakfast: Colors.carbs,
+    lunch: Colors.primary,
+    snack: Colors.protein,
+    dinner: Colors.fat,
+  };
+
+  // Step percentage
+  const stepPct = stepGoal > 0 ? Math.min(1, todaySteps / stepGoal) : 0;
+  const stepRemaining = Math.max(0, stepGoal - todaySteps);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -74,188 +103,178 @@ export default function DashboardScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
       >
-        {/* Başlık */}
+
+        {/* ── HEADER ── */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>
-              Merhaba, {profile?.name?.split(' ')[0] ?? 'Kullanıcı'}
-            </Text>
-            <Text style={styles.date}>{todayFormatted}</Text>
-          </View>
-          <TouchableOpacity style={styles.notifButton}>
-            <Ionicons name="notifications-outline" size={20} color={Colors.textPrimary} />
-          </TouchableOpacity>
+          <Text style={styles.dateOverline}>{todayFormatted}</Text>
+          <Text style={styles.greeting}>
+            {'Günaydın, '}
+            <Text style={styles.greetingAccent}>{firstName}</Text>
+            {'.'}
+          </Text>
+          <Text style={styles.subtext}>
+            {remaining > 0
+              ? `Bugün ${remaining} kcal daha alabilirsin.`
+              : 'Günlük kalori hedefine ulaştın!'}
+          </Text>
         </View>
 
-        {/* Kalori Halkası */}
-        <Card style={styles.calorieCard}>
-          <Text style={styles.sectionTitle}>Günlük Kalori</Text>
-          <View style={styles.calorieRow}>
-            <CalorieRing consumed={totals.calories} goal={calorieGoal} size={160} />
-            <View style={styles.calorieStats}>
-              <View style={styles.calorieStat}>
-                <Text style={styles.calorieStatValue}>{calorieGoal}</Text>
-                <Text style={styles.calorieStatLabel}>Hedef</Text>
-              </View>
-              <View style={[styles.calorieStat, styles.calorieStatMiddle]}>
-                <Text style={[styles.calorieStatValue, { color: Colors.accent }]}>
-                  {Math.round(totals.calories)}
-                </Text>
-                <Text style={styles.calorieStatLabel}>Tüketilen</Text>
-              </View>
-              <View style={styles.calorieStat}>
-                <Text style={[styles.calorieStatValue, { color: Colors.primaryLight }]}>
-                  {Math.max(0, calorieGoal - Math.round(totals.calories))}
-                </Text>
-                <Text style={styles.calorieStatLabel}>Kalan</Text>
-              </View>
-            </View>
-          </View>
-        </Card>
-
-        {/* Makro Bar'lar */}
-        <Card style={styles.macroCard}>
-          <Text style={styles.sectionTitle}>Makrolar</Text>
-          <MacroBar
-            label="Protein"
-            current={totals.protein}
-            goal={proteinGoal}
-            color={Colors.protein}
+        {/* ── THE DAY PLATE + MACRO ORBIT ── */}
+        <View style={styles.plateRow}>
+          <DayPlate
+            meals={mealTotals}
+            goal={calorieGoal}
+            size={270}
           />
-          <MacroBar
-            label="Karbonhidrat"
-            current={totals.carbs}
-            goal={carbsGoal}
-            color={Colors.carbs}
-          />
-          <MacroBar
-            label="Yağ"
-            current={totals.fat}
-            goal={fatGoal}
-            color={Colors.fat}
-          />
-        </Card>
-
-        {/* Su Takibi */}
-        <Card style={styles.waterCard}>
-          <View style={styles.waterHeader}>
-            <Text style={styles.sectionTitle}>Su Takibi 🫧</Text>
-            <Text style={styles.waterAmount}>
-              {(waterTotal / 1000).toFixed(1)}L / {(waterGoal / 1000).toFixed(1)}L
-            </Text>
+          <View style={styles.orbitCol}>
+            <MacroOrbit
+              protein={totals.protein}
+              carbs={totals.carbs}
+              fat={totals.fat}
+              proteinGoal={proteinGoal}
+              carbsGoal={carbsGoal}
+              fatGoal={fatGoal}
+              size={110}
+            />
+            <Text style={styles.orbitLabel}>MAKRO{'\n'}YÖRÜNGESİ</Text>
           </View>
-          <View style={styles.glassesRow}>
-            {WATER_GLASSES.map((_, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[styles.glass, index < waterGlasses && styles.glassFilled]}
-                onPress={() => {
-                  if (userId && index >= waterGlasses) {
-                    addWaterLog(userId, 250);
-                  }
-                }}
-              >
-                <Text style={styles.glassIcon}>
-                  {index < waterGlasses ? '💧' : '🫗'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={styles.waterHint}>
-            {8 - waterGlasses > 0 ? `${8 - waterGlasses} bardak daha iç` : 'Günlük su hedefinize ulaştınız! 🎉'}
-          </Text>
-        </Card>
+        </View>
 
-        {/* Egzersiz Özeti */}
-        {todayExercises.length > 0 && (
-          <Card style={styles.exerciseCard}>
-            <View style={styles.exerciseTitleRow}>
-              <Text style={styles.sectionTitle}>Bugünkü Egzersiz 🏋️</Text>
-              <TouchableOpacity onPress={() => router.push('/exercise')}>
-                <Text style={styles.seeAllText}>Tümünü gör</Text>
-              </TouchableOpacity>
-            </View>
-            {todayExercises.slice(0, 3).map((ex) => {
-              const cat = EXERCISE_CATEGORIES.find((c) => c.key === ex.exercise_type);
-              const intInfo = INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
-              return (
-                <View key={ex.id} style={styles.exerciseRow}>
-                  <View style={[styles.exerciseIconWrap, { backgroundColor: (cat?.color ?? '#6B7280') + '20' }]}>
-                    <Text style={styles.exerciseEmoji}>{cat?.emoji ?? '🏅'}</Text>
-                  </View>
-                  <View style={styles.exerciseInfo}>
-                    <Text style={styles.exerciseName}>{ex.exercise_name}</Text>
-                    <Text style={styles.exerciseMeta}>{ex.duration_minutes} dk · {intInfo.emoji} {intInfo.label}</Text>
-                  </View>
-                  <Text style={styles.exerciseCal}>{ex.calories_burned} kcal</Text>
-                </View>
-              );
-            })}
-            <View style={styles.exerciseTotalRow}>
-              <Ionicons name="flame" size={16} color="#DC2626" />
-              <Text style={styles.exerciseTotalText}>
-                Toplam yakılan: {getTotalCaloriesBurned()} kcal
-              </Text>
-            </View>
-          </Card>
-        )}
-
-        {/* Gunluk Aktivite */}
-        <ActivitySection
-          steps={todaySteps}
-          stepGoal={stepGoal}
-          caloriesBurned={caloriesBurned}
-          distanceKm={distanceKm}
-          activeMinutes={activeMinutes}
-          isAvailable={isAvailable}
-          permissionGranted={permissionGranted}
-        />
-
-        {/* Bugünkü Öğünler */}
-        <View style={styles.mealsSection}>
-          <View style={styles.mealsSectionHeader}>
-            <Text style={styles.sectionTitle}>Bugünkü Öğünler</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/food-log')}>
-              <Text style={styles.seeAllText}>Tümünü gör</Text>
-            </TouchableOpacity>
-          </View>
-          {getMealTypes(profile?.meal_count ?? 3).map(({ key, label }) => {
-            const mealLogs = foodLogs.filter((l) => l.meal_type === key);
-            const mealCalories = mealLogs.reduce((sum, l) => sum + l.calories, 0);
-            const emoji = key === 'breakfast' ? '🥐' : key === 'lunch' ? '🥗' : key === 'dinner' ? '🍽️' : '🫐';
+        {/* ── MEAL CHIPS ── */}
+        <View style={styles.chips}>
+          {(Object.entries(mealTotals) as [string, { kcal: number }][]).map(([key, m]) => {
+            const hasData = m.kcal > 0;
             return (
               <TouchableOpacity
-                key={`${key}-${label}`}
-                style={styles.mealRow}
+                key={key}
+                style={[styles.chip, !hasData && styles.chipEmpty]}
                 onPress={() => router.push('/(tabs)/food-log')}
               >
-                <View style={styles.mealIcon}>
-                  <Text style={styles.mealEmoji}>{emoji}</Text>
-                </View>
-                <View style={styles.mealInfo}>
-                  <Text style={styles.mealName}>{label}</Text>
-                  <Text style={styles.mealItems}>
-                    {mealLogs.length > 0 ? `${mealLogs.length} öğe` : 'Henüz eklenmedi'}
-                  </Text>
-                </View>
-                <Text style={styles.mealCalories}>
-                  {mealCalories > 0 ? `${Math.round(mealCalories)} kcal` : '—'}
+                <View style={[styles.chipDot, { backgroundColor: hasData ? mealColors[key] : 'transparent', borderColor: mealColors[key] }]} />
+                <Text style={[styles.chipLabel, !hasData && styles.chipLabelEmpty]}>
+                  {mealLabels[key]}
                 </Text>
+                {hasData && <Text style={styles.chipKcal}>{Math.round(m.kcal)}</Text>}
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* Hızlı Ekle Butonu */}
-        <TouchableOpacity
-          style={styles.quickAddButton}
-          onPress={() => router.push('/(tabs)/food-log')}
-        >
-          <Text style={styles.quickAddIcon}>+</Text>
-          <Text style={styles.quickAddText}>Yemek Ekle</Text>
-        </TouchableOpacity>
+        {/* ── TIDE (water) ── */}
+        <View style={styles.tideWrap}>
+          <TouchableOpacity
+            onPress={() => {
+              if (userId && waterGlasses < waterGoalGlasses) addWaterLog(userId, 250);
+            }}
+            activeOpacity={0.8}
+          >
+            <Tide glasses={waterGlasses} goal={waterGoalGlasses} width={340} height={86} />
+          </TouchableOpacity>
+          <Text style={styles.tideHint}>
+            {waterGlasses < waterGoalGlasses
+              ? `Dokun → +1 bardak (${waterGoalGlasses - waterGlasses} kaldı)`
+              : 'Su hedefine ulaştın!'}
+          </Text>
+        </View>
 
-        <View style={{ height: Spacing.xl }} />
+        {/* ── STEPS HORIZON ── */}
+        {(isAvailable || todaySteps > 0) && (
+          <View style={styles.stepsSection}>
+            <View style={styles.stepsHeader}>
+              <Text style={styles.overline}>AYAK İZLERİ</Text>
+              <Text style={styles.overline}>HEDEF {stepGoal.toLocaleString('tr-TR')}</Text>
+            </View>
+            <View style={styles.stepsRow}>
+              <View>
+                <Text style={styles.stepsCount}>{todaySteps.toLocaleString('tr-TR')}</Text>
+                <Text style={styles.stepsMeta}>ADIM · %{Math.round(stepPct * 100)}</Text>
+              </View>
+              <View style={styles.stepsBarWrap}>
+                <View style={styles.stepsBarBg}>
+                  <View style={[styles.stepsBarFill, { width: `${Math.round(stepPct * 100)}%` }]} />
+                </View>
+              </View>
+            </View>
+            <Text style={styles.stepsFootnote}>
+              <Text style={styles.footnoteBold}>{distanceKm.toFixed(1)}</Text>
+              {' km yüründü · '}
+              {stepRemaining > 0 && (
+                <>
+                  {stepRemaining.toLocaleString('tr-TR')}
+                  {' adım kaldı — '}
+                  <Text style={styles.footnoteAccent}>kısa bir yürüyüş yeter</Text>
+                </>
+              )}
+              {stepRemaining === 0 && <Text style={styles.footnoteAccent}>hedef tamamlandı!</Text>}
+            </Text>
+          </View>
+        )}
+
+        {/* ── MEAL RAIL ── */}
+        <View style={styles.mealSection}>
+          <Text style={styles.overline}>BUGÜNÜN ISIRIKLARI</Text>
+          <View style={styles.railWrap}>
+            <View style={styles.railLine} />
+            {getMealTypes(profile?.meal_count ?? 3).map(({ key, label }) => {
+              const logs = foodLogs.filter((l) => l.meal_type === key);
+              const kcal = logs.reduce((s, l) => s + l.calories, 0);
+              const hasData = logs.length > 0;
+              const timeDisplay = hasData ? logs[0]?.logged_at?.substring(11, 16) ?? '' : '—';
+
+              return (
+                <TouchableOpacity
+                  key={`${key}-${label}`}
+                  style={styles.railRow}
+                  onPress={() => router.push('/(tabs)/food-log')}
+                >
+                  <View style={[styles.railDot, hasData && styles.railDotFilled]}>
+                    <Text style={[styles.railDotText, hasData && styles.railDotTextFilled]}>
+                      {hasData ? timeDisplay.split(':')[0] : '—'}
+                    </Text>
+                  </View>
+                  <View style={styles.railContent}>
+                    <View style={styles.railTitleRow}>
+                      <Text style={[styles.railName, !hasData && styles.railNameEmpty]}>
+                        {hasData
+                          ? logs.map((l) => l.food.name_tr || l.food.name).slice(0, 2).join(' · ')
+                          : `${label} · henüz eklenmedi`}
+                      </Text>
+                      {hasData && (
+                        <Text style={styles.railKcal}>{Math.round(kcal)} kcal</Text>
+                      )}
+                    </View>
+                    {hasData && logs.length > 2 && (
+                      <Text style={styles.railSub}>+{logs.length - 2} öğe daha</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* ── EXERCISE CARD ── */}
+        {todayExercises.length > 0 && (
+          <View style={styles.exerciseSection}>
+            <Text style={styles.overline}>EGZERSİZ</Text>
+            {todayExercises.slice(0, 3).map((ex) => {
+              const cat = EXERCISE_CATEGORIES.find((c) => c.key === ex.exercise_type);
+              const intInfo = INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
+              return (
+                <View key={ex.id} style={styles.exerciseRow}>
+                  <Text style={styles.exerciseEmoji}>{cat?.emoji ?? '🏅'}</Text>
+                  <View style={styles.exerciseInfo}>
+                    <Text style={styles.exerciseName}>{ex.exercise_name}</Text>
+                    <Text style={styles.exerciseMeta}>{ex.duration_minutes} dk · {intInfo.label}</Text>
+                  </View>
+                  <Text style={styles.exerciseCal}>{ex.calories_burned} kcal</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        <View style={{ height: 100 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -266,250 +285,293 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+
+  // Header
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
+    paddingHorizontal: 22,
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+  dateOverline: {
+    fontSize: 10,
+    color: Colors.ink3,
+    letterSpacing: 1.6,
+    fontFamily: 'Menlo, Courier, monospace',
   },
   greeting: {
-    fontSize: FontSize.xl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
+    fontSize: 36,
+    lineHeight: 40,
+    color: Colors.ink,
+    fontFamily: 'Georgia, serif',
+    marginTop: 4,
   },
-  date: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    marginTop: 2,
-    textTransform: 'capitalize',
+  greetingAccent: {
+    color: Colors.terracotta,
+    fontStyle: 'italic',
+    fontFamily: 'Georgia, serif',
   },
-  notifButton: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceSecondary,
+  subtext: {
+    fontSize: 13,
+    color: Colors.ink2,
+    marginTop: 6,
+    lineHeight: 18,
+  },
+
+  // Plate + orbit row
+  plateRow: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 8,
+    position: 'relative',
   },
-  calorieCard: {
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.sm,
-  },
-  macroCard: {
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.md,
-  },
-  waterCard: {
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.md,
-  },
-  calorieRow: {
-    flexDirection: 'row',
+  orbitCol: {
     alignItems: 'center',
-    justifyContent: 'space-between',
+    position: 'absolute',
+    right: 14,
+    top: 0,
   },
-  calorieStats: {
-    flex: 1,
-    paddingLeft: Spacing.lg,
-    gap: Spacing.md,
-  },
-  calorieStat: {
-    alignItems: 'center',
-  },
-  calorieStatMiddle: {
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: Colors.borderLight,
-    paddingVertical: Spacing.sm,
-  },
-  calorieStatValue: {
-    fontSize: FontSize.xl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
-  calorieStatLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  waterHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  waterAmount: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.primaryLight,
-  },
-  glassesRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.sm,
-  },
-  glass: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.sm,
-    backgroundColor: Colors.borderLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  glassFilled: {
-    backgroundColor: Colors.primaryPale,
-  },
-  glassIcon: {
-    fontSize: 18,
-  },
-  waterHint: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
+  orbitLabel: {
+    fontSize: 8,
+    color: Colors.ink3,
+    letterSpacing: 1.4,
     textAlign: 'center',
-    marginTop: Spacing.xs,
+    marginTop: -6,
+    fontFamily: 'Menlo, Courier, monospace',
   },
-  mealsSection: {
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.lg,
+
+  // Meal chips
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 22,
+    gap: 6,
+    justifyContent: 'center',
+    paddingBottom: 8,
   },
-  mealsSectionHeader: {
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surface,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
+  },
+  chipEmpty: {
+    backgroundColor: 'transparent',
+    borderStyle: 'dashed',
+  },
+  chipDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 99,
+    borderWidth: 1,
+  },
+  chipLabel: {
+    fontSize: 11,
+    color: Colors.ink2,
+  },
+  chipLabelEmpty: {
+    color: Colors.ink4,
+  },
+  chipKcal: {
+    fontSize: 10,
+    color: Colors.ink3,
+    fontFamily: 'Menlo, Courier, monospace',
+  },
+
+  // Tide
+  tideWrap: {
+    paddingHorizontal: 18,
+    paddingTop: 22,
+    paddingBottom: 4,
+    alignItems: 'center',
+  },
+  tideHint: {
+    fontSize: 11,
+    color: Colors.ink3,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+
+  // Steps
+  stepsSection: {
+    paddingHorizontal: 22,
+    paddingTop: 22,
+  },
+  stepsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
+    marginBottom: 8,
   },
-  seeAllText: {
-    fontSize: FontSize.sm,
-    color: Colors.primary,
-    fontWeight: '600',
+  overline: {
+    fontSize: 10,
+    color: Colors.ink3,
+    letterSpacing: 1.6,
+    fontFamily: 'Menlo, Courier, monospace',
+    textTransform: 'uppercase',
   },
-  mealRow: {
+  stepsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 16,
   },
-  mealIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.sm,
-    backgroundColor: Colors.surfaceSecondary,
+  stepsCount: {
+    fontSize: 32,
+    lineHeight: 36,
+    color: Colors.ink,
+    fontFamily: 'Georgia, serif',
+    letterSpacing: -0.5,
+  },
+  stepsMeta: {
+    fontSize: 9,
+    color: Colors.ink3,
+    letterSpacing: 1.4,
+    marginTop: 4,
+    fontFamily: 'Menlo, Courier, monospace',
+  },
+  stepsBarWrap: {
+    flex: 1,
+    paddingBottom: 4,
+  },
+  stepsBarBg: {
+    height: 4,
+    backgroundColor: Colors.line,
+    borderRadius: BorderRadius.full,
+    overflow: 'hidden',
+  },
+  stepsBarFill: {
+    height: 4,
+    backgroundColor: Colors.ink,
+    borderRadius: BorderRadius.full,
+  },
+  stepsFootnote: {
+    fontSize: 11,
+    color: Colors.ink3,
+    marginTop: 10,
+  },
+  footnoteBold: {
+    color: Colors.ink2,
+    fontFamily: 'Menlo, Courier, monospace',
+  },
+  footnoteAccent: {
+    color: Colors.terracotta,
+    fontStyle: 'italic',
+  },
+
+  // Meal rail
+  mealSection: {
+    paddingHorizontal: 22,
+    paddingTop: 26,
+  },
+  railWrap: {
+    position: 'relative',
+    marginTop: 12,
+  },
+  railLine: {
+    position: 'absolute',
+    left: 18,
+    top: 8,
+    bottom: 8,
+    width: 1,
+    backgroundColor: Colors.line,
+  },
+  railRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    marginBottom: 14,
+  },
+  railDot: {
+    width: 37,
+    height: 37,
+    borderRadius: 99,
+    flexShrink: 0,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.line,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: Spacing.md,
   },
-  mealEmoji: {
-    fontSize: 20,
+  railDotFilled: {
+    backgroundColor: Colors.ink,
+    borderWidth: 0,
   },
-  mealInfo: {
+  railDotText: {
+    fontSize: 14,
+    color: Colors.ink4,
+    fontFamily: 'Georgia, serif',
+  },
+  railDotTextFilled: {
+    color: Colors.surface,
+  },
+  railContent: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  railTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  railName: {
+    fontSize: 18,
+    color: Colors.ink,
+    fontFamily: 'Georgia, serif',
     flex: 1,
   },
-  mealName: {
-    fontSize: FontSize.md,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+  railNameEmpty: {
+    color: Colors.ink4,
   },
-  mealItems: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
+  railKcal: {
+    fontSize: 11,
+    color: Colors.ink3,
+    fontFamily: 'Menlo, Courier, monospace',
+  },
+  railSub: {
+    fontSize: 11,
+    color: Colors.ink3,
     marginTop: 2,
   },
-  mealCalories: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  quickAddButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primary,
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
-    gap: Spacing.sm,
-  },
-  quickAddIcon: {
-    fontSize: FontSize.xxl,
-    color: Colors.textLight,
-    fontWeight: '300',
-    lineHeight: 28,
-  },
-  quickAddText: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
-    color: Colors.textLight,
-  },
-  exerciseCard: {
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.md,
-  },
-  exerciseTitleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
+
+  // Exercise
+  exerciseSection: {
+    paddingHorizontal: 22,
+    paddingTop: 26,
   },
   exerciseRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  exerciseIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: Spacing.sm,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.line,
+    gap: Spacing.sm,
   },
   exerciseEmoji: {
-    fontSize: 18,
+    fontSize: 20,
+    width: 32,
   },
   exerciseInfo: {
     flex: 1,
   },
   exerciseName: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+    fontSize: 15,
+    color: Colors.ink,
+    fontFamily: 'Georgia, serif',
   },
   exerciseMeta: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
+    fontSize: 11,
+    color: Colors.ink3,
     marginTop: 2,
   },
   exerciseCal: {
-    fontSize: FontSize.md,
-    fontWeight: '800',
-    color: '#DC2626',
-  },
-  exerciseTotalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.sm,
-    paddingTop: Spacing.sm,
-  },
-  exerciseTotalText: {
-    fontSize: FontSize.sm,
+    fontSize: 14,
     fontWeight: '700',
-    color: '#DC2626',
+    color: Colors.terracotta,
+    fontFamily: 'Menlo, Courier, monospace',
   },
 });

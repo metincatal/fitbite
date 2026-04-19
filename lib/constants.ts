@@ -5,36 +5,48 @@ export const Colors = {
   primaryPale: '#B7E4C7',
   primaryDark: '#1B4332',
 
-  // Arka plan
-  background: '#FAFDF6',
-  surface: '#FFFFFF',
-  surfaceSecondary: '#F0F7F4',
+  // Arka plan — sıcak parşömen paleti
+  background: '#F2EFE6',
+  surface: '#FBF8EF',
+  surfaceSecondary: '#F5F1E4',
 
-  // Aksan
-  accent: '#F4845F',
-  accentLight: '#F9B8A3',
+  // Aksan — terracotta (daha cesur)
+  accent: '#E85D3C',
+  accentLight: '#F2987D',
 
-  // Metin
-  textPrimary: '#1A2E22',
-  textSecondary: '#4A6B57',
-  textMuted: '#8FAF9B',
+  // Metin — derin yeşil-siyah mürekkep
+  textPrimary: '#17201A',
+  textSecondary: '#3A463D',
+  textMuted: '#6B7A6F',
   textLight: '#FFFFFF',
+  textFaint: '#A8B3A8',
 
   // Durum
   success: '#2D6A4F',
-  warning: '#F4845F',
-  error: '#E63946',
+  warning: '#E85D3C',
+  error: '#C0392B',
   info: '#52B788',
 
   // Sınır
-  border: '#D8EDE3',
-  borderLight: '#EEF7F2',
+  border: '#DDD6C2',
+  borderLight: '#E8E2D2',
 
-  // Makro renkler
-  protein: '#52B788',
-  carbs: '#F4845F',
-  fat: '#FFB703',
-  fiber: '#8ECAE6',
+  // Makro renkler — harmoni
+  protein: '#E85D3C',   // terracotta
+  carbs: '#D4A574',     // ochre
+  fat: '#7A9C4A',       // warm green
+  fiber: '#8ECAE6',     // sky
+
+  // Ek tasarım tokenları
+  ochre: '#D4A574',
+  terracotta: '#E85D3C',
+  sky: '#8ECAE6',
+  ink: '#17201A',
+  ink2: '#3A463D',
+  ink3: '#6B7A6F',
+  ink4: '#A8B3A8',
+  line: '#DDD6C2',
+  line2: '#E8E2D2',
 };
 
 export const Spacing = {
@@ -47,10 +59,11 @@ export const Spacing = {
 };
 
 export const BorderRadius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
+  xs: 6,
+  sm: 12,
+  md: 18,
+  lg: 28,
+  xl: 40,
   full: 999,
 };
 
