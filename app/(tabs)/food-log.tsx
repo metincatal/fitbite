@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  FlatList,
   Modal,
   Alert,
   ActivityIndicator,
@@ -15,52 +14,46 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Easing,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, G, Line, Path } from 'react-native-svg';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
 import { Colors, Spacing, FontSize, BorderRadius, getMealTypes, MealType, MEAL_TYPES } from '../../lib/constants';
 import { Food, FoodLogWithFood } from '../../types';
-import { Card } from '../../components/ui/Card';
-import { Button } from '../../components/ui/Button';
-import { recognizeMealFromImage, DetectedFoodItem, generateMealName } from '../../lib/gemini';
+import { DetectedFoodItem, generateMealName, recognizeMealFromImage } from '../../lib/gemini';
 import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 import { uploadFoodPhoto } from '../../lib/storage';
-import { PhotoMealReviewModal } from '../../components/food/PhotoMealReviewModal';
 import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
-import { LinearGradient } from 'expo-linear-gradient';
+import { FoodLogFlow } from '../../components/food/FoodLogFlow';
 import { setQuickActionCallbacks } from './_layout';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Arka planda kayıt süreci için tip
+const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
+
 interface PendingSave {
   imageBase64: string;
   items: DetectedFoodItem[];
   mealType: MealType;
-  progress: number;      // 0-100
+  progress: number;
   statusText: string;
-  imageUrl?: string;     // upload sonrası doldurulur
+  imageUrl?: string;
 }
 
-const MEAL_COLORS: Record<string, string> = {
-  breakfast: '#F9B8A3',
-  lunch: '#B7E4C7',
-  dinner: '#8ECAE6',
-  snack: '#FFD6A5',
-};
-
-const MEAL_TEXT_COLORS: Record<string, string> = {
-  breakfast: '#C05C3A',
-  lunch: '#2D6A4F',
-  dinner: '#1A5276',
-  snack: '#B7791F',
+const MEAL_DOT: Record<string, string> = {
+  breakfast: '#E85D3C',
+  lunch: '#7A9C4A',
+  dinner: '#3A6D8C',
+  snack: '#D4A574',
 };
 
 export default function FoodLogScreen() {
@@ -69,38 +62,41 @@ export default function FoodLogScreen() {
   const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, selectedDate } = useNutritionStore();
 
   const [yesterdayLogs, setYesterdayLogs] = useState<FoodLogWithFood[]>([]);
-  // Espritüel öğün isimleri: image_url → isim
   const [mealNames, setMealNames] = useState<Record<string, string>>({});
 
+  // Search modal (legacy fallback)
+  const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Food[]>([]);
-  const [selectedMeal, setSelectedMeal] = useState<string>('breakfast');
-  const [showSearch, setShowSearch] = useState(false);
-  const [servingAmount, setServingAmount] = useState('100');
-  const [selectedFood, setSelectedFood] = useState<Food | null>(null);
   const [searching, setSearching] = useState(false);
+  const [selectedFood, setSelectedFood] = useState<Food | null>(null);
+  const [selectedMeal, setSelectedMeal] = useState<string>('breakfast');
+  const [servingAmount, setServingAmount] = useState('100');
 
-  const [recognizing, setRecognizing] = useState(false);
-  const [photoMealItems, setPhotoMealItems] = useState<DetectedFoodItem[]>([]);
-  const [showPhotoReview, setShowPhotoReview] = useState(false);
-
-  const [capturedImageBase64, setCapturedImageBase64] = useState<string | null>(null);
-  const [pendingBase64, setPendingBase64] = useState<string | null>(null);
-  const [showHintPrompt, setShowHintPrompt] = useState(false);
-  const [photoHintText, setPhotoHintText] = useState('');
-  const [photoDetailGroup, setPhotoDetailGroup] = useState<FoodLogWithFood[]>([]);
-
+  // Barcode
   const [scanningBarcode, setScanningBarcode] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [lookingUpBarcode, setLookingUpBarcode] = useState(false);
   const [barcodeResult, setBarcodeResult] = useState<BarcodeFoodResult | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
-  // Arka planda kayıt süreci
+  // Photo flow (FoodLogFlow)
+  const [flowVisible, setFlowVisible] = useState(false);
+  const [flowBase64, setFlowBase64] = useState<string | null>(null);
+  const [flowInitialStep, setFlowInitialStep] = useState<'add' | 'describe' | 'results' | undefined>(undefined);
+  const [flowInitialItems, setFlowInitialItems] = useState<DetectedFoodItem[] | undefined>(undefined);
+
+  // Background analysis
+  const [bgAnalysis, setBgAnalysis] = useState<{ base64: string; phase: string; progress: number } | null>(null);
+
+  // Detail modal
+  const [photoDetailGroup, setPhotoDetailGroup] = useState<FoodLogWithFood[]>([]);
+
+  // Background save
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const pendingSaveRef = useRef<PendingSave | null>(null);
 
-  // AsyncStorage'dan espritüel isimleri yükle
+  // Load mealNames
   useEffect(() => {
     AsyncStorage.getItem('fitbite_meal_names').then((raw) => {
       if (raw) {
@@ -109,7 +105,6 @@ export default function FoodLogScreen() {
     });
   }, []);
 
-  // mealNames değişince AsyncStorage'a kaydet
   useEffect(() => {
     if (Object.keys(mealNames).length > 0) {
       AsyncStorage.setItem('fitbite_meal_names', JSON.stringify(mealNames)).catch(() => {});
@@ -126,36 +121,160 @@ export default function FoodLogScreen() {
   async function fetchYesterdayLogs(userId: string) {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() - 1);
-    const yesterday = d.toISOString().split('T')[0];
+    const y = d.toISOString().split('T')[0];
     const { data } = await supabase
       .from('food_logs')
       .select('*, food:foods(*)')
       .eq('user_id', userId)
-      .gte('logged_at', `${yesterday}T00:00:00`)
-      .lte('logged_at', `${yesterday}T23:59:59`)
+      .gte('logged_at', `${y}T00:00:00`)
+      .lte('logged_at', `${y}T23:59:59`)
       .order('logged_at', { ascending: true });
     setYesterdayLogs((data as FoodLogWithFood[]) ?? []);
   }
 
+  // Quick-action FAB callbacks (camera/gallery base64 → open flow at describe step)
   useEffect(() => {
-    // FAB'dan gelen kamera/galeri aksiyonlarını dinle
     setQuickActionCallbacks(
       (base64) => {
         router.push('/(tabs)/food-log');
-        setPendingBase64(base64);
-        setPhotoHintText('');
-        setShowHintPrompt(true);
+        setFlowBase64(base64);
+        setFlowInitialStep('describe');
+        setFlowInitialItems(undefined);
+        setFlowVisible(true);
       },
       (base64) => {
         router.push('/(tabs)/food-log');
-        setPendingBase64(base64);
-        setPhotoHintText('');
-        setShowHintPrompt(true);
+        setFlowBase64(base64);
+        setFlowInitialStep('describe');
+        setFlowInitialItems(undefined);
+        setFlowVisible(true);
       }
     );
     return () => setQuickActionCallbacks(() => {}, () => {});
   }, [router]);
 
+  function openAddFlow() {
+    setFlowBase64(null);
+    setFlowInitialStep('add');
+    setFlowInitialItems(undefined);
+    setFlowVisible(true);
+  }
+
+  function handleStartAnalysis(base64: string, hint: string) {
+    setBgAnalysis({ base64, phase: 'Fotoğraf inceleniyor', progress: 0 });
+    runBgAnalysis(base64, hint);
+  }
+
+  async function runBgAnalysis(base64: string, hint: string) {
+    const phases = ['Fotoğraf inceleniyor', 'Yemekler ayrıştırılıyor', 'Makrolar çıkarılıyor'];
+    const intervalId = setInterval(() => {
+      setBgAnalysis((prev) => {
+        if (!prev) return null;
+        const newProgress = Math.min(prev.progress + 1.5 + Math.random() * 2, 90);
+        const phaseIdx = Math.min(Math.floor(newProgress / 33), phases.length - 1);
+        return { ...prev, progress: newProgress, phase: phases[phaseIdx] };
+      });
+    }, 120);
+    try {
+      const detected = await recognizeMealFromImage(base64, hint || undefined);
+      clearInterval(intervalId);
+      setBgAnalysis((prev) => (prev ? { ...prev, progress: 100, phase: 'Analiz tamamlandı' } : null));
+      setTimeout(() => {
+        setBgAnalysis(null);
+        setFlowBase64(base64);
+        setFlowInitialItems(detected);
+        setFlowInitialStep('results');
+        setFlowVisible(true);
+      }, 450);
+    } catch {
+      clearInterval(intervalId);
+      setBgAnalysis(null);
+      Alert.alert('Hata', 'Yemek tanınamadı. Lütfen daha net bir fotoğraf çekin.');
+    }
+  }
+
+  function handleSavePhotoMeal(items: DetectedFoodItem[], mealType: MealType, base64: string, namePromise?: Promise<string>) {
+    if (!user) return;
+    const pending: PendingSave = {
+      imageBase64: base64,
+      items,
+      mealType,
+      progress: 0,
+      statusText: 'Fotoğraf yükleniyor...',
+    };
+    setPendingSave(pending);
+    pendingSaveRef.current = pending;
+    runBackgroundSave(user.id, base64, items, mealType, namePromise);
+  }
+
+  async function runBackgroundSave(userId: string, base64: string, items: DetectedFoodItem[], mealType: MealType, namePromise?: Promise<string>) {
+    const totalSteps = items.length + 1;
+    let completedSteps = 0;
+    function bump(text: string) {
+      completedSteps++;
+      const p = Math.round((completedSteps / totalSteps) * 100);
+      setPendingSave((prev) => (prev ? { ...prev, progress: p, statusText: text } : null));
+    }
+    try {
+      // Upload image and wait for name in parallel
+      const [imageUrl, generatedName] = await Promise.all([
+        uploadFoodPhoto(userId, base64),
+        (namePromise ?? Promise.resolve(null)).catch(() => null),
+      ]);
+
+      setPendingSave((prev) => (prev ? { ...prev, imageUrl: imageUrl ?? undefined } : null));
+
+      // Associate name before items appear in log so it shows immediately
+      if (imageUrl && generatedName) {
+        setMealNames((prev) => ({ ...prev, [imageUrl]: generatedName }));
+      }
+
+      bump('Besinler kaydediliyor...');
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const per100 = item.estimatedGrams > 0 ? 100 / item.estimatedGrams : 1;
+        const { data: newFood, error } = await supabase
+          .from('foods')
+          .insert({
+            name: item.name, name_tr: item.name, category: 'AI Tanıma',
+            calories_per_100g: Math.round(item.calories * per100),
+            protein: Math.round(item.protein * per100 * 10) / 10,
+            carbs: Math.round(item.carbs * per100 * 10) / 10,
+            fat: Math.round(item.fat * per100 * 10) / 10,
+            fiber: 0, serving_size: 100, serving_unit: 'g', is_turkish: true, created_by: userId,
+          })
+          .select().single();
+        if (error || !newFood) {
+          bump(i < items.length - 1 ? `${items[i + 1].name} kaydediliyor...` : 'Tamamlandı');
+          continue;
+        }
+        await addFoodLog({
+          user_id: userId, food_id: newFood.id, meal_type: mealType,
+          serving_amount: item.estimatedGrams,
+          calories: Math.round(item.calories),
+          protein: Math.round(item.protein * 10) / 10,
+          carbs: Math.round(item.carbs * 10) / 10,
+          fat: Math.round(item.fat * 10) / 10,
+          image_url: imageUrl,
+          logged_at: new Date().toISOString(),
+        });
+        bump(i < items.length - 1 ? `${items[i + 1].name} kaydediliyor...` : 'Tamamlandı');
+      }
+
+      setPendingSave((prev) => (prev ? { ...prev, progress: 100, statusText: 'Tamamlandı' } : null));
+      setTimeout(() => {
+        setPendingSave(null);
+        pendingSaveRef.current = null;
+      }, 600);
+    } catch {
+      Alert.alert('Hata', 'Kayıt sırasında bir sorun oluştu.');
+      setPendingSave(null);
+      pendingSaveRef.current = null;
+    }
+  }
+
+  // ───────────────────── Search (legacy modal) ─────────────────────
   async function searchFoods(query: string) {
     if (query.length < 2) { setSearchResults([]); return; }
     setSearching(true);
@@ -174,131 +293,28 @@ export default function FoodLogScreen() {
     if (isNaN(amount) || amount <= 0) { Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin'); return; }
     const ratio = amount / 100;
     await addFoodLog({
-      user_id: user.id,
-      food_id: selectedFood.id,
-      meal_type: selectedMeal as MealType,
-      serving_amount: amount,
+      user_id: user.id, food_id: selectedFood.id, meal_type: selectedMeal as MealType, serving_amount: amount,
       calories: Math.round(selectedFood.calories_per_100g * ratio),
       protein: Math.round(selectedFood.protein * ratio * 10) / 10,
       carbs: Math.round(selectedFood.carbs * ratio * 10) / 10,
       fat: Math.round(selectedFood.fat * ratio * 10) / 10,
       logged_at: new Date().toISOString(),
     });
-    setSelectedFood(null);
-    setSearchQuery('');
-    setSearchResults([]);
-    setShowSearch(false);
+    setSelectedFood(null); setSearchQuery(''); setSearchResults([]); setShowSearch(false);
   }
 
-  function handleSavePhotoMeal(items: DetectedFoodItem[], mealType: MealType) {
-    if (!user) return;
-
-    const base64 = capturedImageBase64;
-
-    // Modal'ı hemen kapat
-    setShowPhotoReview(false);
-    setPhotoMealItems([]);
-
-    if (!base64) return;
-
-    // Pending save state'ini oluştur
-    const pending: PendingSave = {
-      imageBase64: base64,
-      items,
-      mealType,
-      progress: 0,
-      statusText: 'Fotoğraf yükleniyor...',
-    };
-    setPendingSave(pending);
-    pendingSaveRef.current = pending;
-    setCapturedImageBase64(null);
-
-    // Arka planda kayıt sürecini başlat
-    runBackgroundSave(user.id, base64, items, mealType);
-  }
-
-  async function runBackgroundSave(
-    userId: string,
-    base64: string,
-    items: DetectedFoodItem[],
-    mealType: MealType
-  ) {
-    const totalSteps = items.length + 2; // upload + items + mealName
-    let completedSteps = 0;
-
-    function updateProgress(statusText: string) {
-      completedSteps++;
-      const progress = Math.round((completedSteps / totalSteps) * 100);
-      setPendingSave((prev) => prev ? { ...prev, progress, statusText } : null);
+  // ───────────────────── Barcode ─────────────────────
+  async function openBarcodeScanner() {
+    if (!cameraPermission?.granted) {
+      const { granted } = await requestCameraPermission();
+      if (!granted) { Alert.alert('İzin Gerekli', 'Barkod okumak için kamera iznine ihtiyaç var.'); return; }
     }
-
-    try {
-      // Adım 1: Fotoğrafı yükle
-      const imageUrl = await uploadFoodPhoto(userId, base64);
-      // imageUrl'yi pendingSave'e kaydet (feed'de çift kartı önlemek için)
-      setPendingSave((prev) => prev ? { ...prev, imageUrl: imageUrl ?? undefined } : null);
-      updateProgress('Besinler kaydediliyor...');
-
-      // Adım 2: Her item için food + log ekle
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const per100 = item.estimatedGrams > 0 ? 100 / item.estimatedGrams : 1;
-        const { data: newFood, error } = await supabase
-          .from('foods')
-          .insert({
-            name: item.name, name_tr: item.name, category: 'AI Tanıma',
-            calories_per_100g: Math.round(item.calories * per100),
-            protein: Math.round(item.protein * per100 * 10) / 10,
-            carbs: Math.round(item.carbs * per100 * 10) / 10,
-            fat: Math.round(item.fat * per100 * 10) / 10,
-            fiber: 0, serving_size: 100, serving_unit: 'g', is_turkish: true, created_by: userId,
-          })
-          .select()
-          .single();
-        if (error || !newFood) {
-          updateProgress(`${item.name} kaydediliyor...`);
-          continue;
-        }
-        await addFoodLog({
-          user_id: userId, food_id: newFood.id, meal_type: mealType,
-          serving_amount: item.estimatedGrams,
-          calories: Math.round(item.calories),
-          protein: Math.round(item.protein * 10) / 10,
-          carbs: Math.round(item.carbs * 10) / 10,
-          fat: Math.round(item.fat * 10) / 10,
-          image_url: imageUrl,
-          logged_at: new Date().toISOString(),
-        });
-        updateProgress(i < items.length - 1 ? `${items[i + 1].name} kaydediliyor...` : 'İsim oluşturuluyor...');
-      }
-
-      // Adım 3: Espritüel isim üret
-      if (imageUrl) {
-        try {
-          const name = await generateMealName(items.map((i) => i.name));
-          setMealNames((prev) => ({ ...prev, [imageUrl!]: name }));
-        } catch {}
-      }
-
-      // Tamamlandı
-      setPendingSave((prev) => prev ? { ...prev, progress: 100, statusText: 'Tamamlandı!' } : null);
-
-      // Kısa bekleme sonra pending'i kaldır
-      setTimeout(() => {
-        setPendingSave(null);
-        pendingSaveRef.current = null;
-      }, 600);
-    } catch {
-      Alert.alert('Hata', 'Kayıt sırasında bir sorun oluştu.');
-      setPendingSave(null);
-      pendingSaveRef.current = null;
-    }
+    setScanned(false); setBarcodeResult(null); setScanningBarcode(true); setShowSearch(true);
   }
 
   async function handleBarcodeScanned({ data }: { type: string; data: string }) {
     if (scanned || lookingUpBarcode) return;
-    setScanned(true);
-    setLookingUpBarcode(true);
+    setScanned(true); setLookingUpBarcode(true);
     const food = await lookupBarcode(data);
     setLookingUpBarcode(false);
     if (!food || food.calories === 0) {
@@ -318,14 +334,12 @@ export default function FoodLogScreen() {
     if (isNaN(amount) || amount <= 0) { Alert.alert('Hata', 'Geçerli bir porsiyon miktarı girin'); return; }
     const fullName = barcodeResult.brand ? `${barcodeResult.brand} - ${barcodeResult.name}` : barcodeResult.name;
     const { data: newFood, error } = await supabase
-      .from('foods')
-      .insert({
+      .from('foods').insert({
         name: fullName, name_tr: barcodeResult.name, category: 'Paketli Ürün',
         calories_per_100g: barcodeResult.calories, protein: barcodeResult.protein,
         carbs: barcodeResult.carbs, fat: barcodeResult.fat, fiber: barcodeResult.fiber,
         serving_size: 100, serving_unit: 'g', is_turkish: false, created_by: user.id,
-      })
-      .select().single();
+      }).select().single();
     if (error || !newFood) { Alert.alert('Hata', 'Yemek kaydedilemedi'); return; }
     const ratio = amount / 100;
     await addFoodLog({
@@ -339,242 +353,200 @@ export default function FoodLogScreen() {
     setBarcodeResult(null); setScanned(false); setServingAmount('100'); setShowSearch(false);
   }
 
-  async function openBarcodeScanner() {
-    if (!cameraPermission?.granted) {
-      const { granted } = await requestCameraPermission();
-      if (!granted) { Alert.alert('İzin Gerekli', 'Barkod okumak için kamera iznine ihtiyaç var.'); return; }
-    }
-    setScanned(false); setBarcodeResult(null); setScanningBarcode(true);
-  }
-
-  async function openImagePicker(source: 'camera' | 'gallery') {
-    let result: ImagePicker.ImagePickerResult;
-    if (source === 'camera') {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('İzin Gerekli', 'Kamera kullanmak için izin vermeniz gerekiyor.'); return; }
-      result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7, base64: true, allowsEditing: true, aspect: [1, 1] });
-    } else {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('İzin Gerekli', 'Galeriye erişmek için izin vermeniz gerekiyor.'); return; }
-      result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, base64: true, allowsEditing: true, aspect: [1, 1] });
-    }
-    if (result.canceled || !result.assets[0].base64) return;
-    const base64Data = result.assets[0].base64;
-    setPendingBase64(base64Data);
-    setPhotoHintText('');
-    setShowHintPrompt(true);
-  }
-
-  async function startAnalysis(hint: string) {
-    if (!pendingBase64) return;
-    setShowHintPrompt(false);
-    setShowSearch(false);
-    const base64Data = pendingBase64;
-    setPendingBase64(null);
-    setCapturedImageBase64(base64Data);
-    setSelectedFood(null);
-    setRecognizing(true);
-    try {
-      const items = await recognizeMealFromImage(base64Data, hint.trim() || undefined);
-      setPhotoMealItems(items);
-      setShowPhotoReview(true);
-    } catch {
-      setCapturedImageBase64(null);
-      Alert.alert('Tanıma Başarısız', 'Yemek tanınamadı. Lütfen daha net bir fotoğraf çekin.');
-    } finally {
-      setRecognizing(false);
-    }
-  }
-
+  // ───────────────────── Render helpers ─────────────────────
   const mealTypes = getMealTypes(profile?.meal_count ?? 3);
   const totalCaloriesToday = foodLogs.reduce((s, l) => s + l.calories, 0);
   const totalCaloriesYesterday = yesterdayLogs.reduce((s, l) => s + l.calories, 0);
 
-  function formatDate(dateStr: string) {
+  function formatDay(dateStr: string) {
     const d = new Date(dateStr);
-    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
+    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' }).toUpperCase();
+  }
+  function formatWeekday(dateStr: string) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('tr-TR', { weekday: 'long' }).toUpperCase();
   }
 
-  const todayLabel = formatDate(selectedDate);
-  const yesterdayDate = (() => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split('T')[0];
-  })();
-  const yesterdayLabel = formatDate(yesterdayDate);
+  const todayLabel = formatDay(selectedDate);
+  const todayWeekday = formatWeekday(selectedDate);
+  const yesterdayDate = (() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; })();
+  const yesterdayLabel = formatDay(yesterdayDate);
 
-  function getMealLabel(mealType: string) {
-    return mealTypes.find((m) => m.key === mealType)?.label ?? MEAL_TYPES[mealType as MealType] ?? mealType;
+  function getMealLabel(t: string) {
+    return mealTypes.find((m) => m.key === t)?.label ?? MEAL_TYPES[t as MealType] ?? t;
   }
 
-  function renderFeedItems(logs: FoodLogWithFood[], readonly = false) {
-    const rendered: React.ReactNode[] = [];
-    const seenUrls = new Set<string>();
+  function renderEntry(log: FoodLogWithFood, idx: number, group: FoodLogWithFood[], readonly: boolean, seenUrls: Set<string>) {
+    if (log.image_url) {
+      if (pendingSave && pendingSave.imageUrl && log.image_url === pendingSave.imageUrl) return null;
+      if (seenUrls.has(log.image_url)) return null;
+      seenUrls.add(log.image_url);
+      const url = log.image_url;
+      const photoGroup = group.filter((l) => l.image_url === url);
+      const totalCal = photoGroup.reduce((s, l) => s + l.calories, 0);
+      const mealName = mealNames[url];
+      const time = new Date(log.logged_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
-    logs.forEach((log) => {
-      if (log.image_url) {
-        // Pending save sırasında aynı image_url'ye sahip logları atla (çift kart önleme)
-        if (pendingSave && pendingSave.imageUrl && log.image_url === pendingSave.imageUrl) return;
-        if (seenUrls.has(log.image_url)) return;
-        seenUrls.add(log.image_url);
-        const group = logs.filter((l) => l.image_url === log.image_url);
-        const totalCal = group.reduce((s, l) => s + l.calories, 0);
-        const mealName = mealNames[log.image_url];
-
-        rendered.push(
-          <TouchableOpacity
-            key={`photo-${log.image_url}`}
-            style={styles.photoCard}
-            onPress={() => !readonly && setPhotoDetailGroup(group)}
-            activeOpacity={0.92}
-          >
-            <Image source={{ uri: log.image_url }} style={styles.photoCardImage} resizeMode="cover" />
-
-            {/* Üst overlay: öğün badge + kalori chip + silme */}
-            <View style={styles.photoCardTopRow}>
-              <View style={[styles.mealBadge, { backgroundColor: MEAL_COLORS[log.meal_type] ?? Colors.borderLight }]}>
-                <Text style={[styles.mealBadgeText, { color: MEAL_TEXT_COLORS[log.meal_type] ?? Colors.textPrimary }]}>
-                  {getMealLabel(log.meal_type)}
-                </Text>
-              </View>
-              <View style={styles.photoCardTopRight}>
-                <View style={styles.caloriePill}>
-                  <Text style={styles.caloriePillText}>{Math.round(totalCal)} kcal</Text>
-                </View>
-                {!readonly && (
-                  <TouchableOpacity
-                    style={styles.photoDeleteBtn}
-                    onPress={() => group.forEach((l) => removeFoodLog(l.id))}
-                  >
-                    <Ionicons name="trash-outline" size={14} color="#fff" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {/* Espritüel isim — sol alt köşe, yarı şeffaf arka plan */}
-            {mealName ? (
-              <View style={styles.photoMealNameWrap}>
-                <Text style={styles.photoMealName} numberOfLines={1}>{mealName}</Text>
-              </View>
-            ) : null}
-          </TouchableOpacity>
-        );
-      } else {
-        const bg = MEAL_COLORS[log.meal_type] ?? Colors.borderLight;
-        const tc = MEAL_TEXT_COLORS[log.meal_type] ?? Colors.textPrimary;
-        rendered.push(
-          <View key={log.id} style={[styles.textItem, readonly && styles.textItemReadonly]}>
-            <View style={[styles.textItemAccent, { backgroundColor: bg }]} />
-            <View style={styles.textItemBody}>
-              <Text style={styles.textItemName} numberOfLines={1}>
-                {log.food?.name_tr ?? log.food?.name}
-              </Text>
-              <View style={styles.textItemMeta}>
-                <View style={[styles.mealPill, { backgroundColor: bg }]}>
-                  <Text style={[styles.mealPillText, { color: tc }]}>{getMealLabel(log.meal_type)}</Text>
-                </View>
-                <Text style={styles.textItemServing}>{log.serving_amount}g</Text>
-              </View>
-            </View>
-            <View style={styles.textItemRight}>
-              <Text style={styles.textItemCalories}>{Math.round(log.calories)}</Text>
-              <Text style={styles.textItemKcal}>kcal</Text>
-            </View>
-            {!readonly && (
-              <View style={styles.textItemActions}>
-                <TouchableOpacity onPress={() => router.push(`/food/${log.food_id}`)} style={styles.textActionBtn}>
-                  <Ionicons name="information-circle-outline" size={19} color={Colors.textMuted} />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => removeFoodLog(log.id)} style={styles.textActionBtn}>
-                  <Ionicons name="close" size={18} color={Colors.textMuted} />
-                </TouchableOpacity>
-              </View>
+      return (
+        <TouchableOpacity
+          key={`photo-${url}`}
+          style={styles.photoEntryCard}
+          activeOpacity={0.88}
+          onPress={() => !readonly && setPhotoDetailGroup(photoGroup)}
+        >
+          <View style={styles.photoEntryImageWrap}>
+            <Image source={{ uri: url }} style={styles.photoEntryImage} resizeMode="cover" />
+            {mealName && (
+              <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.7)']}
+                style={styles.photoEntryGradient}
+              >
+                <Text style={styles.photoEntryName} numberOfLines={2}>{mealName}</Text>
+              </LinearGradient>
             )}
           </View>
-        );
-      }
-    });
+          <View style={styles.photoEntryMeta}>
+            <Text style={styles.photoEntryMetaTime}>{time} · {getMealLabel(log.meal_type)}</Text>
+            <Text style={styles.photoEntryKcal}>
+              {Math.round(totalCal)}<Text style={styles.photoEntryKcalUnit}> kcal</Text>
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
 
-    return rendered;
+    const time = new Date(log.logged_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    return (
+      <View key={log.id} style={styles.entry}>
+        <View style={[styles.entryNoPhoto, { backgroundColor: MEAL_DOT[log.meal_type] ?? Colors.ink }]}>
+          <Text style={styles.entryNoPhotoTime}>{time.split(':')[0]}</Text>
+        </View>
+        <View style={styles.entryBody}>
+          <Text style={styles.entryTitle} numberOfLines={2}>{log.food?.name_tr ?? log.food?.name}</Text>
+          <Text style={styles.entryMeta} numberOfLines={1}>
+            {time} · {getMealLabel(log.meal_type)} · {log.serving_amount}g
+          </Text>
+        </View>
+        <View style={styles.entryRight}>
+          <Text style={styles.entryKcal}>{Math.round(log.calories)}</Text>
+          <Text style={styles.entryKcalUnit}>kcal</Text>
+        </View>
+        {!readonly && (
+          <TouchableOpacity onPress={() => removeFoodLog(log.id)} style={styles.entryDelete}>
+            <Ionicons name="close" size={16} color={Colors.ink4} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  function renderEntries(logs: FoodLogWithFood[], readonly = false) {
+    const seen = new Set<string>();
+    const out: React.ReactNode[] = [];
+    logs.forEach((log, i) => {
+      const r = renderEntry(log, i, logs, readonly, seen);
+      if (r) out.push(r);
+    });
+    return out;
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Yemek Günlüğü</Text>
-        <View style={styles.headerMeta}>
-          <Text style={styles.headerCalories}>{Math.round(totalCaloriesToday)} kcal</Text>
-          <Text style={styles.headerCaloriesLabel}>bugün</Text>
-        </View>
-      </View>
-
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Bugün */}
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionHeaderLeft}>
-            <View style={styles.sectionDot} />
-            <Text style={styles.sectionTitle}>Bugün</Text>
-            <Text style={styles.sectionDate}>{todayLabel}</Text>
-          </View>
-          <Text style={styles.sectionCalories}>{Math.round(totalCaloriesToday)} kcal</Text>
-        </View>
-
-        {foodLogs.length === 0 && !pendingSave ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="restaurant-outline" size={28} color={Colors.textMuted} />
-            </View>
-            <Text style={styles.emptyText}>Henüz yemek eklenmedi</Text>
-            <Text style={styles.emptySubtext}>Sağ alttaki + butonuna bas</Text>
-          </View>
-        ) : (
-          <View style={styles.feedSection}>
-            {renderFeedItems(foodLogs, false)}
-            {pendingSave && <PendingPhotoCard pending={pendingSave} />}
-          </View>
-        )}
-
-        {/* Dün */}
-        <View style={[styles.sectionHeader, { marginTop: Spacing.lg }]}>
-          <View style={styles.sectionHeaderLeft}>
-            <View style={[styles.sectionDot, { backgroundColor: Colors.textMuted }]} />
-            <Text style={[styles.sectionTitle, { color: Colors.textMuted }]}>Dün</Text>
-            <Text style={styles.sectionDate}>{yesterdayLabel}</Text>
-          </View>
-          {yesterdayLogs.length > 0 && (
-            <Text style={[styles.sectionCalories, { color: Colors.textMuted }]}>
-              {Math.round(totalCaloriesYesterday)} kcal
+        {/* Hero header */}
+        <View style={styles.heroRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heroOverline}>{todayLabel} · {todayWeekday}</Text>
+            <Text style={styles.heroTitle}>
+              Yemek <Text style={styles.heroTitleAccent}>Günlüğü</Text>
             </Text>
-          )}
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={[styles.heroKcal, { color: totalCaloriesToday > 0 ? Colors.ink : Colors.ink3 }]}>
+              {Math.round(totalCaloriesToday)} <Text style={styles.heroKcalUnit}>kcal</Text>
+            </Text>
+            <Text style={styles.heroSubOverline}>BUGÜN</Text>
+          </View>
         </View>
 
-        {yesterdayLogs.length === 0 ? (
-          <View style={[styles.emptyState, { paddingVertical: Spacing.md }]}>
-            <Text style={styles.emptySubtext}>Dün kayıt yok</Text>
+        {/* Today section */}
+        <DaySection
+          dateLabel={`Bugün · ${todayLabel.split(' ').slice(0, 2).join(' ')}`}
+          subtitle={totalCaloriesToday > 0 ? `${Math.round(totalCaloriesToday)} kcal` : 'Henüz boş'}
+          active
+        >
+          {foodLogs.length === 0 && !pendingSave && !bgAnalysis ? (
+            <EmptyDay />
+          ) : (
+            <View style={{ gap: 8 }}>
+              {renderEntries(foodLogs, false)}
+              {bgAnalysis && (
+                <AnalyzingBanner
+                  base64={bgAnalysis.base64}
+                  phase={bgAnalysis.phase}
+                  progress={bgAnalysis.progress}
+                />
+              )}
+              {pendingSave && <PendingPhotoCard pending={pendingSave} />}
+            </View>
+          )}
+        </DaySection>
+
+        {/* Yesterday section */}
+        <DaySection
+          dateLabel={`Dün · ${yesterdayLabel.split(' ').slice(0, 2).join(' ')}`}
+          subtitle={yesterdayLogs.length > 0 ? `${Math.round(totalCaloriesYesterday)} kcal` : 'Kayıt yok'}
+        >
+          {yesterdayLogs.length === 0 ? (
+            <Text style={styles.emptyDayLine}>Dün hiçbir şey yazmadın.</Text>
+          ) : (
+            <View style={{ gap: 8, opacity: 0.75 }}>{renderEntries(yesterdayLogs, true)}</View>
+          )}
+        </DaySection>
+
+        {/* Hint card (yalnızca bugün boşken) */}
+        {foodLogs.length === 0 && !pendingSave && !bgAnalysis && (
+          <View style={styles.hintCard}>
+            <View style={styles.hintCardArrow}>
+              <Text style={styles.hintCardArrowText}>↘</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.hintCardTitle}>Sağ alttaki ＋'a bas.</Text>
+              <Text style={styles.hintCardSub}>Fotoğraf çek, AI tabağını okusun.</Text>
+            </View>
           </View>
-        ) : (
-          <View style={[styles.feedSection, { opacity: 0.75 }]}>{renderFeedItems(yesterdayLogs, true)}</View>
         )}
 
-        <View style={{ height: 100 }} />
+        <View style={{ height: 120 }} />
       </ScrollView>
 
-      {/* FAB + Analiz Sürüyor Banner — yan yana, ekranın altında */}
-      <View style={styles.fabRow}>
-        {recognizing && (
-          <View style={styles.analyzingBanner}>
-            <ActivityIndicator size="small" color={Colors.primary} />
-            <View style={styles.analyzingTexts}>
-              <Text style={styles.analyzingTitle}>Analiz Sürüyor</Text>
-              <Text style={styles.analyzingSubtext}>AI yemeğinizi analiz ediyor, lütfen bekleyin...</Text>
-            </View>
-          </View>
-        )}
-        <TouchableOpacity style={styles.fab} onPress={() => setShowSearch(true)} activeOpacity={0.85}>
-          <Ionicons name="add" size={28} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      {/* FAB — diary'de sağ altta */}
+      <TouchableOpacity style={styles.fab} onPress={openAddFlow} activeOpacity={0.85}>
+        <Ionicons name="add" size={26} color={Colors.background} />
+      </TouchableOpacity>
+
+      {/* Photo flow */}
+      <FoodLogFlow
+        visible={flowVisible}
+        initialBase64={flowBase64}
+        initialStep={flowInitialStep}
+        initialItems={flowInitialItems}
+        onClose={() => { setFlowVisible(false); setFlowInitialItems(undefined); }}
+        onSave={(items, mealType, base64, namePromise) => {
+          setFlowVisible(false);
+          setFlowInitialItems(undefined);
+          handleSavePhotoMeal(items, mealType, base64, namePromise);
+        }}
+        onStartAnalysis={handleStartAnalysis}
+        onOpenSearch={() => {
+          setFlowVisible(false);
+          setTimeout(() => setShowSearch(true), 200);
+        }}
+        onOpenBarcode={() => {
+          setFlowVisible(false);
+          setTimeout(() => openBarcodeScanner(), 200);
+        }}
+      />
 
       <MealPhotoDetailModal
         visible={photoDetailGroup.length > 0}
@@ -588,95 +560,20 @@ export default function FoodLogScreen() {
         }}
       />
 
-      <PhotoMealReviewModal
-        visible={showPhotoReview}
-        onClose={() => { setShowPhotoReview(false); setCapturedImageBase64(null); setPhotoMealItems([]); }}
-        items={photoMealItems}
-        imageBase64={capturedImageBase64}
-        onSave={handleSavePhotoMeal}
-      />
-
-      {/* Fotoğraf Hint Prompt Modal */}
-      <Modal visible={showHintPrompt} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.hintModal}>
-          <View style={styles.hintHeader}>
-            <TouchableOpacity
-              onPress={() => { setShowHintPrompt(false); setPendingBase64(null); }}
-              style={styles.hintCloseBtn}
-            >
-              <Ionicons name="close" size={22} color={Colors.textPrimary} />
-            </TouchableOpacity>
-            <Text style={styles.hintHeaderTitle}>Fotoğrafı Analiz Et</Text>
-            <View style={{ width: 36 }} />
-          </View>
-
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ flexGrow: 1 }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {pendingBase64 && (
-              <Image
-                source={{ uri: `data:image/jpeg;base64,${pendingBase64}` }}
-                style={styles.hintPreview}
-                resizeMode="cover"
-              />
-            )}
-
-            <View style={styles.hintBody}>
-              <Text style={styles.hintLabel}>Bu yemeği açıkla (opsiyonel)</Text>
-              <Text style={styles.hintSublabel}>
-                AI'nın daha doğru tanıması için yemeğin ne olduğunu yazabilirsiniz.
-              </Text>
-              <TextInput
-                style={styles.hintInput}
-                placeholder="örn. kazandibi, 2 porsiyon..."
-                placeholderTextColor={Colors.textMuted}
-                value={photoHintText}
-                onChangeText={setPhotoHintText}
-                multiline
-                returnKeyType="done"
-              />
-            </View>
-          </ScrollView>
-
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View style={styles.hintFooter}>
-              <TouchableOpacity
-                style={styles.hintSkipBtn}
-                onPress={() => startAnalysis('')}
-              >
-                <Text style={styles.hintSkipText}>Atla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.hintAnalyzeBtn}
-                onPress={() => startAnalysis(photoHintText)}
-              >
-                <Ionicons name="sparkles-outline" size={16} color="#fff" />
-                <Text style={styles.hintAnalyzeText}>Analiz Et</Text>
-              </TouchableOpacity>
-            </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
-
-      {/* Yemek Ekle Modal — Yeniden Tasarım */}
+      {/* Legacy search/barcode modal — kept as fallback for non-photo entries */}
       <Modal visible={showSearch} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.modal}>
-          {/* Header */}
-          <View style={styles.modalHeader}>
+        <SafeAreaView style={styles.legacyModal}>
+          <View style={styles.legacyHeader}>
             <TouchableOpacity onPress={() => {
               setShowSearch(false); setSelectedFood(null); setSearchQuery('');
               setBarcodeResult(null); setScanned(false); setScanningBarcode(false); setSearchResults([]);
             }}>
-              <Ionicons name="close" size={24} color={Colors.textPrimary} />
+              <Ionicons name="close" size={22} color={Colors.ink} />
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>Yemek Ekle</Text>
-            <View style={{ width: 24 }} />
+            <Text style={styles.legacyTitle}>Ara veya Barkod</Text>
+            <View style={{ width: 22 }} />
           </View>
 
-          {/* Barkod tarayıcı */}
           {scanningBarcode && (
             <View style={StyleSheet.absoluteFillObject}>
               <CameraView
@@ -685,12 +582,12 @@ export default function FoodLogScreen() {
                 onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
                 barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'] }}
               />
-              <View style={styles.barcodeScanFrame}>
-                <View style={styles.barcodeScanBox} />
-                <Text style={styles.barcodeScanHint}>
+              <View style={styles.barcodeFrame}>
+                <View style={styles.barcodeBox} />
+                <Text style={styles.barcodeHint}>
                   {lookingUpBarcode ? 'Ürün aranıyor...' : 'Barkodu çerçeveye hizalayın'}
                 </Text>
-                {lookingUpBarcode && <ActivityIndicator size="large" color="#fff" style={{ marginTop: Spacing.md }} />}
+                {lookingUpBarcode && <ActivityIndicator size="large" color="#fff" style={{ marginTop: 16 }} />}
               </View>
               <TouchableOpacity style={styles.barcodeClose} onPress={() => { setScanningBarcode(false); setScanned(false); }}>
                 <Text style={styles.barcodeCloseText}>Kapat</Text>
@@ -699,92 +596,28 @@ export default function FoodLogScreen() {
           )}
 
           {!scanningBarcode && (
-            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-
-              {/* Arama kutusu — her zaman üstte */}
-              {!recognizing && !barcodeResult && (
-                <View style={styles.addSearchWrap}>
-                  <View style={[styles.addSearchBox, searchQuery.length > 0 && styles.addSearchBoxActive]}>
-                    <Ionicons name="search-outline" size={20} color={searchQuery.length > 0 ? Colors.primary : Colors.textMuted} />
-                    <TextInput
-                      style={styles.addSearchInput}
-                      placeholder="Yemek adı yazın..."
-                      value={searchQuery}
-                      onChangeText={(t) => { setSearchQuery(t); searchFoods(t); }}
-                      placeholderTextColor={Colors.textMuted}
-                    />
-                    {searchQuery.length > 0 && (
-                      <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
-                        <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </View>
-              )}
-
-              {/* AI Kart Bölümü */}
-              {!recognizing && !barcodeResult && !selectedFood && searchQuery.length === 0 && (
-                <View style={styles.aiSection}>
-                  <Text style={styles.aiSectionLabel}>AI ile Analiz Et</Text>
-                  <Text style={styles.aiSectionSub}>Yemeğin fotoğrafını çek, AI anında tanısın</Text>
-
-                  <View style={styles.aiCardRow}>
-                    <TouchableOpacity style={[styles.aiCard, { backgroundColor: '#EDF6FF', borderColor: '#BFDBFE' }]} onPress={() => openImagePicker('camera')}>
-                      <View style={[styles.aiCardIconWrap, { backgroundColor: '#2563EB' }]}>
-                        <Ionicons name="camera" size={28} color="#fff" />
-                      </View>
-                      <Text style={[styles.aiCardTitle, { color: '#1D4ED8' }]}>Fotoğraf Çek</Text>
-                      <Text style={styles.aiCardSub}>Kamerayla anında analiz</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.aiCard, { backgroundColor: '#F5F0FF', borderColor: '#DDD6FE' }]} onPress={() => openImagePicker('gallery')}>
-                      <View style={[styles.aiCardIconWrap, { backgroundColor: '#7C3AED' }]}>
-                        <Ionicons name="images" size={28} color="#fff" />
-                      </View>
-                      <Text style={[styles.aiCardTitle, { color: '#6D28D9' }]}>Galeriden Seç</Text>
-                      <Text style={styles.aiCardSub}>Daha önce çektiğin fotoğraf</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <TouchableOpacity style={styles.barcodeCard} onPress={openBarcodeScanner}>
-                    <View style={styles.barcodeCardLeft}>
-                      <View style={[styles.barcodeCardIcon, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}>
-                        <Ionicons name="barcode" size={28} color="#EA580C" />
-                      </View>
-                      <View>
-                        <Text style={styles.barcodeCardTitle}>Barkod Tara</Text>
-                        <Text style={styles.barcodeCardSub}>Paketli ürünler için hızlı ekleme</Text>
-                      </View>
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 22 }}>
+              <View style={styles.legacySearchBox}>
+                <Ionicons name="search-outline" size={16} color={Colors.ink3} />
+                <TextInput
+                  style={styles.legacySearchInput}
+                  placeholder="Yemek adı yazın…"
+                  value={searchQuery}
+                  onChangeText={(t) => { setSearchQuery(t); searchFoods(t); }}
+                  placeholderTextColor={Colors.ink4}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); }}>
+                    <Ionicons name="close-circle" size={18} color={Colors.ink4} />
                   </TouchableOpacity>
-                </View>
-              )}
+                )}
+              </View>
 
-              {/* Analiz yükleniyor */}
-              {recognizing && (
-                <View style={styles.recognizingContainer}>
-                  <ActivityIndicator size="large" color={Colors.primary} />
-                  <Text style={styles.recognizingText}>Yemekler analiz ediliyor...</Text>
-                  <Text style={styles.recognizingSubtext}>AI görselinizi inceliyor</Text>
-                </View>
-              )}
-
-              {/* Barkod Sonucu */}
-              {barcodeResult && !scanningBarcode && (
-                <View style={styles.barcodeResultCard}>
-                  <View style={styles.barcodeResultHeader}>
-                    <Ionicons name="barcode-outline" size={20} color={Colors.primary} />
-                    <Text style={styles.barcodeResultTitle}>Ürün Bulundu</Text>
-                  </View>
-                  {barcodeResult.brand && <Text style={styles.barcodeBrand}>{barcodeResult.brand}</Text>}
-                  <Text style={styles.selectedFoodName}>{barcodeResult.name}</Text>
-                  <Text style={styles.selectedFoodCalories}>{barcodeResult.calories} kcal / 100g</Text>
-                  <View style={styles.macroRow}>
-                    <Text style={styles.macroItem}>P: {barcodeResult.protein}g</Text>
-                    <Text style={styles.macroItem}>K: {barcodeResult.carbs}g</Text>
-                    <Text style={styles.macroItem}>Y: {barcodeResult.fat}g</Text>
-                  </View>
+              {barcodeResult && (
+                <View style={styles.barcodeCard}>
+                  <Text style={styles.barcodeBrand}>{barcodeResult.brand ?? ''}</Text>
+                  <Text style={styles.barcodeName}>{barcodeResult.name}</Text>
+                  <Text style={styles.barcodeCal}>{barcodeResult.calories} kcal / 100g</Text>
                   <View style={styles.servingRow}>
                     <Text style={styles.servingLabel}>Porsiyon (g):</Text>
                     <TextInput
@@ -792,82 +625,83 @@ export default function FoodLogScreen() {
                       onChangeText={setServingAmount} keyboardType="numeric" selectTextOnFocus
                     />
                   </View>
-                  <Text style={styles.calculatedCalories}>
+                  <Text style={styles.calculatedCal}>
                     = {Math.round(barcodeResult.calories * (parseFloat(servingAmount) || 0) / 100)} kcal
                   </Text>
-                  <View style={styles.barcodeResultActions}>
-                    <TouchableOpacity style={styles.barcodeRetryBtn} onPress={() => { setBarcodeResult(null); setScanned(false); }}>
-                      <Text style={styles.barcodeRetryText}>Yeniden Tara</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <TouchableOpacity onPress={() => { setBarcodeResult(null); setScanned(false); }} style={styles.btnGhost}>
+                      <Text style={styles.btnGhostText}>Yeniden Tara</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.barcodeAddBtn} onPress={handleAddBarcodeFood}>
-                      <Ionicons name="checkmark" size={18} color="#fff" />
-                      <Text style={styles.barcodeAddText}>Günlüğe Ekle</Text>
+                    <TouchableOpacity onPress={handleAddBarcodeFood} style={styles.btnPrimary}>
+                      <Ionicons name="checkmark" size={14} color={Colors.background} />
+                      <Text style={styles.btnPrimaryText}>Ekle</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               )}
 
-              {/* Arama sonuçları ve seçili yemek */}
-              {!recognizing && !barcodeResult && (
-                <View style={styles.searchSection}>
-                  {/* Seçili yemek detayı */}
-                  {selectedFood && (
-                    <View style={styles.selectedFoodCard}>
-                      <View style={styles.selectedFoodHeader}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.selectedFoodName}>{selectedFood.name_tr}</Text>
-                          <Text style={styles.selectedFoodCalories}>{selectedFood.calories_per_100g} kcal / 100g</Text>
-                        </View>
-                        <TouchableOpacity onPress={() => setSelectedFood(null)}>
-                          <Ionicons name="close" size={20} color={Colors.textMuted} />
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.servingRow}>
-                        <Text style={styles.servingLabel}>Porsiyon (g):</Text>
-                        <TextInput
-                          style={styles.servingInput} value={servingAmount}
-                          onChangeText={setServingAmount} keyboardType="numeric" selectTextOnFocus
-                        />
-                      </View>
-                      <Text style={styles.calculatedCalories}>
-                        = {Math.round(selectedFood.calories_per_100g * (parseFloat(servingAmount) || 0) / 100)} kcal
-                      </Text>
-                      <TouchableOpacity style={styles.addFoodBtn} onPress={handleAddFood}>
-                        <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                        <Text style={styles.addFoodBtnText}>Günlüğe Ekle</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
+              {selectedFood && !barcodeResult && (
+                <View style={styles.barcodeCard}>
+                  <Text style={styles.barcodeName}>{selectedFood.name_tr}</Text>
+                  <Text style={styles.barcodeCal}>{selectedFood.calories_per_100g} kcal / 100g</Text>
+                  <View style={styles.servingRow}>
+                    <Text style={styles.servingLabel}>Porsiyon (g):</Text>
+                    <TextInput
+                      style={styles.servingInput} value={servingAmount}
+                      onChangeText={setServingAmount} keyboardType="numeric" selectTextOnFocus
+                    />
+                  </View>
+                  <Text style={styles.calculatedCal}>
+                    = {Math.round(selectedFood.calories_per_100g * (parseFloat(servingAmount) || 0) / 100)} kcal
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <TouchableOpacity onPress={() => setSelectedFood(null)} style={styles.btnGhost}>
+                      <Text style={styles.btnGhostText}>İptal</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleAddFood} style={styles.btnPrimary}>
+                      <Ionicons name="checkmark" size={14} color={Colors.background} />
+                      <Text style={styles.btnPrimaryText}>Ekle</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
 
-                  {/* Arama sonuçları */}
-                  {!selectedFood && searchResults.length > 0 && (
-                    <View style={styles.searchResultsList}>
+              {!selectedFood && !barcodeResult && (
+                <>
+                  {searching && <ActivityIndicator color={Colors.ink} style={{ marginTop: 24 }} />}
+                  {searchResults.length > 0 && (
+                    <View style={{ marginTop: 14 }}>
                       {searchResults.map((item) => (
                         <TouchableOpacity
                           key={item.id}
-                          style={[styles.searchResult, selectedFood && (selectedFood as Food).id === item.id && styles.searchResultSelected]}
+                          style={styles.searchResult}
                           onPress={() => { setSelectedFood(item); setServingAmount('100'); }}
                         >
-                          <View style={styles.searchResultInfo}>
+                          <View style={{ flex: 1 }}>
                             <Text style={styles.searchResultName}>{item.name_tr}</Text>
-                            <Text style={styles.searchResultCategory}>{item.category}</Text>
+                            <Text style={styles.searchResultCat}>{item.category}</Text>
                           </View>
-                          <Text style={styles.searchResultCalories}>{item.calories_per_100g} kcal/100g</Text>
+                          <Text style={styles.searchResultKcal}>{item.calories_per_100g} kcal</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   )}
-
                   {searchQuery.length >= 2 && !searching && searchResults.length === 0 && (
-                    <View style={styles.noResults}>
-                      <Ionicons name="search-outline" size={32} color={Colors.textMuted} />
-                      <Text style={styles.noResultsText}>"{searchQuery}" bulunamadı</Text>
-                    </View>
+                    <Text style={styles.noResults}>"{searchQuery}" bulunamadı</Text>
                   )}
-                </View>
-              )}
 
-              <View style={{ height: Spacing.xxl }} />
+                  <TouchableOpacity onPress={openBarcodeScanner} style={styles.barcodeRow}>
+                    <View style={styles.barcodeIcon}>
+                      <Ionicons name="barcode" size={18} color={Colors.background} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.barcodeRowTitle}>Barkod Tara</Text>
+                      <Text style={styles.barcodeRowSub}>Paketli ürünler için</Text>
+                    </View>
+                    <Text style={styles.chevron}>›</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </ScrollView>
           )}
         </SafeAreaView>
@@ -876,410 +710,92 @@ export default function FoodLogScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  scrollContent: { paddingBottom: Spacing.xl },
+// ──────────────────────────── DAY SECTION ────────────────────────────
+function DaySection({
+  dateLabel,
+  subtitle,
+  active,
+  children,
+}: {
+  dateLabel: string;
+  subtitle: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.daySection}>
+      <View style={styles.dayHeader}>
+        <View style={styles.dayHeaderLeft}>
+          <View style={[styles.dayDot, { backgroundColor: active ? Colors.terracotta : Colors.ink4 }]} />
+          <Text style={styles.dayLabel}>{dateLabel}</Text>
+        </View>
+        <Text style={styles.daySubtitle}>{subtitle}</Text>
+      </View>
+      <View style={{ paddingTop: 4 }}>{children}</View>
+    </View>
+  );
+}
 
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
-  },
-  title: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.textPrimary },
-  headerMeta: { alignItems: 'flex-end' },
-  headerCalories: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.primary },
-  headerCaloriesLabel: { fontSize: FontSize.xs, color: Colors.textMuted, fontWeight: '500' },
+// ──────────────────────────── EMPTY DAY ────────────────────────────
+function EmptyDay() {
+  return (
+    <View style={styles.emptyDay}>
+      <Svg width={56} height={56} viewBox="0 0 56 56" fill="none">
+        <Circle cx={28} cy={28} r={27} stroke={Colors.line} strokeWidth={0.6} />
+        <G stroke={Colors.ink3} strokeWidth={1.4} strokeLinecap="round" transform="translate(28, 28)">
+          <G transform="rotate(-22)">
+            <Line x1={-10} y1={-13} x2={-10} y2={13} />
+            <Line x1={-13} y1={-13} x2={-13} y2={-7} />
+            <Line x1={-7} y1={-13} x2={-7} y2={-7} />
+          </G>
+          <G transform="rotate(22)">
+            <Line x1={10} y1={-13} x2={10} y2={13} />
+            <Path d="M 8 -13 Q 13 -10 13 -3 L 10 -3" fill={Colors.ink3} stroke="none" opacity={0.85} />
+          </G>
+        </G>
+      </Svg>
+      <Text style={styles.emptyTitle}>
+        Tabağın <Text style={styles.emptyTitleAccent}>boş</Text>.
+      </Text>
+      <Text style={styles.emptySub}>Bir fotoğraf çek, FitBot saniyede tanısın. Yazarak da ekleyebilirsin.</Text>
+    </View>
+  );
+}
 
-  sectionHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm,
-  },
-  sectionHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  sectionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
-  sectionTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  sectionDate: { fontSize: FontSize.sm, color: Colors.textMuted },
-  sectionCalories: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.primary },
-
-  feedSection: { paddingHorizontal: Spacing.lg, gap: Spacing.sm },
-
-  emptyState: { alignItems: 'center', paddingVertical: Spacing.xl, paddingHorizontal: Spacing.lg, gap: Spacing.sm },
-  emptyIcon: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: Colors.surfaceSecondary, alignItems: 'center', justifyContent: 'center',
-  },
-  emptyText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary },
-  emptySubtext: { fontSize: FontSize.sm, color: Colors.textMuted },
-
-  // Fotoğraflı kart
-  photoCard: {
-    borderRadius: BorderRadius.lg,
-    overflow: 'hidden',
-    height: 220,
-    backgroundColor: Colors.borderLight,
-  },
-  photoCardImage: { ...StyleSheet.absoluteFillObject },
-  photoCardTopRow: {
-    position: 'absolute',
-    top: Spacing.sm,
-    left: Spacing.sm,
-    right: Spacing.sm,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  mealBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-  },
-  mealBadgeText: { fontSize: FontSize.xs, fontWeight: '700' },
-  photoCardTopRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
-  caloriePill: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-  },
-  caloriePillText: { fontSize: FontSize.xs, fontWeight: '700', color: '#fff' },
-  photoDeleteBtn: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  photoMealNameWrap: {
-    position: 'absolute',
-    bottom: Spacing.sm,
-    left: Spacing.sm,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-    borderRadius: BorderRadius.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    maxWidth: '75%',
-  },
-  photoMealName: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.92)',
-    fontStyle: 'italic',
-  },
-
-  // Metin kart
-  textItem: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.md,
-    overflow: 'hidden', borderWidth: 1, borderColor: Colors.borderLight,
-  },
-  textItemReadonly: {},
-  textItemAccent: { width: 4, alignSelf: 'stretch' },
-  textItemBody: { flex: 1, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md },
-  textItemName: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
-  textItemMeta: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginTop: 4 },
-  mealPill: { paddingHorizontal: Spacing.sm, paddingVertical: 2, borderRadius: BorderRadius.full },
-  mealPillText: { fontSize: FontSize.xs, fontWeight: '700' },
-  textItemServing: { fontSize: FontSize.xs, color: Colors.textMuted },
-  textItemRight: { alignItems: 'flex-end', paddingRight: 4 },
-  textItemCalories: { fontSize: FontSize.md, fontWeight: '800', color: Colors.accent },
-  textItemKcal: { fontSize: FontSize.xs, color: Colors.textMuted },
-  textItemActions: { flexDirection: 'row', alignItems: 'center', paddingRight: 4 },
-  textActionBtn: { padding: 6 },
-
-  // FAB row — banner ve FAB yan yana alt köşede
-  fabRow: {
-    position: 'absolute', bottom: 28, left: 24, right: 24,
-    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'flex-end',
-    gap: Spacing.sm,
-  },
-  fab: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
-    shadowColor: Colors.primaryDark, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35, shadowRadius: 8, elevation: 8,
-  },
-
-  // Modal
-  modal: { flex: 1, backgroundColor: Colors.background },
-  modalHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.md,
-    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
-  },
-  modalTitle: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.textPrimary },
-
-  // Arama kutusu (modal üstü)
-  addSearchWrap: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, paddingBottom: Spacing.xs },
-  addSearchBox: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.md, paddingVertical: 12,
-    borderWidth: 1.5, borderColor: Colors.border,
-  },
-  addSearchBoxActive: { borderColor: Colors.primary },
-  addSearchInput: { flex: 1, fontSize: FontSize.md, color: Colors.textPrimary },
-
-  // AI Kart Bölümü
-  aiSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, gap: Spacing.sm },
-  aiSectionLabel: { fontSize: FontSize.md, fontWeight: '800', color: Colors.textPrimary },
-  aiSectionSub: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: -4, marginBottom: 4 },
-  aiCardRow: { flexDirection: 'row', gap: Spacing.sm },
-  aiCard: {
-    flex: 1, borderRadius: BorderRadius.xl, borderWidth: 1.5,
-    paddingVertical: Spacing.lg, paddingHorizontal: Spacing.md,
-    alignItems: 'center', gap: 8,
-  },
-  aiCardIconWrap: {
-    width: 56, height: 56, borderRadius: 28,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 2,
-  },
-  aiCardTitle: { fontSize: FontSize.sm, fontWeight: '800', textAlign: 'center' },
-  aiCardSub: { fontSize: 10, color: Colors.textMuted, textAlign: 'center', lineHeight: 14 },
-
-  // Barkod kart (tam genişlik)
-  barcodeCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
-    borderWidth: 1, borderColor: Colors.borderLight,
-    paddingVertical: Spacing.md, paddingHorizontal: Spacing.md,
-  },
-  barcodeCardLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  barcodeCardIcon: {
-    width: 52, height: 52, borderRadius: BorderRadius.md,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
-  },
-  barcodeCardTitle: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.textPrimary },
-  barcodeCardSub: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-
-  // Analiz yükleniyor (modal içi)
-  recognizingContainer: {
-    alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-  },
-  recognizingText: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  recognizingSubtext: { fontSize: FontSize.sm, color: Colors.textMuted },
-
-  // Analiz sürüyor banner (food-log ana ekran — FAB'ın solunda)
-  analyzingBanner: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1.5,
-    borderColor: `${Colors.primary}40`,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  analyzingTexts: { flex: 1 },
-  analyzingTitle: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.primary },
-  analyzingSubtext: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-
-  // Hint prompt modal
-  hintModal: { flex: 1, backgroundColor: Colors.background },
-  hintHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
-  },
-  hintCloseBtn: {
-    width: 36, height: 36, borderRadius: BorderRadius.full,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceSecondary,
-  },
-  hintHeaderTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary },
-  hintPreview: { width: '100%', height: 240, backgroundColor: Colors.borderLight },
-  hintBody: { padding: Spacing.lg, gap: Spacing.sm, flex: 1 },
-  hintLabel: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  hintSublabel: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 18 },
-  hintInput: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.md,
-    borderWidth: 1.5, borderColor: Colors.border,
-    padding: Spacing.md, fontSize: FontSize.md, color: Colors.textPrimary,
-    minHeight: 80, textAlignVertical: 'top', marginTop: Spacing.xs,
-  },
-  hintFooter: {
-    flexDirection: 'row', gap: Spacing.sm,
-    padding: Spacing.lg, borderTopWidth: 1, borderTopColor: Colors.borderLight,
-  },
-  hintSkipBtn: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingVertical: Spacing.md, borderRadius: BorderRadius.md,
-    borderWidth: 1.5, borderColor: Colors.border,
-  },
-  hintSkipText: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textSecondary },
-  hintAnalyzeBtn: {
-    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: Spacing.sm, paddingVertical: Spacing.md, borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primary,
-  },
-  hintAnalyzeText: { fontSize: FontSize.md, fontWeight: '700', color: '#fff' },
-
-  // Barkod
-  barcodeResultCard: {
-    margin: Spacing.lg, backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg, padding: Spacing.md,
-    borderWidth: 1, borderColor: Colors.borderLight, gap: Spacing.xs,
-  },
-  barcodeResultHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: 4 },
-  barcodeResultTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.primary },
-  barcodeBrand: { fontSize: FontSize.sm, color: Colors.textMuted },
-  barcodeResultActions: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm },
-  barcodeRetryBtn: {
-    flex: 1, alignItems: 'center', paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border,
-  },
-  barcodeRetryText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
-  barcodeAddBtn: {
-    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: Spacing.sm, borderRadius: BorderRadius.md, backgroundColor: Colors.primary,
-  },
-  barcodeAddText: { fontSize: FontSize.sm, color: '#fff', fontWeight: '700' },
-
-  // Arama bölümü
-  searchSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm },
-  searchBox: {
-    flexDirection: 'row', alignItems: 'center', gap: Spacing.sm,
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.sm,
-    borderWidth: 1.5, borderColor: Colors.border, marginBottom: Spacing.sm,
-  },
-  searchInput: { flex: 1, fontSize: FontSize.md, color: Colors.textPrimary },
-
-  selectedFoodCard: {
-    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg,
-    padding: Spacing.md, borderWidth: 1, borderColor: Colors.borderLight,
-    gap: Spacing.xs, marginBottom: Spacing.sm,
-  },
-  selectedFoodHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  selectedFoodName: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary },
-  selectedFoodCalories: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
-  servingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, marginTop: 4 },
-  servingLabel: { fontSize: FontSize.md, color: Colors.textSecondary, fontWeight: '600' },
-  servingInput: {
-    borderWidth: 1.5, borderColor: Colors.border, borderRadius: BorderRadius.sm,
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs,
-    fontSize: FontSize.md, width: 80, textAlign: 'center',
-  },
-  calculatedCalories: { fontSize: FontSize.md, fontWeight: '700', color: Colors.accent },
-  addFoodBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: Spacing.sm, backgroundColor: Colors.primary, borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm, marginTop: 4,
-  },
-  addFoodBtnText: { color: '#fff', fontSize: FontSize.md, fontWeight: '700' },
-
-  searchResultsList: { borderRadius: BorderRadius.lg, overflow: 'hidden', borderWidth: 1, borderColor: Colors.borderLight },
-  searchResult: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.md, paddingVertical: Spacing.md,
-    backgroundColor: Colors.surface, borderBottomWidth: 1, borderBottomColor: Colors.borderLight,
-  },
-  searchResultSelected: { backgroundColor: Colors.primaryPale },
-  searchResultInfo: { flex: 1 },
-  searchResultName: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
-  searchResultCategory: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
-  searchResultCalories: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.accent },
-  noResults: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm },
-  noResultsText: { fontSize: FontSize.md, color: Colors.textMuted },
-
-  // Barkod tarayıcı
-  barcodeScanFrame: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  barcodeScanBox: {
-    width: 260, height: 140, borderWidth: 3,
-    borderColor: Colors.primaryLight, borderRadius: BorderRadius.md, backgroundColor: 'transparent',
-  },
-  barcodeScanHint: {
-    marginTop: Spacing.lg, fontSize: FontSize.md, color: '#fff', fontWeight: '600',
-    textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
-  },
-  barcodeClose: {
-    position: 'absolute', top: Spacing.lg, right: Spacing.lg,
-    backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm, borderRadius: BorderRadius.full,
-  },
-  barcodeCloseText: { color: '#fff', fontSize: FontSize.sm, fontWeight: '700' },
-
-  macroRow: { flexDirection: 'row', gap: Spacing.md },
-  macroItem: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
-});
-
-// ------------------------------------------------------------------
-// PendingPhotoCard — arka plan kaydı sırasında gösterilen blur kartı
-// ------------------------------------------------------------------
+// ──────────────────────────── PENDING PHOTO CARD ────────────────────────────
 function PendingPhotoCard({ pending }: { pending: PendingSave }) {
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-  const fadeInAnim = useRef(new Animated.Value(0)).current;
+  const fadeIn = useRef(new Animated.Value(0)).current;
+  const shimmer = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const isComplete = pending.progress >= 100;
 
-  // Giriş animasyonu
   useEffect(() => {
-    Animated.timing(fadeInAnim, {
-      toValue: 1,
-      duration: 400,
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(fadeIn, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   }, []);
-
-  // Shimmer animasyonu
   useEffect(() => {
     if (!isComplete) {
-      const loop = Animated.loop(
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        })
-      );
+      const loop = Animated.loop(Animated.timing(shimmer, { toValue: 1, duration: 2000, useNativeDriver: true }));
       loop.start();
       return () => loop.stop();
     }
   }, [isComplete]);
-
-  // Progress bar animasyonu
   useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: pending.progress,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
+    Animated.timing(progressAnim, { toValue: pending.progress, duration: 300, useNativeDriver: false }).start();
   }, [pending.progress]);
 
-  const shimmerTranslateX = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-SCREEN_WIDTH, SCREEN_WIDTH],
-  });
-
-  const progressWidth = progressAnim.interpolate({
-    inputRange: [0, 100],
-    outputRange: ['0%', '100%'],
-    extrapolate: 'clamp',
-  });
+  const shimmerX = shimmer.interpolate({ inputRange: [0, 1], outputRange: [-SCREEN_WIDTH, SCREEN_WIDTH] });
+  const progressWidth = progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'], extrapolate: 'clamp' });
 
   return (
-    <Animated.View style={[pendingStyles.container, { opacity: fadeInAnim }]}>
-      {/* Büyük fotoğraf */}
+    <Animated.View style={[styles.pendingCard, { opacity: fadeIn }]}>
       <Image
         source={{ uri: `data:image/jpeg;base64,${pending.imageBase64}` }}
-        style={pendingStyles.image}
-        resizeMode="cover"
-        blurRadius={isComplete ? 0 : 12}
+        style={StyleSheet.absoluteFillObject}
+        blurRadius={isComplete ? 0 : 10}
       />
-
-      {/* Karanlık overlay */}
       {!isComplete && (
-        <View style={pendingStyles.darkOverlay}>
-          {/* Shimmer efekti */}
-          <Animated.View
-            style={[pendingStyles.shimmer, { transform: [{ translateX: shimmerTranslateX }] }]}
-          >
+        <View style={styles.pendingOverlay}>
+          <Animated.View style={[styles.shimmer, { transform: [{ translateX: shimmerX }] }]}>
             <LinearGradient
               colors={['transparent', 'rgba(255,255,255,0.08)', 'transparent']}
               start={{ x: 0, y: 0 }}
@@ -1287,119 +803,196 @@ function PendingPhotoCard({ pending }: { pending: PendingSave }) {
               style={StyleSheet.absoluteFillObject}
             />
           </Animated.View>
-
-          {/* Merkezdeki durum kutusu — glassmorphism */}
-          <View style={pendingStyles.statusBox}>
-            <ActivityIndicator size="small" color="#fff" />
-            <Text style={pendingStyles.statusTitle}>Kaydediliyor</Text>
-            <Text style={pendingStyles.statusText}>{pending.statusText}</Text>
-
-            {/* Progress bar */}
-            <View style={pendingStyles.progressTrack}>
-              <Animated.View style={[pendingStyles.progressFill, { width: progressWidth }]}>
-                <LinearGradient
-                  colors={['#6EE7B7', Colors.primary, '#059669']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFillObject}
-                />
-              </Animated.View>
+          <View style={styles.pendingBox}>
+            <Text style={styles.pendingTitle}>Kaydediliyor</Text>
+            <Text style={styles.pendingStatus}>{pending.statusText}</Text>
+            <View style={styles.pendingTrack}>
+              <Animated.View style={[styles.pendingFill, { width: progressWidth }]} />
             </View>
-
-            <Text style={pendingStyles.progressPercent}>{pending.progress}%</Text>
+            <Text style={styles.pendingPct}>%{pending.progress}</Text>
           </View>
         </View>
       )}
-
-      {/* Tamamlandı badge */}
       {isComplete && (
-        <View style={pendingStyles.completeBadge}>
-          <Ionicons name="checkmark-circle" size={18} color="#fff" />
-          <Text style={pendingStyles.completeText}>Kaydedildi</Text>
+        <View style={styles.completeBadge}>
+          <Ionicons name="checkmark-circle" size={16} color="#fff" />
+          <Text style={styles.completeText}>Kaydedildi</Text>
         </View>
       )}
     </Animated.View>
   );
 }
 
-const pendingStyles = StyleSheet.create({
-  container: {
-    borderRadius: BorderRadius.lg,
-    overflow: 'hidden',
-    height: 220,
-    backgroundColor: Colors.borderLight,
-  },
-  image: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  darkOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shimmer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: SCREEN_WIDTH * 0.6,
-  },
-  statusBox: {
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    minWidth: 200,
-  },
-  statusTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: 0.3,
-  },
-  statusText: {
-    fontSize: FontSize.xs,
-    color: 'rgba(255,255,255,0.75)',
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  progressTrack: {
-    width: '100%',
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    overflow: 'hidden',
-    marginTop: 4,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressPercent: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.6)',
-  },
-  completeBadge: {
-    position: 'absolute',
-    top: Spacing.sm,
-    right: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.full,
-  },
-  completeText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: '#fff',
-  },
+// ──────────────────────────── ANALYZING BANNER ────────────────────────────
+function AnalyzingBanner({ base64, phase, progress }: { base64: string; phase: string; progress: number }) {
+  const fadeIn = useRef(new Animated.Value(0)).current;
+  const spin = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeIn, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+    Animated.loop(
+      Animated.timing(spin, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.linear })
+    ).start();
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(progressAnim, { toValue: progress, duration: 250, useNativeDriver: false }).start();
+  }, [progress]);
+
+  const rot = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const progressWidth = progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'], extrapolate: 'clamp' });
+
+  return (
+    <Animated.View style={[analyzingStyles.card, { opacity: fadeIn }]}>
+      <Image
+        source={{ uri: `data:image/jpeg;base64,${base64}` }}
+        style={StyleSheet.absoluteFillObject}
+        blurRadius={14}
+      />
+      <View style={analyzingStyles.overlay}>
+        <View style={analyzingStyles.row}>
+          <Animated.View style={{ transform: [{ rotate: rot }] }}>
+            <Ionicons name="sync" size={16} color={Colors.terracotta} />
+          </Animated.View>
+          <View style={{ flex: 1 }}>
+            <Text style={analyzingStyles.overline}>FİTBOT ANALİZ EDİYOR</Text>
+            <Text style={analyzingStyles.phase}>{phase}…</Text>
+          </View>
+          <Text style={analyzingStyles.pct}>%{Math.round(progress)}</Text>
+        </View>
+        <View style={analyzingStyles.track}>
+          <Animated.View style={[analyzingStyles.fill, { width: progressWidth }]} />
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+const analyzingStyles = StyleSheet.create({
+  card: { borderRadius: 16, overflow: 'hidden', height: 110, backgroundColor: Colors.line2, marginTop: 4 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.58)', padding: 16, justifyContent: 'center', gap: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  overline: { fontFamily: MONO, fontSize: 9, color: 'rgba(242,239,230,0.6)', letterSpacing: 1.8 },
+  phase: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 15, color: '#F2EFE6', marginTop: 2 },
+  pct: { fontFamily: MONO, fontSize: 13, color: 'rgba(242,239,230,0.85)', letterSpacing: 0.6 },
+  track: { height: 3, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 99, overflow: 'hidden' },
+  fill: { height: '100%', backgroundColor: Colors.terracotta },
+});
+
+// ──────────────────────────── STYLES ────────────────────────────
+const PHOTO_ENTRY_SIZE = SCREEN_WIDTH - 44;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  scrollContent: { paddingTop: 8, paddingBottom: 40 },
+
+  heroRow: { paddingHorizontal: 22, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start' },
+  heroOverline: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 1.6 },
+  heroTitle: { fontFamily: SERIF, fontSize: 36, lineHeight: 38, color: Colors.ink, marginTop: 4 },
+  heroTitleAccent: { fontStyle: 'italic', color: Colors.terracotta },
+  heroKcal: { fontFamily: SERIF, fontSize: 26, lineHeight: 28 },
+  heroKcalUnit: { fontFamily: MONO, fontSize: 12, color: Colors.ink3, letterSpacing: 1 },
+  heroSubOverline: { fontFamily: MONO, fontSize: 9, color: Colors.ink4, letterSpacing: 1.6, marginTop: 2 },
+
+  daySection: { paddingHorizontal: 22, paddingTop: 14 },
+  dayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.line },
+  dayHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dayDot: { width: 7, height: 7, borderRadius: 99 },
+  dayLabel: { fontFamily: SERIF, fontSize: 13, color: Colors.ink },
+  daySubtitle: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 1.2 },
+  emptyDayLine: { paddingVertical: 14, textAlign: 'center', color: Colors.ink4, fontSize: 12 },
+
+  // Photo meal entry (wide card)
+  photoEntryCard: { borderRadius: 16, overflow: 'hidden', backgroundColor: Colors.line2, marginBottom: 2 },
+  photoEntryImageWrap: { width: PHOTO_ENTRY_SIZE, height: PHOTO_ENTRY_SIZE, position: 'relative' },
+  photoEntryImage: { width: PHOTO_ENTRY_SIZE, height: PHOTO_ENTRY_SIZE },
+  photoEntryGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 14, paddingBottom: 14, paddingTop: 48 },
+  photoEntryName: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 17, color: '#F2EFE6', lineHeight: 22 },
+  photoEntryMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 },
+  photoEntryMetaTime: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 0.8 },
+  photoEntryKcal: { fontFamily: SERIF, fontSize: 16, color: Colors.ink },
+  photoEntryKcalUnit: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 0.6 },
+
+  // Entry (non-photo)
+  entry: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.line2 },
+  entryThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: Colors.line2 },
+  entryNoPhoto: { width: 56, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  entryNoPhotoTime: { fontFamily: SERIF, fontSize: 16, color: Colors.background },
+  entryBody: { flex: 1, minWidth: 0 },
+  entryTitle: { fontFamily: SERIF, fontSize: 15, color: Colors.ink, lineHeight: 18 },
+  entryDot: { color: Colors.terracotta },
+  entryMeta: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 0.6, marginTop: 3 },
+  entryRight: { alignItems: 'flex-end', marginLeft: 4 },
+  entryKcal: { fontFamily: SERIF, fontSize: 17, color: Colors.ink, lineHeight: 19 },
+  entryKcalUnit: { fontFamily: MONO, fontSize: 9, color: Colors.ink3, letterSpacing: 0.6 },
+  entryDelete: { padding: 6 },
+
+  // Empty day
+  emptyDay: { paddingVertical: 32, alignItems: 'center', gap: 12 },
+  emptyTitle: { fontFamily: SERIF, fontSize: 22, color: Colors.ink },
+  emptyTitleAccent: { fontStyle: 'italic', color: Colors.terracotta },
+  emptySub: { fontSize: 13, color: Colors.ink3, maxWidth: 240, textAlign: 'center' },
+
+  // Hint card
+  hintCard: { marginHorizontal: 22, marginTop: 24, padding: 14, borderRadius: 18, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, borderStyle: 'dashed', flexDirection: 'row', alignItems: 'center', gap: 12 },
+  hintCardArrow: { width: 36, height: 36, borderRadius: 99, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center' },
+  hintCardArrowText: { color: Colors.background, fontSize: 18 },
+  hintCardTitle: { fontSize: 12.5, color: Colors.ink, fontWeight: '700' },
+  hintCardSub: { fontSize: 12, color: Colors.ink3, marginTop: 2 },
+
+  // FAB
+  fab: { position: 'absolute', bottom: 90, right: 22, width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center', shadowColor: Colors.ink, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.32, shadowRadius: 20, elevation: 12 },
+
+  // Pending photo card
+  pendingCard: { borderRadius: 16, overflow: 'hidden', height: 200, backgroundColor: Colors.line2, marginTop: 4 },
+  pendingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
+  shimmer: { position: 'absolute', top: 0, bottom: 0, width: SCREEN_WIDTH * 0.6 },
+  pendingBox: { alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.2)', paddingVertical: 16, paddingHorizontal: 24, minWidth: 200 },
+  pendingTitle: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 18, color: '#F2EFE6' },
+  pendingStatus: { fontSize: 11, color: 'rgba(242,239,230,0.78)', textAlign: 'center' },
+  pendingTrack: { width: '100%', height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)', overflow: 'hidden', marginTop: 6 },
+  pendingFill: { height: '100%', backgroundColor: Colors.terracotta },
+  pendingPct: { fontFamily: MONO, fontSize: 11, color: 'rgba(242,239,230,0.7)', letterSpacing: 0.6 },
+  completeBadge: { position: 'absolute', top: 10, right: 10, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.primary, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  completeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+
+  // Legacy modal
+  legacyModal: { flex: 1, backgroundColor: Colors.background },
+  legacyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.line },
+  legacyTitle: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 17, color: Colors.ink },
+  legacySearchBox: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderRadius: 16, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line },
+  legacySearchInput: { flex: 1, fontFamily: SERIF, fontStyle: 'italic', fontSize: 16, color: Colors.ink, padding: 0 },
+
+  barcodeCard: { marginTop: 16, padding: 16, borderRadius: 18, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, gap: 4 },
+  barcodeBrand: { fontSize: 12, color: Colors.ink3 },
+  barcodeName: { fontFamily: SERIF, fontSize: 18, color: Colors.ink },
+  barcodeCal: { fontFamily: MONO, fontSize: 12, color: Colors.ink3, letterSpacing: 0.6, marginTop: 4 },
+  servingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 },
+  servingLabel: { fontSize: 13, color: Colors.ink2 },
+  servingInput: { borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, fontSize: 14, width: 80, textAlign: 'center', color: Colors.ink },
+  calculatedCal: { fontFamily: SERIF, fontSize: 16, color: Colors.terracotta, marginTop: 4 },
+  btnGhost: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, alignItems: 'center', justifyContent: 'center' },
+  btnGhostText: { fontFamily: SERIF, fontSize: 13, color: Colors.ink2 },
+  btnPrimary: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 999, backgroundColor: Colors.ink },
+  btnPrimaryText: { fontFamily: SERIF, fontSize: 13, color: Colors.background },
+
+  searchResult: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.line2 },
+  searchResultName: { fontFamily: SERIF, fontSize: 14, color: Colors.ink },
+  searchResultCat: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 0.6, marginTop: 2 },
+  searchResultKcal: { fontFamily: MONO, fontSize: 11, color: Colors.ink2, letterSpacing: 0.6 },
+  noResults: { textAlign: 'center', marginTop: 24, color: Colors.ink3, fontSize: 13 },
+
+  barcodeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 16, padding: 14, borderRadius: 18, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line },
+  barcodeIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center' },
+  barcodeRowTitle: { fontFamily: SERIF, fontSize: 15, color: Colors.ink },
+  barcodeRowSub: { fontSize: 11, color: Colors.ink3, marginTop: 2 },
+  chevron: { fontFamily: SERIF, fontSize: 22, color: Colors.ink4 },
+
+  // Barcode camera
+  barcodeFrame: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  barcodeBox: { width: 260, height: 140, borderWidth: 3, borderColor: Colors.terracotta, borderRadius: 16, backgroundColor: 'transparent' },
+  barcodeHint: { marginTop: 18, fontSize: 14, color: '#fff', fontWeight: '600' },
+  barcodeClose: { position: 'absolute', top: 24, right: 24, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 999 },
+  barcodeCloseText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 });
