@@ -33,6 +33,7 @@ import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 import { uploadFoodPhoto } from '../../lib/storage';
 import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
 import { FoodLogFlow } from '../../components/food/FoodLogFlow';
+import type { ComputedFoodItem } from '../../components/food/PhotoMealReviewModal';
 import { setQuickActionCallbacks } from './_layout';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -42,7 +43,7 @@ const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Men
 
 interface PendingSave {
   imageBase64: string;
-  items: DetectedFoodItem[];
+  items: ComputedFoodItem[];
   mealType: MealType;
   progress: number;
   statusText: string;
@@ -186,14 +187,17 @@ export default function FoodLogScreen() {
         setFlowInitialStep('results');
         setFlowVisible(true);
       }, 450);
-    } catch {
+    } catch (err) {
       clearInterval(intervalId);
       setBgAnalysis(null);
-      Alert.alert('Hata', 'Yemek tanınamadı. Lütfen daha net bir fotoğraf çekin.');
+      // Gerçek hatayı Metro log'una düşür (yemek tanınamadığında debugging için kritik)
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[food-log] recognizeMealFromImage failed:', err);
+      Alert.alert('Hata', `Yemek tanınamadı.\n\n${msg}`);
     }
   }
 
-  function handleSavePhotoMeal(items: DetectedFoodItem[], mealType: MealType, base64: string, namePromise?: Promise<string>) {
+  function handleSavePhotoMeal(items: ComputedFoodItem[], mealType: MealType, base64: string, namePromise?: Promise<string>) {
     if (!user) return;
     const pending: PendingSave = {
       imageBase64: base64,
@@ -207,7 +211,7 @@ export default function FoodLogScreen() {
     runBackgroundSave(user.id, base64, items, mealType, namePromise);
   }
 
-  async function runBackgroundSave(userId: string, base64: string, items: DetectedFoodItem[], mealType: MealType, namePromise?: Promise<string>) {
+  async function runBackgroundSave(userId: string, base64: string, items: ComputedFoodItem[], mealType: MealType, namePromise?: Promise<string>) {
     const totalSteps = items.length + 1;
     let completedSteps = 0;
     function bump(text: string) {
@@ -232,34 +236,41 @@ export default function FoodLogScreen() {
       bump('Besinler kaydediliyor...');
 
       for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const per100 = item.estimatedGrams > 0 ? 100 / item.estimatedGrams : 1;
+        const { detection, engine } = items[i];
+        const grams = detection.estimatedGrams;
+        const per100 = grams > 0 ? 100 / grams : 1;
         const { data: newFood, error } = await supabase
           .from('foods')
           .insert({
-            name: item.name, name_tr: item.name, category: 'AI Tanıma',
-            calories_per_100g: Math.round(item.calories * per100),
-            protein: Math.round(item.protein * per100 * 10) / 10,
-            carbs: Math.round(item.carbs * per100 * 10) / 10,
-            fat: Math.round(item.fat * per100 * 10) / 10,
+            name: detection.name, name_tr: detection.name, category: 'AI Tanıma',
+            calories_per_100g: Math.round(engine.kcal * per100),
+            protein: Math.round(engine.protein * per100 * 10) / 10,
+            carbs: Math.round(engine.carbs * per100 * 10) / 10,
+            fat: Math.round(engine.fat * per100 * 10) / 10,
             fiber: 0, serving_size: 100, serving_unit: 'g', is_turkish: true, created_by: userId,
           })
           .select().single();
         if (error || !newFood) {
-          bump(i < items.length - 1 ? `${items[i + 1].name} kaydediliyor...` : 'Tamamlandı');
+          bump(i < items.length - 1 ? `${items[i + 1].detection.name} kaydediliyor...` : 'Tamamlandı');
           continue;
         }
         await addFoodLog({
           user_id: userId, food_id: newFood.id, meal_type: mealType,
-          serving_amount: item.estimatedGrams,
-          calories: Math.round(item.calories),
-          protein: Math.round(item.protein * 10) / 10,
-          carbs: Math.round(item.carbs * 10) / 10,
-          fat: Math.round(item.fat * 10) / 10,
+          serving_amount: grams,
+          calories: Math.round(engine.kcal),
+          protein: Math.round(engine.protein * 10) / 10,
+          carbs: Math.round(engine.carbs * 10) / 10,
+          fat: Math.round(engine.fat * 10) / 10,
           image_url: imageUrl,
           logged_at: new Date().toISOString(),
+          // Bilimsel motor metadata'sı — audit/şeffaflık için
+          cooking_method: detection.cookingMethod ?? null,
+          texture: detection.texture ?? null,
+          composition_entry_id: engine.match.entryId,
+          engine_confidence: engine.confidence,
+          engine_factors: engine.factors,
         });
-        bump(i < items.length - 1 ? `${items[i + 1].name} kaydediliyor...` : 'Tamamlandı');
+        bump(i < items.length - 1 ? `${items[i + 1].detection.name} kaydediliyor...` : 'Tamamlandı');
       }
 
       setPendingSave((prev) => (prev ? { ...prev, progress: 100, statusText: 'Tamamlandı' } : null));

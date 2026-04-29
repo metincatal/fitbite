@@ -205,6 +205,12 @@ export interface Database {
           image_url: string | null;
           logged_at: string;
           created_at: string;
+          // Bilimsel motor metadata'sı (v2 — opsiyonel; eski kayıtlar null)
+          cooking_method: string | null;
+          texture: string | null;
+          composition_entry_id: string | null;
+          engine_confidence: 'high' | 'medium' | 'low' | null;
+          engine_factors: { density: number; yield: number; hidden: number } | null;
         };
         Insert: {
           id?: string;
@@ -219,6 +225,11 @@ export interface Database {
           image_url?: string | null;
           logged_at?: string;
           created_at?: string;
+          cooking_method?: string | null;
+          texture?: string | null;
+          composition_entry_id?: string | null;
+          engine_confidence?: 'high' | 'medium' | 'low' | null;
+          engine_factors?: { density: number; yield: number; hidden: number } | null;
         };
         Update: Partial<Database['public']['Tables']['food_logs']['Insert']>;
         Relationships: [
@@ -358,6 +369,15 @@ export interface Database {
           notes: string | null;
           logged_at: string;
           created_at: string;
+          // Bilimsel motor metadata'sı (v2)
+          epoc_min_kcal: number | null;
+          epoc_max_kcal: number | null;
+          total_kcal_min: number | null;
+          total_kcal_max: number | null;
+          water_bonus_ml: number | null;
+          electrolytes_warning: boolean | null;
+          corrected_met: number | null;
+          chrono_warning: boolean | null;
         };
         Insert: {
           id?: string;
@@ -370,6 +390,14 @@ export interface Database {
           notes?: string | null;
           logged_at?: string;
           created_at?: string;
+          epoc_min_kcal?: number | null;
+          epoc_max_kcal?: number | null;
+          total_kcal_min?: number | null;
+          total_kcal_max?: number | null;
+          water_bonus_ml?: number | null;
+          electrolytes_warning?: boolean | null;
+          corrected_met?: number | null;
+          chrono_warning?: boolean | null;
         };
         Update: Partial<Database['public']['Tables']['exercise_logs']['Insert']>;
         Relationships: [];

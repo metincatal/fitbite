@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,22 @@ import {
   refineAnalysisWithAnswers,
   estimateNutritionFromText,
 } from '../../lib/gemini';
+import { compute as computeNutrition, estimateForManualInput } from '../../lib/nutritionEngine';
+import type { EngineOutput, EngineConfidence } from '../../types/nutrition';
+import { NutritionBreakdownSheet } from './NutritionBreakdownSheet';
+
+// onSave parent'a hem detection (sliderle ölçeklenmiş) hem motor çıktısını gönderir,
+// böylece DB hem mutlak makro hem de hesap audit metadata'sını yazabilir.
+export interface ComputedFoodItem {
+  detection: DetectedFoodItem; // userGrams = estimatedGrams (slider sonrası ölçeklenmiş)
+  engine: EngineOutput;
+}
+
+const CONFIDENCE_BADGE: Record<EngineConfidence, { color: string; label: string; emoji: string }> = {
+  high: { color: '#27AE60', label: 'yüksek güven', emoji: '🟢' },
+  medium: { color: '#E67E22', label: 'orta güven', emoji: '🟡' },
+  low: { color: '#C0392B', label: 'düşük güven', emoji: '🔴' },
+};
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const PHOTO_HEIGHT = Math.round(SCREEN_WIDTH * 0.6);
@@ -48,7 +64,7 @@ interface Props {
   onClose: () => void;
   items: DetectedFoodItem[];
   imageBase64: string | null;
-  onSave: (items: DetectedFoodItem[], mealType: MealType) => void;
+  onSave: (items: ComputedFoodItem[], mealType: MealType) => void;
 }
 
 type ViewMode = 'review' | 'reanalysis';
@@ -62,10 +78,15 @@ const PORTION_PRESETS = [25, 50, 75, 100];
 // Gram presetleri (düzenleme formu için)
 const GRAM_PRESETS = [50, 100, 150, 200, 300, 500];
 
+// Kullanıcı manuel makro override'ı (edit/add formundan girilen değerler).
+type Override = { calories: number; protein: number; carbs: number; fat: number };
+
 export function PhotoMealReviewModal({ visible, onClose, items: initialItems, imageBase64, onSave }: Props) {
   const [items, setItems] = useState<DetectedFoodItem[]>([]);
   const [portions, setPortions] = useState<Portions>({});
+  const [overrides, setOverrides] = useState<Record<number, Override | undefined>>({});
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [breakdownIndex, setBreakdownIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   type EditDraft = { name: string; estimatedGrams: string; calories: string; protein: string; carbs: string; fat: string };
   const [editDraft, setEditDraft] = useState<EditDraft>({ name: '', estimatedGrams: '', calories: '', protein: '', carbs: '', fat: '' });
@@ -88,7 +109,9 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
       const initPortions: Portions = {};
       initialItems.forEach((_, i) => { initPortions[i] = 100; });
       setPortions(initPortions);
+      setOverrides({});
       setExpandedIndex(null);
+      setBreakdownIndex(null);
       setEditingIndex(null);
       setShowAddForm(false);
       setViewMode('review');
@@ -105,27 +128,58 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     setPortions((prev) => ({ ...prev, [index]: clamped }));
   }
 
-  // Porsiyona göre ölçeklendirilen değerleri hesapla
+  // Motor sonuçlarını cache'le (items/portions/overrides değiştiğinde yeniden hesaplanır).
+  const computedByIndex = useMemo(() => {
+    const map: Record<number, EngineOutput> = {};
+    items.forEach((item, i) => {
+      const pct = (portions[i] ?? 100) / 100;
+      const userGrams = Math.max(0, item.estimatedGrams * pct);
+      const ov = overrides[i];
+      if (ov) {
+        // Kullanıcı override etmişse: motor by-pass, ama yine "high" rozet ile yansıt.
+        map[i] = {
+          kcal: Math.round(ov.calories),
+          protein: Math.round(ov.protein * 10) / 10,
+          carbs: Math.round(ov.carbs * 10) / 10,
+          fat: Math.round(ov.fat * 10) / 10,
+          match: { entryId: null, score: 1, source: 'gemini_fallback' },
+          factors: { density: 1, yield: 1, hidden: 1 },
+          confidence: 'high',
+          confidenceScore: 1,
+          breakdown: [
+            { label: 'Kullanıcı girişi', detail: `${userGrams.toFixed(0)}g`, value: 'manuel değer' },
+            { label: 'Final', detail: `${Math.round(ov.calories)} kcal · P ${ov.protein}g · K ${ov.carbs}g · Y ${ov.fat}g` },
+          ],
+        };
+      } else {
+        map[i] = computeNutrition({ detection: item, userGrams });
+      }
+    });
+    return map;
+  }, [items, portions, overrides]);
+
+  // Porsiyona göre ölçeklendirilen değerleri hesapla — motor üstünden
   function getScaledItem(item: DetectedFoodItem, index: number): DetectedFoodItem {
     const pct = getPortion(index) / 100;
+    const eng = computedByIndex[index];
     return {
       ...item,
       estimatedGrams: Math.round(item.estimatedGrams * pct),
-      calories: Math.round(item.calories * pct),
-      protein: Math.round(item.protein * pct * 10) / 10,
-      carbs: Math.round(item.carbs * pct * 10) / 10,
-      fat: Math.round(item.fat * pct * 10) / 10,
+      calories: eng?.kcal ?? 0,
+      protein: eng?.protein ?? 0,
+      carbs: eng?.carbs ?? 0,
+      fat: eng?.fat ?? 0,
     };
   }
 
   const scaledTotals = items.reduce(
-    (acc, item, i) => {
-      const pct = getPortion(i) / 100;
+    (acc, _item, i) => {
+      const eng = computedByIndex[i];
       return {
-        calories: acc.calories + item.calories * pct,
-        protein: acc.protein + item.protein * pct,
-        carbs: acc.carbs + item.carbs * pct,
-        fat: acc.fat + item.fat * pct,
+        calories: acc.calories + (eng?.kcal ?? 0),
+        protein: acc.protein + (eng?.protein ?? 0),
+        carbs: acc.carbs + (eng?.carbs ?? 0),
+        fat: acc.fat + (eng?.fat ?? 0),
       };
     },
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
@@ -133,13 +187,14 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
 
   function startEdit(index: number) {
     const item = items[index];
+    const eng = computedByIndex[index];
     setEditDraft({
       name: item.name,
       estimatedGrams: String(item.estimatedGrams),
-      calories: String(item.calories),
-      protein: String(item.protein),
-      carbs: String(item.carbs),
-      fat: String(item.fat),
+      calories: String(eng?.kcal ?? item.calories ?? 0),
+      protein: String(eng?.protein ?? item.protein ?? 0),
+      carbs: String(eng?.carbs ?? item.carbs ?? 0),
+      fat: String(eng?.fat ?? item.fat ?? 0),
     });
     setEditingIndex(index);
     setExpandedIndex(index);
@@ -152,6 +207,19 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     if (!grams || grams <= 0) { Alert.alert('Eksik Bilgi', 'Geçerli bir gram değeri girin.'); return; }
     setEstimatingEditMacros(true);
     try {
+      // 1) Önce deterministik motor (kompozisyon eşleştirmesi)
+      const fromEngine = estimateForManualInput(name, grams);
+      if (fromEngine) {
+        setEditDraft((d) => ({
+          ...d,
+          calories: String(fromEngine.kcal),
+          protein: String(fromEngine.protein),
+          carbs: String(fromEngine.carbs),
+          fat: String(fromEngine.fat),
+        }));
+        return;
+      }
+      // 2) Eşleşme yok → Gemini fallback
       const result = await estimateNutritionFromText({ foodName: name, grams });
       setEditDraft((d) => ({
         ...d,
@@ -169,21 +237,44 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
 
   function commitEdit() {
     if (editingIndex === null) return;
+    const idx = editingIndex;
+    const grams = parseFloat(editDraft.estimatedGrams);
+    const kcal = parseFloat(editDraft.calories);
+    const protein = parseFloat(editDraft.protein);
+    const carbs = parseFloat(editDraft.carbs);
+    const fat = parseFloat(editDraft.fat);
+
     setItems((prev) =>
       prev.map((item, i) =>
-        i === editingIndex
+        i === idx
           ? {
               ...item,
               name: editDraft.name || item.name,
-              estimatedGrams: parseFloat(editDraft.estimatedGrams) || item.estimatedGrams,
-              calories: parseFloat(editDraft.calories) || item.calories,
-              protein: parseFloat(editDraft.protein) || item.protein,
-              carbs: parseFloat(editDraft.carbs) || item.carbs,
-              fat: parseFloat(editDraft.fat) || item.fat,
+              estimatedGrams: grams > 0 ? grams : item.estimatedGrams,
             }
           : item
       )
     );
+
+    // Kullanıcı manuel değer girdiyse override olarak kaydet —
+    // sadece o anda motor değerinden FARKLIYSA. Aynıysa motor çalışmaya devam etsin.
+    const eng = computedByIndex[idx];
+    const userTouched =
+      !!eng &&
+      (Math.abs(kcal - eng.kcal) > 1 ||
+        Math.abs(protein - eng.protein) > 0.1 ||
+        Math.abs(carbs - eng.carbs) > 0.1 ||
+        Math.abs(fat - eng.fat) > 0.1);
+
+    setOverrides((prev) => {
+      const next = { ...prev };
+      if (userTouched && Number.isFinite(kcal)) {
+        next[idx] = { calories: kcal, protein, carbs, fat };
+      } else {
+        delete next[idx]; // motor hesabına geri dön
+      }
+      return next;
+    });
     setEditingIndex(null);
   }
 
@@ -194,16 +285,19 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
         text: 'Sil', style: 'destructive',
         onPress: () => {
           setItems((prev) => prev.filter((_, i) => i !== index));
-          setPortions((prev) => {
-            const next: Portions = {};
+          const reindex = <T,>(prev: Record<number, T>): Record<number, T> => {
+            const next: Record<number, T> = {};
             Object.entries(prev).forEach(([k, v]) => {
               const ki = parseInt(k);
               if (ki < index) next[ki] = v;
               else if (ki > index) next[ki - 1] = v;
             });
             return next;
-          });
+          };
+          setPortions(reindex);
+          setOverrides(reindex);
           if (expandedIndex === index) setExpandedIndex(null);
+          if (breakdownIndex === index) setBreakdownIndex(null);
           if (editingIndex === index) setEditingIndex(null);
         },
       },
@@ -215,15 +309,35 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     const newItem: DetectedFoodItem = {
       name: addDraft.name || 'Yeni Besin',
       estimatedGrams: grams,
+      cookingMethod: 'unknown',
+      texture: 'dense',
+      hiddenSauceProb: 0,
+      referenceObject: 'none',
+      occlusionRatio: 0,
+      confidence: 1, // manuel ekleme = tam güven (kullanıcı söyledi)
+      // Fallback alanları — motor kompozisyonda bulamazsa kullanır
       calories: parseFloat(addDraft.calories) || 0,
       protein: parseFloat(addDraft.protein) || 0,
       carbs: parseFloat(addDraft.carbs) || 0,
       fat: parseFloat(addDraft.fat) || 0,
-      confidence: 1,
     };
+    const userKcal = parseFloat(addDraft.calories);
+    const hasManualMacros = Number.isFinite(userKcal) && userKcal > 0;
     setItems((prev) => {
       const next = [...prev, newItem];
-      setPortions((p) => ({ ...p, [next.length - 1]: 100 }));
+      const newIdx = next.length - 1;
+      setPortions((p) => ({ ...p, [newIdx]: 100 }));
+      if (hasManualMacros) {
+        setOverrides((p) => ({
+          ...p,
+          [newIdx]: {
+            calories: userKcal,
+            protein: parseFloat(addDraft.protein) || 0,
+            carbs: parseFloat(addDraft.carbs) || 0,
+            fat: parseFloat(addDraft.fat) || 0,
+          },
+        }));
+      }
       return next;
     });
     setAddDraft({ name: '', estimatedGrams: '100', calories: '0', protein: '0', carbs: '0', fat: '0' });
@@ -237,6 +351,18 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
     if (!grams || grams <= 0) { Alert.alert('Eksik Bilgi', 'Geçerli bir gram değeri girin.'); return; }
     setEstimatingNutrition(true);
     try {
+      // Motor → kompozisyonda varsa deterministik; yoksa Gemini fallback
+      const fromEngine = estimateForManualInput(name, grams);
+      if (fromEngine) {
+        setAddDraft((d) => ({
+          ...d,
+          calories: String(fromEngine.kcal),
+          protein: String(fromEngine.protein),
+          carbs: String(fromEngine.carbs),
+          fat: String(fromEngine.fat),
+        }));
+        return;
+      }
       const result = await estimateNutritionFromText({ foodName: name, grams });
       setAddDraft((d) => ({
         ...d,
@@ -306,8 +432,24 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
 
   function handleSave() {
     if (items.length === 0) { Alert.alert('Uyarı', 'Kaydedilecek yiyecek yok.'); return; }
-    const scaledItems = items.map((item, i) => getScaledItem(item, i)).filter((item) => item.calories > 0 || item.estimatedGrams > 0);
-    onSave(scaledItems, selectedMeal);
+    const computed: ComputedFoodItem[] = items
+      .map((item, i): ComputedFoodItem | null => {
+        const eng = computedByIndex[i];
+        if (!eng) return null;
+        const pct = (portions[i] ?? 100) / 100;
+        const scaledDetection: DetectedFoodItem = {
+          ...item,
+          estimatedGrams: Math.round(item.estimatedGrams * pct),
+          calories: eng.kcal,
+          protein: eng.protein,
+          carbs: eng.carbs,
+          fat: eng.fat,
+        };
+        return { detection: scaledDetection, engine: eng };
+      })
+      .filter((c): c is ComputedFoodItem => c !== null && (c.engine.kcal > 0 || c.detection.estimatedGrams > 0));
+    if (computed.length === 0) { Alert.alert('Uyarı', 'Kaydedilecek yiyecek yok.'); return; }
+    onSave(computed, selectedMeal);
   }
 
   const suggestedMeal = getSuggestedMeal();
@@ -494,7 +636,20 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                                 <Text style={styles.itemGram}>~{item.estimatedGrams}g toplam</Text>
                               </View>
                               <View style={styles.itemHeaderRight}>
-                                <Text style={styles.itemCalories}>{Math.round(scaled.calories)} kcal</Text>
+                                {(() => {
+                                  const eng = computedByIndex[index];
+                                  const badge = eng ? CONFIDENCE_BADGE[eng.confidence] : null;
+                                  return (
+                                    <View style={{ alignItems: 'flex-end' }}>
+                                      <Text style={styles.itemCalories}>{Math.round(scaled.calories ?? 0)} kcal</Text>
+                                      {badge && (
+                                        <Text style={{ fontSize: 11, color: badge.color, fontWeight: '600', marginTop: 2 }}>
+                                          {badge.emoji} %{Math.round((eng?.confidenceScore ?? 0) * 100)}
+                                        </Text>
+                                      )}
+                                    </View>
+                                  );
+                                })()}
                                 <Ionicons
                                   name={expandedIndex === index ? 'chevron-up' : 'chevron-down'}
                                   size={16} color={Colors.textMuted}
@@ -513,10 +668,17 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                             {expandedIndex === index && (
                               <View style={styles.expandedSection}>
                                 <View style={styles.macroGrid}>
-                                  <MacroBox label="Protein" value={scaled.protein} color={Colors.protein} />
-                                  <MacroBox label="Karb" value={scaled.carbs} color={Colors.carbs} />
-                                  <MacroBox label="Yağ" value={scaled.fat} color={Colors.fat} />
+                                  <MacroBox label="Protein" value={scaled.protein ?? 0} color={Colors.protein} />
+                                  <MacroBox label="Karb" value={scaled.carbs ?? 0} color={Colors.carbs} />
+                                  <MacroBox label="Yağ" value={scaled.fat ?? 0} color={Colors.fat} />
                                 </View>
+                                <TouchableOpacity
+                                  style={styles.breakdownBtn}
+                                  onPress={() => setBreakdownIndex(index)}
+                                >
+                                  <Ionicons name="information-circle-outline" size={15} color={Colors.primary} />
+                                  <Text style={styles.breakdownBtnText}>Nasıl hesaplandı?</Text>
+                                </TouchableOpacity>
                                 {!saving && (
                                   <View style={styles.itemActions}>
                                     <TouchableOpacity style={styles.editItemBtn} onPress={() => startEdit(index)}>
@@ -683,6 +845,44 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
             </View>
           )}
         </KeyboardAvoidingView>
+
+        {/* "Nasıl hesaplandı?" detayı — pişirme/doku değiştirilebilir, motor anında yeniden hesaplar */}
+        {breakdownIndex !== null && items[breakdownIndex] && (
+          <NutritionBreakdownSheet
+            visible={breakdownIndex !== null}
+            onClose={() => setBreakdownIndex(null)}
+            itemName={items[breakdownIndex].name}
+            itemGrams={Math.round(items[breakdownIndex].estimatedGrams * (getPortion(breakdownIndex) / 100))}
+            cookingMethod={items[breakdownIndex].cookingMethod}
+            texture={items[breakdownIndex].texture}
+            engine={computedByIndex[breakdownIndex] ?? null}
+            onChangeCookingMethod={(m) => {
+              const idx = breakdownIndex;
+              if (idx === null) return;
+              setItems((prev) =>
+                prev.map((it, i) => (i === idx ? { ...it, cookingMethod: m } : it))
+              );
+              // Pişirme değiştiyse override'ı temizle ki motor yeniden hesaplasın
+              setOverrides((prev) => {
+                const next = { ...prev };
+                delete next[idx];
+                return next;
+              });
+            }}
+            onChangeTexture={(t) => {
+              const idx = breakdownIndex;
+              if (idx === null) return;
+              setItems((prev) =>
+                prev.map((it, i) => (i === idx ? { ...it, texture: t } : it))
+              );
+              setOverrides((prev) => {
+                const next = { ...prev };
+                delete next[idx];
+                return next;
+              });
+            }}
+          />
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -1090,6 +1290,14 @@ const styles = StyleSheet.create({
 
   expandedSection: { borderTopWidth: 1, borderTopColor: Colors.borderLight, padding: Spacing.md, gap: Spacing.sm },
   macroGrid: { flexDirection: 'row', gap: Spacing.sm },
+  breakdownBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.sm, paddingVertical: 6,
+    borderRadius: BorderRadius.sm, backgroundColor: Colors.primaryPale,
+    marginTop: 4,
+  },
+  breakdownBtnText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '600' },
   itemActions: { flexDirection: 'row', gap: Spacing.sm, justifyContent: 'flex-end', marginTop: 4 },
   editItemBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,

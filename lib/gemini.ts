@@ -9,6 +9,11 @@ import {
   TTMStage,
 } from './constants';
 import type { SafetyFlags } from '../types/database';
+import type { DetectedFoodItem } from '../types/nutrition';
+
+// Bilimsel motor tipini geriye uyumlu olarak buradan da export ediyoruz —
+// PhotoMealReviewModal vb. eski importlar kırılmasın diye.
+export type { DetectedFoodItem } from '../types/nutrition';
 
 const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY!);
 
@@ -199,52 +204,205 @@ Mesaj: "${firstMessage}"`;
 }
 
 /**
- * Fotoğraftaki tüm yiyecek ve içecekleri tespit et
+ * Fotoğraftaki tüm yiyecek ve içecekleri tespit et.
+ *
+ * v2: Gemini sadece TANIMA ve FİZİKSEL METADATA üretir.
+ * Kalori/makro hesabı `lib/nutritionEngine.ts` içinde deterministik olarak
+ * (kompozisyon × gram × yoğunluk × yield × gizli yağ) yapılır.
+ * Eski `calories/protein/carbs/fat` alanları sadece kompozisyonda eşleşme
+ * bulunamayan egzotik yemekler için fallback amacıyla istenir.
  */
-export interface DetectedFoodItem {
-  name: string;
-  estimatedGrams: number;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  confidence: number;
-}
-
 export async function recognizeMealFromImage(imageBase64: string, userHint?: string): Promise<DetectedFoodItem[]> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  if (!process.env.EXPO_PUBLIC_GEMINI_API_KEY) {
+    throw new Error('EXPO_PUBLIC_GEMINI_API_KEY tanımlı değil (.env eksik)');
+  }
+  // Yeni v2 şeması nested ve uzun — Gemini bazen markdown code fence ile sarıyor
+  // veya thinking-mode bütçesini tüketip boş döndürüyor. responseMimeType ile
+  // saf JSON garanti, maxOutputTokens ile yeterli alan.
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 8192,
+      temperature: 0.4,
+    },
+  });
 
   const hintSection = userHint && userHint.trim()
     ? `\nKullanıcı notu (öncelikli referans al): "${userHint.trim()}"\n`
     : '';
 
   const prompt = `Bu yemek fotoğrafını dikkatle analiz et. Fotoğraftaki TÜM yiyecek ve içecekleri ayrı ayrı tespit et.
-Her biri için tahmini gramaj ve o gramaja göre toplam besin değerlerini hesapla.
 ${hintSection}
-SADECE şu JSON formatında yanıtla (başka hiçbir metin ekleme, açıklama yapma):
+GÖREVİN: Her yiyecek için fiziksel/görsel METADATA çıkar. Kalori veya makro besin tahmini yapma — bunlar sonradan deterministik bir motorda hesaplanacak. Sadece kompozisyon eşleşmesi bulunamazsa diye yaklaşık makroları da yaz; ana çıktı metadata'dır.
+
+REFERANS NESNE: Fotoğrafta kaşık, çatal, tabak, kart, el gibi referans nesnesi varsa tespit et — porsiyon ölçüsü için kritik.
+
+SADECE şu JSON formatında yanıtla (başka hiçbir metin ekleme):
 [
   {
     "name": "yemek/içecek adı (Türkçe)",
-    "estimatedGrams": tahmini gram miktarı (sayı),
-    "calories": bu gramaj için toplam kalori (sayı),
-    "protein": bu gramaj için toplam protein gram (sayı),
-    "carbs": bu gramaj için toplam karbonhidrat gram (sayı),
-    "fat": bu gramaj için toplam yağ gram (sayı),
-    "confidence": güven skoru 0-1 arası (sayı)
+    "estimatedGrams": <gram, sayı>,
+    "cookingMethod": "raw" | "boiled" | "grilled" | "fried" | "deep_fried" | "baked" | "steamed" | "sauteed" | "unknown",
+    "texture": "fluffy" | "dense" | "granular" | "liquid" | "amorphous",
+    "hiddenSauceProb": <0..1, görünmeyen sos/yağ olasılığı>,
+    "referenceObject": "spoon" | "fork" | "plate" | "card" | "hand" | "none",
+    "occlusionRatio": <0..1, üst üste bindiyse ne kadarı kapalı>,
+    "confidence": <0..1, tanıma güveni>,
+    "ingredientBreakdown": [{"name":"...","ratio":0.x}],   // karışık tabak için, toplam=1.0; tekil yemekte boş bırak
+    "calories": <yaklaşık kcal — sadece fallback için>,
+    "protein": <yaklaşık g — sadece fallback için>,
+    "carbs": <yaklaşık g — sadece fallback için>,
+    "fat": <yaklaşık g — sadece fallback için>
   }
 ]
 
-Önemli kurallar:
-- Tabaktaki her farklı yiyeceği ve içeceği ayrı nesne olarak listele
-- Garnitür, sos, ekmek gibi yan ürünleri de dahil et
-- Gramaj tahmini için porsiyon büyüklüğünü görsel olarak değerlendir`;
+Kurallar:
+- Granüler/sıvı/amorf gıdalarda (pirinç, çorba, püre) confidence ≤ 0.6
+- Karışık tabakta (örn. pilav+tavuk+salata) ingredientBreakdown ile bileşen oranı ver
+- Garnitür, sos, ekmek gibi yan ürünleri ayrı item olarak listele
+- Pişirme yöntemi belirsizse "unknown"
+- referenceObject yoksa "none"`;
 
   const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
-  const result = await model.generateContent([prompt, imagePart]);
-  const text = result.response.text();
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('Yemek tanınamadı');
-  return JSON.parse(jsonMatch[0]);
+  const text = await withGeminiRetry(async () => {
+    const result = await model.generateContent([prompt, imagePart]);
+    const t = result.response.text();
+    console.log('[gemini:recognizeMealFromImage] raw response length:', t.length);
+    if (!t || !t.trim()) {
+      console.warn(
+        '[gemini:recognizeMealFromImage] empty text — finishReason:',
+        result.response.candidates?.[0]?.finishReason,
+        '— promptFeedback:', result.response.promptFeedback
+      );
+      throw new Error(
+        `Gemini boş cevap döndü (finishReason: ${result.response.candidates?.[0]?.finishReason ?? 'bilinmiyor'})`
+      );
+    }
+    return t;
+  }, 'recognizeMealFromImage');
+  const parsed = parseJsonArray(text, 'recognizeMealFromImage');
+  return parsed.map(normalizeDetection);
+}
+
+// Gemini cevabı bazen markdown code fence ile sarılı (```json ... ```) ya da
+// boşluk/açıklama metnine sarılı geliyor. Birden fazla strateji dener.
+function parseJsonArray(text: string, ctx: string): unknown[] {
+  if (!text || !text.trim()) {
+    console.warn(`[gemini:${ctx}] empty response`);
+    throw new Error('Yemek tanınamadı');
+  }
+  // 1) markdown fence'leri kaldır
+  const stripped = text
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  // 2) doğrudan parse dene (responseMimeType=application/json varsa bu çalışır)
+  try {
+    const direct = JSON.parse(stripped);
+    if (Array.isArray(direct)) return direct;
+    // model bazen tek nesne döndürüyor — diziye çevir
+    if (direct && typeof direct === 'object') return [direct];
+  } catch {
+    // 3) regex fallback: ilk [...] bloğunu yakala
+  }
+  const arrMatch = stripped.match(/\[[\s\S]*\]/);
+  if (arrMatch) {
+    try {
+      const fromArr = JSON.parse(arrMatch[0]);
+      if (Array.isArray(fromArr)) return fromArr;
+    } catch (e) {
+      console.warn(`[gemini:${ctx}] array regex parse failed`, e);
+    }
+  }
+  // 4) tek nesne {...} olarak kaldıysa
+  const objMatch = stripped.match(/\{[\s\S]*\}/);
+  if (objMatch) {
+    try {
+      const obj = JSON.parse(objMatch[0]);
+      if (obj && typeof obj === 'object') return [obj];
+    } catch (e) {
+      console.warn(`[gemini:${ctx}] object regex parse failed`, e);
+    }
+  }
+  console.warn(`[gemini:${ctx}] could not parse — raw text:`, stripped.slice(0, 500));
+  throw new Error('Yemek tanınamadı');
+}
+
+// Gemini bazen alanları atlar; motor için minimum guarantilemeli alanları doldur.
+function normalizeDetection(raw: unknown): DetectedFoodItem {
+  const r = raw as Record<string, unknown>;
+  const num = (v: unknown, fb: number) => (typeof v === 'number' && !Number.isNaN(v) ? v : fb);
+  const str = (v: unknown, fb: string) => (typeof v === 'string' && v.length > 0 ? v : fb);
+  return {
+    name: str(r.name, 'Bilinmeyen'),
+    estimatedGrams: Math.max(1, num(r.estimatedGrams, 100)),
+    cookingMethod: str(r.cookingMethod, 'unknown') as DetectedFoodItem['cookingMethod'],
+    texture: str(r.texture, 'dense') as DetectedFoodItem['texture'],
+    hiddenSauceProb: clamp01(num(r.hiddenSauceProb, 0)),
+    referenceObject: str(r.referenceObject, 'none') as DetectedFoodItem['referenceObject'],
+    occlusionRatio: clamp01(num(r.occlusionRatio, 0)),
+    confidence: clamp01(num(r.confidence, 0.5)),
+    ingredientBreakdown: Array.isArray(r.ingredientBreakdown)
+      ? (r.ingredientBreakdown as Array<Record<string, unknown>>)
+          .map((i) => ({ name: String(i.name ?? ''), ratio: clamp01(Number(i.ratio) || 0) }))
+          .filter((i) => i.name && i.ratio > 0)
+      : undefined,
+    calories: num(r.calories, 0),
+    protein: num(r.protein, 0),
+    carbs: num(r.carbs, 0),
+    fat: num(r.fat, 0),
+  };
+}
+
+function clamp01(n: number): number {
+  if (Number.isNaN(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+// Gemini API'sı zaman zaman 503 (yüksek talep) veya 429 (rate limit) döndürür.
+// Geçici hatalar için exponential backoff ile retry; kalıcı hatalar (4xx, parse) için
+// tekrar deneme yok — anında throw.
+function isTransientGeminiError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes('[503') ||
+    msg.includes('[429') ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('high demand') ||
+    msg.includes('overloaded')
+  );
+}
+
+async function withGeminiRetry<T>(
+  fn: () => Promise<T>,
+  ctx: string,
+  opts: { retries?: number; baseDelayMs?: number } = {}
+): Promise<T> {
+  const retries = opts.retries ?? 3;
+  const baseDelay = opts.baseDelayMs ?? 900;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransientGeminiError(err) || attempt === retries) break;
+      const wait = baseDelay * Math.pow(2, attempt) + Math.random() * 200;
+      console.warn(
+        `[gemini:${ctx}] geçici hata, ${Math.round(wait)}ms sonra tekrar deneniyor (attempt ${attempt + 1}/${retries})`
+      );
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  // Kullanıcıya gösterilen son mesajı insanlaştır
+  if (isTransientGeminiError(lastErr)) {
+    throw new Error(
+      'Gemini şu an yoğun, birkaç saniye sonra tekrar dene. (Sorun bizde değil; Google sunucularında geçici talep yoğunluğu var.)'
+    );
+  }
+  throw lastErr;
 }
 
 /**
@@ -275,7 +433,14 @@ export async function refineAnalysisWithAnswers(
   currentItems: DetectedFoodItem[],
   qa: { question: string; answer: string }[]
 ): Promise<DetectedFoodItem[]> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 4096,
+      temperature: 0.4,
+    },
+  });
   const currentList = currentItems.map((i) => `- ${i.name} (~${i.estimatedGrams}g)`).join('\n');
   const qaText = qa.filter((q) => q.answer.trim()).map((q) => `S: ${q.question}\nC: ${q.answer}`).join('\n');
 
@@ -287,25 +452,44 @@ ${currentList}
 Kullanıcının verdiği ek bilgiler:
 ${qaText}
 
-Bu bilgilere göre daha doğru bir analiz yap. SADECE şu JSON formatında yanıtla:
+Bu bilgilere göre daha doğru bir TANIMA + METADATA çıktısı üret. Kalori/makro hesabı motorda yapılacak; sen sadece fiziksel parametreleri netleştir.
+SADECE şu JSON formatında yanıtla:
 [
   {
     "name": "yemek/içecek adı (Türkçe)",
-    "estimatedGrams": tahmini gram (sayı),
-    "calories": toplam kalori (sayı),
-    "protein": toplam protein gram (sayı),
-    "carbs": toplam karbonhidrat gram (sayı),
-    "fat": toplam yağ gram (sayı),
-    "confidence": 0-1 arası güven (sayı)
+    "estimatedGrams": <gram, sayı>,
+    "cookingMethod": "raw" | "boiled" | "grilled" | "fried" | "deep_fried" | "baked" | "steamed" | "sauteed" | "unknown",
+    "texture": "fluffy" | "dense" | "granular" | "liquid" | "amorphous",
+    "hiddenSauceProb": <0..1>,
+    "referenceObject": "spoon" | "fork" | "plate" | "card" | "hand" | "none",
+    "occlusionRatio": <0..1>,
+    "confidence": <0..1>,
+    "ingredientBreakdown": [{"name":"...","ratio":0.x}],
+    "calories": <fallback kcal>,
+    "protein": <fallback g>,
+    "carbs": <fallback g>,
+    "fat": <fallback g>
   }
 ]`;
 
   const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
-  const result = await model.generateContent([prompt, imagePart]);
-  const text = result.response.text();
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('Analiz yenilenemedi');
-  return JSON.parse(jsonMatch[0]);
+  const text = await withGeminiRetry(async () => {
+    const result = await model.generateContent([prompt, imagePart]);
+    const t = result.response.text();
+    if (!t || !t.trim()) {
+      throw new Error(
+        `Gemini boş cevap döndü (finishReason: ${result.response.candidates?.[0]?.finishReason ?? 'bilinmiyor'})`
+      );
+    }
+    return t;
+  }, 'refineAnalysisWithAnswers');
+  let parsed: unknown[];
+  try {
+    parsed = parseJsonArray(text, 'refineAnalysisWithAnswers');
+  } catch {
+    throw new Error('Analiz yenilenemedi');
+  }
+  return parsed.map(normalizeDetection);
 }
 
 /**
@@ -325,10 +509,10 @@ export async function recognizeFoodFromImage(imageBase64: string): Promise<{
   const per100 = first.estimatedGrams > 0 ? 100 / first.estimatedGrams : 1;
   return {
     name: first.name,
-    calories: Math.round(first.calories * per100),
-    protein: Math.round(first.protein * per100 * 10) / 10,
-    carbs: Math.round(first.carbs * per100 * 10) / 10,
-    fat: Math.round(first.fat * per100 * 10) / 10,
+    calories: Math.round((first.calories ?? 0) * per100),
+    protein: Math.round((first.protein ?? 0) * per100 * 10) / 10,
+    carbs: Math.round((first.carbs ?? 0) * per100 * 10) / 10,
+    fat: Math.round((first.fat ?? 0) * per100 * 10) / 10,
     confidence: first.confidence,
   };
 }

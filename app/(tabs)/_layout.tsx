@@ -172,6 +172,14 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
+          name="exercise"
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <TabIcon iconName="barbell-outline" iconNameFocused="barbell" focused={focused} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="profile"
           options={{
             tabBarIcon: ({ focused }) => (

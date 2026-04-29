@@ -29,6 +29,8 @@ import {
   estimateNutritionFromText,
   generateMealName,
 } from '../../lib/gemini';
+import { compute as computeNutrition, estimateForManualInput } from '../../lib/nutritionEngine';
+import type { ComputedFoodItem } from './PhotoMealReviewModal';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -52,21 +54,25 @@ interface FoodLogFlowProps {
   initialStep?: Step;
   initialItems?: DetectedFoodItem[];
   onClose: () => void;
-  onSave: (items: DetectedFoodItem[], mealType: MealType, base64: string, namePromise?: Promise<string>) => void;
+  onSave: (items: ComputedFoodItem[], mealType: MealType, base64: string, namePromise?: Promise<string>) => void;
   onStartAnalysis?: (base64: string, hint: string) => void;
   onOpenSearch: () => void;
   onOpenBarcode: () => void;
 }
 
+// Motor üstünden hesap yapıyoruz; baseCalories/baseProtein vs. artık motor değerleridir,
+// bu sayede slider yüzdesini değiştirmek motorun çıktısını yeniden ölçeklendirmek yerine
+// taban değerleri orantılı tutar (%100'de motor değeri = base*1.0).
 function toItemPlus(d: DetectedFoodItem): ItemPlus {
+  const eng = computeNutrition({ detection: d, userGrams: d.estimatedGrams });
   return {
     ...d,
     pct: 100,
     baseGrams: d.estimatedGrams,
-    baseCalories: d.calories,
-    baseProtein: d.protein,
-    baseCarbs: d.carbs,
-    baseFat: d.fat,
+    baseCalories: eng.kcal,
+    baseProtein: eng.protein,
+    baseCarbs: eng.carbs,
+    baseFat: eng.fat,
   };
 }
 
@@ -199,22 +205,29 @@ export function FoodLogFlow({
 
   function handleSaveFromResults() {
     if (!base64 || items.length === 0) return;
-    const finalItems: DetectedFoodItem[] = items.map((it) => {
-      const f = it.pct / 100;
+    // Her item için motor üstünden ölçeklenmiş hesap üret (audit metadata'sıyla birlikte).
+    const computed: ComputedFoodItem[] = items.map((it) => {
+      const userGrams = Math.round(it.baseGrams * (it.pct / 100));
+      const detection: DetectedFoodItem = {
+        ...it,
+        estimatedGrams: userGrams,
+      };
+      const engine = computeNutrition({ detection, userGrams });
       return {
-        name: it.name,
-        estimatedGrams: Math.round(it.baseGrams * f),
-        calories: Math.round(it.baseCalories * f),
-        protein: Math.round(it.baseProtein * f * 10) / 10,
-        carbs: Math.round(it.baseCarbs * f * 10) / 10,
-        fat: Math.round(it.baseFat * f * 10) / 10,
-        confidence: it.confidence,
+        detection: {
+          ...detection,
+          calories: engine.kcal,
+          protein: engine.protein,
+          carbs: engine.carbs,
+          fat: engine.fat,
+        },
+        engine,
       };
     });
-    const namePromise = generateMealName(finalItems.map((it) => it.name));
+    const namePromise = generateMealName(computed.map((c) => c.detection.name));
     setStep('saving');
     setTimeout(() => {
-      onSave(finalItems, meal, base64, namePromise);
+      onSave(computed, meal, base64, namePromise);
       onClose();
     }, 280);
   }
@@ -890,6 +903,16 @@ function ItemEditCard({
     if (!name.trim() || grams <= 0) return;
     setEstimating(true);
     try {
+      // Önce deterministik motor (kompozisyon eşleştirmesi)
+      const engRes = estimateForManualInput(name.trim(), grams);
+      if (engRes) {
+        setKcal(engRes.kcal);
+        setP(engRes.protein);
+        setK(engRes.carbs);
+        setY(engRes.fat);
+        return;
+      }
+      // Eşleşme yoksa Gemini fallback
       const r = await estimateNutritionFromText({ foodName: name.trim(), grams });
       setKcal(Math.round(r.calories));
       setP(Math.round(r.protein * 10) / 10);

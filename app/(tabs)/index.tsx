@@ -18,7 +18,8 @@ import { Tide } from '../../components/charts/Tide';
 import { useActivityStore } from '../../store/activityStore';
 import { useExerciseStore } from '../../store/exerciseStore';
 import { usePedometer } from '../../hooks/usePedometer';
-import { EXERCISE_CATEGORIES, INTENSITY_LABELS, ExerciseIntensity } from '../../lib/constants';
+import { EXERCISE_CATALOG, INTENSITY_LABELS, ExerciseIntensity } from '../../lib/constants';
+import { isChronoWindow } from '../../lib/exerciseEngine';
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -30,7 +31,10 @@ export default function DashboardScreen() {
   const userId = useAuthStore((s) => s.user?.id);
   const { todaySteps, stepGoal, caloriesBurned, distanceKm, activeMinutes, isAvailable, permissionGranted } =
     useActivityStore();
-  const { todayExercises, fetchTodayExercises, getTotalCaloriesBurned } = useExerciseStore();
+  const {
+    todayExercises, fetchTodayExercises,
+    getTotalCaloriesBurned, getEpocRange, getWaterBonus, getEatBackBudget,
+  } = useExerciseStore();
   usePedometer(userId, profile?.weight_kg, profile?.height_cm);
 
   useEffect(() => {
@@ -78,6 +82,14 @@ export default function DashboardScreen() {
 
   const consumed = Math.round(totals.calories);
   const remaining = Math.max(0, calorieGoal - consumed);
+
+  // Egzersiz tamponu
+  const goal = profile?.goal ?? 'maintain';
+  const exerciseBurned = getTotalCaloriesBurned();
+  const exerciseEpocRange = getEpocRange();
+  const exerciseWaterBonus = getWaterBonus();
+  const exerciseEatBack = getEatBackBudget(goal);
+  const exerciseChronoWarning = todayExercises.length > 0 && isChronoWindow();
 
   const mealLabels: Record<string, string> = {
     breakfast: 'Kahvaltı',
@@ -253,12 +265,37 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* ── EXERCISE CARD ── */}
+        {/* ── EXERCISE CARD + BUFFER BANNER ── */}
         {todayExercises.length > 0 && (
           <View style={styles.exerciseSection}>
             <Text style={styles.overline}>EGZERSİZ</Text>
+
+            {/* Buffer banner */}
+            {exerciseBurned > 0 && (
+              <View style={styles.bufferBanner}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bufferTitle}>🔥 {exerciseBurned} kcal yakıldı</Text>
+                  <Text style={styles.bufferSub}>
+                    +{exerciseEatBack} kcal tampon{goal === 'lose' ? ' (%50 güvenli pay)' : ''}
+                    {'  '}⚡ EPOC: +{exerciseEpocRange[0]}–{exerciseEpocRange[1]} kcal
+                  </Text>
+                  {exerciseChronoWarning && (
+                    <Text style={styles.bufferChrono}>
+                      ⚠️ Geç saatte egzersiz — insülin duyarlılığı riski
+                    </Text>
+                  )}
+                </View>
+                {exerciseWaterBonus > 0 && (
+                  <View style={styles.bufferWater}>
+                    <Text style={styles.bufferWaterNum}>+{exerciseWaterBonus}</Text>
+                    <Text style={styles.bufferWaterUnit}>ml su</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
             {todayExercises.slice(0, 3).map((ex) => {
-              const cat = EXERCISE_CATEGORIES.find((c) => c.key === ex.exercise_type);
+              const cat = EXERCISE_CATALOG.find((c) => c.id === ex.exercise_type);
               const intInfo = INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
               return (
                 <View key={ex.id} style={styles.exerciseRow}>
@@ -573,5 +610,45 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.terracotta,
     fontFamily: 'Menlo, Courier, monospace',
+  },
+  bufferBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary + '0E',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.primary + '25',
+  },
+  bufferTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.primary,
+    marginBottom: 2,
+  },
+  bufferSub: {
+    fontSize: 11,
+    color: Colors.ink3,
+    lineHeight: 16,
+  },
+  bufferChrono: {
+    fontSize: 10,
+    color: Colors.terracotta,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  bufferWater: {
+    alignItems: 'center',
+    paddingLeft: Spacing.md,
+  },
+  bufferWaterNum: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#38BDF8',
+  },
+  bufferWaterUnit: {
+    fontSize: 10,
+    color: Colors.ink3,
   },
 });

@@ -9,7 +9,15 @@ interface ExerciseState {
   fetchTodayExercises: (userId: string, date: string) => Promise<void>;
   addExerciseLog: (log: ExerciseLogInsert) => Promise<void>;
   removeExerciseLog: (id: string) => Promise<void>;
+
+  // Legacy getter (calories_burned field)
   getTotalCaloriesBurned: () => number;
+
+  // Bilimsel motor getter'ları
+  getEpocRange: () => [number, number];
+  getWaterBonus: () => number;
+  getTotalKcalRange: () => [number, number];
+  getEatBackBudget: (goal: 'lose' | 'maintain' | 'gain') => number;
 }
 
 export const useExerciseStore = create<ExerciseState>((set, get) => ({
@@ -58,4 +66,27 @@ export const useExerciseStore = create<ExerciseState>((set, get) => ({
 
   getTotalCaloriesBurned: () =>
     get().todayExercises.reduce((sum, e) => sum + e.calories_burned, 0),
+
+  getEpocRange: () => {
+    const logs = get().todayExercises;
+    const min = logs.reduce((s, e) => s + (e.epoc_min_kcal ?? 0), 0);
+    const max = logs.reduce((s, e) => s + (e.epoc_max_kcal ?? 0), 0);
+    return [min, max];
+  },
+
+  getWaterBonus: () =>
+    get().todayExercises.reduce((s, e) => s + (e.water_bonus_ml ?? 0), 0),
+
+  getTotalKcalRange: () => {
+    const logs = get().todayExercises;
+    const min = logs.reduce((s, e) => s + (e.total_kcal_min ?? e.calories_burned), 0);
+    const max = logs.reduce((s, e) => s + (e.total_kcal_max ?? e.calories_burned), 0);
+    return [min, max];
+  },
+
+  getEatBackBudget: (goal) => {
+    const [min] = get().getTotalKcalRange();
+    const rate = goal === 'lose' ? 0.5 : 1.0;
+    return Math.round(min * rate);
+  },
 }));

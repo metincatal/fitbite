@@ -210,6 +210,78 @@ export const INTENSITY_LABELS: Record<ExerciseIntensity, { label: string; emoji:
   high: { label: 'Yoğun', emoji: '🔥', color: '#EF4444' },
 };
 
+// =============================================================================
+// Bilimsel Egzersiz Kataloğu — Ainsworth Kompendiyumu (2011)
+// =============================================================================
+
+export type ExerciseGroup = 'cardio' | 'strength' | 'sport' | 'mindBody' | 'outdoor' | 'other';
+
+export interface ExerciseCatalogEntry {
+  id: string;
+  nameTr: string;
+  group: ExerciseGroup;
+  emoji: string;
+  color: string;
+  met: { low: number; moderate: number; high: number };
+  ainsworthCode?: string;
+  defaultDuration: number;
+  defaultIntensity: ExerciseIntensity;
+}
+
+export const EXERCISE_CATALOG: ExerciseCatalogEntry[] = [
+  // ── Kardiyo ────────────────────────────────────────────────────────────────
+  { id: 'running',        nameTr: 'Koşu',             group: 'cardio',   emoji: '🏃', color: '#EF4444', met: { low: 6.0,  moderate: 8.3,  high: 11.0 }, ainsworthCode: '12050', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'walking',        nameTr: 'Yürüyüş',          group: 'cardio',   emoji: '🚶', color: '#22C55E', met: { low: 2.5,  moderate: 3.5,  high: 5.0  }, ainsworthCode: '17151', defaultDuration: 45, defaultIntensity: 'moderate' },
+  { id: 'cycling',        nameTr: 'Bisiklet',          group: 'cardio',   emoji: '🚴', color: '#3B82F6', met: { low: 4.0,  moderate: 6.8,  high: 10.0 }, ainsworthCode: '01010', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'swimming',       nameTr: 'Yüzme',             group: 'cardio',   emoji: '🏊', color: '#06B6D4', met: { low: 4.5,  moderate: 7.0,  high: 10.0 }, ainsworthCode: '18310', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'elliptical',     nameTr: 'Eliptik',           group: 'cardio',   emoji: '🏃', color: '#8B5CF6', met: { low: 4.0,  moderate: 5.0,  high: 7.5  }, ainsworthCode: '02030', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'dance',          nameTr: 'Dans',              group: 'cardio',   emoji: '💃', color: '#F43F5E', met: { low: 3.0,  moderate: 5.0,  high: 7.5  }, ainsworthCode: '03010', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'rowing_machine', nameTr: 'Kürek Makinesi',   group: 'cardio',   emoji: '🚣', color: '#0EA5E9', met: { low: 4.5,  moderate: 7.0,  high: 8.5  }, ainsworthCode: '02070', defaultDuration: 20, defaultIntensity: 'moderate' },
+  { id: 'stair_climbing', nameTr: 'Merdiven',          group: 'cardio',   emoji: '🪜', color: '#64748B', met: { low: 4.0,  moderate: 8.0,  high: 12.0 }, ainsworthCode: '17191', defaultDuration: 20, defaultIntensity: 'moderate' },
+  { id: 'jump_rope',      nameTr: 'Atlama İpi',        group: 'cardio',   emoji: '🪢', color: '#F97316', met: { low: 8.0,  moderate: 10.0, high: 12.0 }, ainsworthCode: '02060', defaultDuration: 15, defaultIntensity: 'moderate' },
+
+  // ── Güç Antrenmanı ─────────────────────────────────────────────────────────
+  { id: 'free_weights',   nameTr: 'Serbest Ağırlık',  group: 'strength', emoji: '🏋️', color: '#7C3AED', met: { low: 3.0,  moderate: 5.0,  high: 6.0  }, ainsworthCode: '02010', defaultDuration: 45, defaultIntensity: 'moderate' },
+  { id: 'bodyweight',     nameTr: 'Vücut Ağırlığı',   group: 'strength', emoji: '💪', color: '#6366F1', met: { low: 2.8,  moderate: 3.8,  high: 5.5  }, ainsworthCode: '02011', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'kettlebell',     nameTr: 'Kettlebell',        group: 'strength', emoji: '⚙️', color: '#374151', met: { low: 5.0,  moderate: 8.0,  high: 12.0 }, ainsworthCode: '02050', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'crossfit',       nameTr: 'CrossFit',          group: 'strength', emoji: '🔥', color: '#DC2626', met: { low: 6.0,  moderate: 8.0,  high: 12.0 }, ainsworthCode: '02090', defaultDuration: 30, defaultIntensity: 'high'     },
+
+  // ── Takım Sporları ─────────────────────────────────────────────────────────
+  { id: 'football',       nameTr: 'Futbol',            group: 'sport',    emoji: '⚽', color: '#10B981', met: { low: 5.0,  moderate: 7.0,  high: 10.0 }, ainsworthCode: '15710', defaultDuration: 45, defaultIntensity: 'moderate' },
+  { id: 'basketball',     nameTr: 'Basketbol',         group: 'sport',    emoji: '🏀', color: '#F59E0B', met: { low: 4.5,  moderate: 6.5,  high: 8.0  }, ainsworthCode: '15030', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'tennis',         nameTr: 'Tenis',             group: 'sport',    emoji: '🎾', color: '#84CC16', met: { low: 4.0,  moderate: 7.3,  high: 10.0 }, ainsworthCode: '15670', defaultDuration: 45, defaultIntensity: 'moderate' },
+  { id: 'volleyball',     nameTr: 'Voleybol',          group: 'sport',    emoji: '🏐', color: '#FBBF24', met: { low: 3.0,  moderate: 4.0,  high: 8.0  }, ainsworthCode: '15730', defaultDuration: 60, defaultIntensity: 'moderate' },
+  { id: 'table_tennis',   nameTr: 'Masa Tenisi',       group: 'sport',    emoji: '🏓', color: '#34D399', met: { low: 3.0,  moderate: 4.0,  high: 6.0  }, ainsworthCode: '15660', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'badminton',      nameTr: 'Badminton',         group: 'sport',    emoji: '🏸', color: '#60A5FA', met: { low: 3.5,  moderate: 5.5,  high: 7.0  }, ainsworthCode: '15010', defaultDuration: 30, defaultIntensity: 'moderate' },
+
+  // ── Zihin-Beden ────────────────────────────────────────────────────────────
+  { id: 'yoga',           nameTr: 'Yoga',              group: 'mindBody', emoji: '🧘', color: '#EC4899', met: { low: 2.0,  moderate: 3.0,  high: 4.0  }, ainsworthCode: '20120', defaultDuration: 45, defaultIntensity: 'low'      },
+  { id: 'pilates',        nameTr: 'Pilates',           group: 'mindBody', emoji: '🤸', color: '#14B8A6', met: { low: 2.5,  moderate: 4.0,  high: 5.5  }, ainsworthCode: '20130', defaultDuration: 45, defaultIntensity: 'low'      },
+  { id: 'tai_chi',        nameTr: 'Tai Chi',           group: 'mindBody', emoji: '☯️', color: '#A78BFA', met: { low: 2.5,  moderate: 3.0,  high: 4.0  }, ainsworthCode: '20140', defaultDuration: 30, defaultIntensity: 'low'      },
+  { id: 'meditation',     nameTr: 'Meditasyon',        group: 'mindBody', emoji: '🧠', color: '#6D28D9', met: { low: 1.3,  moderate: 1.5,  high: 2.0  }, ainsworthCode: '09040', defaultDuration: 20, defaultIntensity: 'low'      },
+  { id: 'stretching',     nameTr: 'Esneme',            group: 'mindBody', emoji: '🙆', color: '#D946EF', met: { low: 2.0,  moderate: 2.5,  high: 3.5  }, ainsworthCode: '20160', defaultDuration: 15, defaultIntensity: 'low'      },
+
+  // ── Outdoor ────────────────────────────────────────────────────────────────
+  { id: 'hiking',         nameTr: 'Yürüyüş/Hiking',   group: 'outdoor',  emoji: '🥾', color: '#78716C', met: { low: 4.0,  moderate: 6.0,  high: 8.0  }, ainsworthCode: '17080', defaultDuration: 60, defaultIntensity: 'moderate' },
+  { id: 'mountain_bike',  nameTr: 'Dağ Bisikleti',     group: 'outdoor',  emoji: '🚵', color: '#92400E', met: { low: 5.0,  moderate: 8.5,  high: 14.0 }, ainsworthCode: '01020', defaultDuration: 45, defaultIntensity: 'moderate' },
+  { id: 'skiing',         nameTr: 'Kayak',             group: 'outdoor',  emoji: '⛷️', color: '#38BDF8', met: { low: 4.0,  moderate: 5.3,  high: 8.0  }, ainsworthCode: '19090', defaultDuration: 60, defaultIntensity: 'moderate' },
+
+  // ── Diğer ──────────────────────────────────────────────────────────────────
+  { id: 'hiit',           nameTr: 'HIIT',              group: 'other',    emoji: '⚡', color: '#EF4444', met: { low: 6.0,  moderate: 8.0,  high: 12.0 }, ainsworthCode: '20140', defaultDuration: 20, defaultIntensity: 'high'     },
+  { id: 'boxing',         nameTr: 'Boks',              group: 'other',    emoji: '🥊', color: '#B91C1C', met: { low: 5.5,  moderate: 7.8,  high: 12.0 }, ainsworthCode: '15052', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'gymnastics',     nameTr: 'Jimnastik',         group: 'other',    emoji: '🤼', color: '#E11D48', met: { low: 3.0,  moderate: 4.0,  high: 6.0  }, ainsworthCode: '04032', defaultDuration: 30, defaultIntensity: 'moderate' },
+  { id: 'general_sport',  nameTr: 'Genel Spor',        group: 'other',    emoji: '🏅', color: '#6B7280', met: { low: 3.0,  moderate: 5.0,  high: 7.0  }, ainsworthCode: '15000', defaultDuration: 30, defaultIntensity: 'moderate' },
+];
+
+export const EXERCISE_GROUP_LABELS: Record<ExerciseGroup, { nameTr: string; emoji: string }> = {
+  cardio:   { nameTr: 'Kardiyo',       emoji: '🏃' },
+  strength: { nameTr: 'Güç',           emoji: '💪' },
+  sport:    { nameTr: 'Spor',          emoji: '⚽' },
+  mindBody: { nameTr: 'Zihin-Beden',   emoji: '🧘' },
+  outdoor:  { nameTr: 'Outdoor',       emoji: '🏔' },
+  other:    { nameTr: 'Diğer',         emoji: '🥊' },
+};
+
 export function calculateExerciseCalories(
   met: number,
   weightKg: number,
