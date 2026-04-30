@@ -472,11 +472,18 @@ export default function FoodLogScreen() {
               Yemek <Text style={styles.heroTitleAccent}>Günlüğü</Text>
             </Text>
           </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={[styles.heroKcal, { color: totalCaloriesToday > 0 ? Colors.ink : Colors.ink3 }]}>
-              {Math.round(totalCaloriesToday)} <Text style={styles.heroKcalUnit}>kcal</Text>
-            </Text>
-            <Text style={styles.heroSubOverline}>BUGÜN</Text>
+          <View style={{ alignItems: 'flex-end', gap: 8 }}>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[styles.heroKcal, { color: totalCaloriesToday > 0 ? Colors.ink : Colors.ink3 }]}>
+                {Math.round(totalCaloriesToday)} <Text style={styles.heroKcalUnit}>kcal</Text>
+              </Text>
+              <Text style={styles.heroSubOverline}>BUGÜN</Text>
+            </View>
+            {/* Inline add button — replaces floating FAB */}
+            <TouchableOpacity style={styles.headerAddBtn} onPress={openAddFlow} activeOpacity={0.82}>
+              <Ionicons name="add" size={16} color="#fff" />
+              <Text style={styles.headerAddBtnText}>Ekle</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -519,22 +526,17 @@ export default function FoodLogScreen() {
         {foodLogs.length === 0 && !pendingSave && !bgAnalysis && (
           <View style={styles.hintCard}>
             <View style={styles.hintCardArrow}>
-              <Text style={styles.hintCardArrowText}>↘</Text>
+              <Text style={styles.hintCardArrowText}>↗</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.hintCardTitle}>Sağ alttaki ＋'a bas.</Text>
-              <Text style={styles.hintCardSub}>Fotoğraf çek, AI tabağını okusun.</Text>
+              <Text style={styles.hintCardTitle}>Sağ üstteki Ekle'ye bas.</Text>
+              <Text style={styles.hintCardSub}>Fotoğraf çek, AI tabağını okusun. Veya ortadaki ⊕ ile de ekleyebilirsin.</Text>
             </View>
           </View>
         )}
 
         <View style={{ height: 120 }} />
       </ScrollView>
-
-      {/* FAB — diary'de sağ altta */}
-      <TouchableOpacity style={styles.fab} onPress={openAddFlow} activeOpacity={0.85}>
-        <Ionicons name="add" size={26} color={Colors.background} />
-      </TouchableOpacity>
 
       {/* Photo flow */}
       <FoodLogFlow
@@ -898,7 +900,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scrollContent: { paddingTop: 8, paddingBottom: 40 },
 
-  heroRow: { paddingHorizontal: 22, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start' },
+  heroRow: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start' },
   heroOverline: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 1.6 },
   heroTitle: { fontFamily: SERIF, fontSize: 36, lineHeight: 38, color: Colors.ink, marginTop: 4 },
   heroTitleAccent: { fontStyle: 'italic', color: Colors.terracotta },
@@ -952,8 +954,27 @@ const styles = StyleSheet.create({
   hintCardTitle: { fontSize: 12.5, color: Colors.ink, fontWeight: '700' },
   hintCardSub: { fontSize: 12, color: Colors.ink3, marginTop: 2 },
 
-  // FAB
-  fab: { position: 'absolute', bottom: 90, right: 22, width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center', shadowColor: Colors.ink, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.32, shadowRadius: 20, elevation: 12 },
+  // Header add button (replaces floating FAB)
+  headerAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.ink,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    shadowColor: Colors.ink,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  headerAddBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 0.2,
+  },
 
   // Pending photo card
   pendingCard: { borderRadius: 16, overflow: 'hidden', height: 200, backgroundColor: Colors.line2, marginTop: 4 },

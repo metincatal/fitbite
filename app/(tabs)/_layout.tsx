@@ -1,7 +1,14 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Tabs } from 'expo-router';
 import { Colors, Spacing, BorderRadius } from '../../lib/constants';
-import { View, StyleSheet, TouchableOpacity, Animated, Platform } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Animated,
+  Platform,
+  Dimensions,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ApertureMark } from '../../components/ui/ApertureMark';
 import { QuickActionSheet } from '../../components/ui/QuickActionSheet';
@@ -10,25 +17,7 @@ import { Alert } from 'react-native';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
-function TabIcon({
-  iconName,
-  iconNameFocused,
-  focused,
-}: {
-  iconName: IoniconName;
-  iconNameFocused: IoniconName;
-  focused: boolean;
-}) {
-  return (
-    <View style={styles.tabItem}>
-      <Ionicons
-        name={focused ? iconNameFocused : iconName}
-        size={26}
-        color={focused ? Colors.primary : Colors.textMuted}
-      />
-    </View>
-  );
-}
+const { width: SW } = Dimensions.get('window');
 
 // Shared callback refs for camera/gallery (set by the food-log page)
 let _onCameraCallback: ((base64: string) => void) | null = null;
@@ -42,21 +31,115 @@ export function setQuickActionCallbacks(
   _onGalleryCallback = onGallery;
 }
 
+// Animated tab icon with scale + dot indicator
+function TabIcon({
+  iconName,
+  iconNameFocused,
+  focused,
+}: {
+  iconName: IoniconName;
+  iconNameFocused: IoniconName;
+  focused: boolean;
+}) {
+  const scale = useRef(new Animated.Value(focused ? 1.12 : 1)).current;
+  const dotScale = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const dotOpacity = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const colorAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scale, {
+        toValue: focused ? 1.18 : 1,
+        useNativeDriver: true,
+        damping: 14,
+        stiffness: 320,
+      }),
+      Animated.spring(dotScale, {
+        toValue: focused ? 1 : 0,
+        useNativeDriver: true,
+        damping: 16,
+        stiffness: 280,
+      }),
+      Animated.timing(dotOpacity, {
+        toValue: focused ? 1 : 0,
+        duration: 160,
+        useNativeDriver: true,
+      }),
+      Animated.timing(colorAnim, {
+        toValue: focused ? 1 : 0,
+        duration: 180,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [focused]);
+
+  const color = colorAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [Colors.textMuted, Colors.primary],
+  });
+
+  return (
+    <View style={styles.tabItem}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons
+          name={focused ? iconNameFocused : iconName}
+          size={24}
+          color={focused ? Colors.primary : Colors.textMuted}
+        />
+      </Animated.View>
+      <Animated.View
+        style={[
+          styles.tabDot,
+          {
+            transform: [{ scale: dotScale }],
+            opacity: dotOpacity,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
 export default function TabLayout() {
   const [showQuickAction, setShowQuickAction] = useState(false);
   const fabRotation = useRef(new Animated.Value(0)).current;
   const fabScale = useRef(new Animated.Value(1)).current;
-  // Separate value for SVG-internal animations (cannot use native driver)
   const fabProgress = useRef(new Animated.Value(0)).current;
+  const fabGlow = useRef(new Animated.Value(0)).current;
 
   function toggleFab() {
     const toValue = showQuickAction ? 0 : 1;
     Animated.parallel([
-      Animated.spring(fabRotation, { toValue, useNativeDriver: true, damping: 15, stiffness: 200 }),
-      Animated.spring(fabProgress, { toValue, useNativeDriver: false, damping: 15, stiffness: 200 }),
+      Animated.spring(fabRotation, {
+        toValue,
+        useNativeDriver: true,
+        damping: 14,
+        stiffness: 200,
+      }),
+      Animated.spring(fabProgress, {
+        toValue,
+        useNativeDriver: false,
+        damping: 14,
+        stiffness: 200,
+      }),
+      Animated.spring(fabGlow, {
+        toValue,
+        useNativeDriver: false,
+        damping: 12,
+        stiffness: 180,
+      }),
       Animated.sequence([
-        Animated.timing(fabScale, { toValue: 0.85, duration: 80, useNativeDriver: true }),
-        Animated.spring(fabScale, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 250 }),
+        Animated.timing(fabScale, {
+          toValue: 0.82,
+          duration: 80,
+          useNativeDriver: true,
+        }),
+        Animated.spring(fabScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          damping: 11,
+          stiffness: 260,
+        }),
       ]),
     ]).start();
     setShowQuickAction(!showQuickAction);
@@ -64,8 +147,24 @@ export default function TabLayout() {
 
   function closeFab() {
     Animated.parallel([
-      Animated.spring(fabRotation, { toValue: 0, useNativeDriver: true, damping: 15, stiffness: 200 }),
-      Animated.spring(fabProgress, { toValue: 0, useNativeDriver: false, damping: 15, stiffness: 200 }),
+      Animated.spring(fabRotation, {
+        toValue: 0,
+        useNativeDriver: true,
+        damping: 14,
+        stiffness: 200,
+      }),
+      Animated.spring(fabProgress, {
+        toValue: 0,
+        useNativeDriver: false,
+        damping: 14,
+        stiffness: 200,
+      }),
+      Animated.spring(fabGlow, {
+        toValue: 0,
+        useNativeDriver: false,
+        damping: 12,
+        stiffness: 180,
+      }),
     ]).start();
     setShowQuickAction(false);
   }
@@ -113,6 +212,16 @@ export default function TabLayout() {
     outputRange: ['0deg', '135deg'],
   });
 
+  const glowRadius = fabGlow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [10, 22],
+  });
+
+  const glowOpacity = fabGlow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.28, 0.42],
+  });
+
   return (
     <>
       <Tabs
@@ -121,10 +230,15 @@ export default function TabLayout() {
           tabBarStyle: {
             backgroundColor: Colors.surface,
             borderTopColor: Colors.borderLight,
-            borderTopWidth: 1,
-            height: 60,
-            paddingBottom: 8,
+            borderTopWidth: 0.5,
+            height: Platform.OS === 'ios' ? 74 : 64,
+            paddingBottom: Platform.OS === 'ios' ? 18 : 8,
             paddingTop: 8,
+            shadowColor: Colors.ink,
+            shadowOffset: { width: 0, height: -6 },
+            shadowOpacity: 0.07,
+            shadowRadius: 16,
+            elevation: 16,
           },
           tabBarShowLabel: false,
         }}
@@ -133,7 +247,11 @@ export default function TabLayout() {
           name="index"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon iconName="home-outline" iconNameFocused="home" focused={focused} />
+              <TabIcon
+                iconName="home-outline"
+                iconNameFocused="home"
+                focused={focused}
+              />
             ),
           }}
         />
@@ -141,20 +259,44 @@ export default function TabLayout() {
           name="food-log"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon iconName="restaurant-outline" iconNameFocused="restaurant" focused={focused} />
+              <TabIcon
+                iconName="restaurant-outline"
+                iconNameFocused="restaurant"
+                focused={focused}
+              />
             ),
           }}
         />
 
-        {/* Placeholder tab for FAB (hidden but needed for spacing) */}
+        {/* Center FAB slot */}
         <Tabs.Screen
           name="ai-chat"
           options={{
             tabBarIcon: () => null,
             tabBarButton: () => (
               <View style={styles.fabContainer}>
-                <TouchableOpacity onPress={toggleFab} activeOpacity={0.85}>
-                  <Animated.View style={[styles.fabOuter, { transform: [{ scale: fabScale }, { rotate }] }]}>
+                <TouchableOpacity
+                  onPress={toggleFab}
+                  activeOpacity={0.88}
+                  style={styles.fabTouchable}
+                >
+                  <Animated.View
+                    style={[
+                      styles.fabGlow,
+                      {
+                        shadowRadius: glowRadius,
+                        shadowOpacity: glowOpacity,
+                      },
+                    ]}
+                  />
+                  <Animated.View
+                    style={[
+                      styles.fabOuter,
+                      {
+                        transform: [{ scale: fabScale }, { rotate }],
+                      },
+                    ]}
+                  >
                     <ApertureMark animValue={fabProgress} size={62} />
                   </Animated.View>
                 </TouchableOpacity>
@@ -167,7 +309,11 @@ export default function TabLayout() {
           name="progress"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon iconName="trending-up-outline" iconNameFocused="trending-up" focused={focused} />
+              <TabIcon
+                iconName="trending-up-outline"
+                iconNameFocused="trending-up"
+                focused={focused}
+              />
             ),
           }}
         />
@@ -175,7 +321,11 @@ export default function TabLayout() {
           name="exercise"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon iconName="barbell-outline" iconNameFocused="barbell" focused={focused} />
+              <TabIcon
+                iconName="barbell-outline"
+                iconNameFocused="barbell"
+                focused={focused}
+              />
             ),
           }}
         />
@@ -183,7 +333,11 @@ export default function TabLayout() {
           name="profile"
           options={{
             tabBarIcon: ({ focused }) => (
-              <TabIcon iconName="person-outline" iconNameFocused="person" focused={focused} />
+              <TabIcon
+                iconName="person-outline"
+                iconNameFocused="person"
+                focused={focused}
+              />
             ),
           }}
         />
@@ -203,21 +357,43 @@ const styles = StyleSheet.create({
   tabItem: {
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
+    gap: 4,
+    paddingTop: 2,
+  },
+  tabDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: Colors.primary,
   },
   fabContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    top: -14,
+    top: -18,
+  },
+  fabTouchable: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fabGlow: {
+    position: 'absolute',
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: 'transparent',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
   },
   fabOuter: {
     width: 62,
     height: 62,
     shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.26,
+    shadowRadius: 12,
+    elevation: 14,
   },
 });

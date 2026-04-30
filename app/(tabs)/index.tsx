@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,6 +21,9 @@ import { useExerciseStore } from '../../store/exerciseStore';
 import { usePedometer } from '../../hooks/usePedometer';
 import { EXERCISE_CATALOG, INTENSITY_LABELS, ExerciseIntensity } from '../../lib/constants';
 import { isChronoWindow } from '../../lib/exerciseEngine';
+import { Ionicons } from '@expo/vector-icons';
+
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -265,49 +269,108 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* ── EXERCISE CARD + BUFFER BANNER ── */}
+        {/* ── EXERCISE CARD ── */}
         {todayExercises.length > 0 && (
           <View style={styles.exerciseSection}>
-            <Text style={styles.overline}>EGZERSİZ</Text>
+            <View style={styles.exerciseSectionHeader}>
+              <Text style={styles.overline}>EGZERSİZ</Text>
+              <TouchableOpacity
+                onPress={() => router.push('/(tabs)/exercise')}
+                style={styles.exerciseSeeAll}
+              >
+                <Text style={styles.exerciseSeeAllText}>Tümü</Text>
+                <Ionicons name="chevron-forward" size={12} color={Colors.primary} />
+              </TouchableOpacity>
+            </View>
 
-            {/* Buffer banner */}
-            {exerciseBurned > 0 && (
-              <View style={styles.bufferBanner}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.bufferTitle}>🔥 {exerciseBurned} kcal yakıldı</Text>
-                  <Text style={styles.bufferSub}>
-                    +{exerciseEatBack} kcal tampon{goal === 'lose' ? ' (%50 güvenli pay)' : ''}
-                    {'  '}⚡ EPOC: +{exerciseEpocRange[0]}–{exerciseEpocRange[1]} kcal
-                  </Text>
-                  {exerciseChronoWarning && (
-                    <Text style={styles.bufferChrono}>
-                      ⚠️ Geç saatte egzersiz — insülin duyarlılığı riski
+            {/* Big stat card */}
+            <TouchableOpacity
+              style={styles.exCard}
+              onPress={() => router.push('/(tabs)/exercise')}
+              activeOpacity={0.88}
+            >
+              {/* Header row */}
+              <View style={styles.exCardTop}>
+                <View style={styles.exCardKcalWrap}>
+                  <Text style={styles.exCardKcalNum}>{exerciseBurned}</Text>
+                  <Text style={styles.exCardKcalUnit}>kcal</Text>
+                </View>
+                <View style={styles.exCardMiniStats}>
+                  <View style={styles.exCardMiniItem}>
+                    <Ionicons name="trending-up" size={12} color={Colors.primary} />
+                    <Text style={styles.exCardMiniText}>
+                      +{exerciseEpocRange[0]}–{exerciseEpocRange[1]} EPOC
                     </Text>
+                  </View>
+                  {exerciseWaterBonus > 0 && (
+                    <View style={styles.exCardMiniItem}>
+                      <Ionicons name="water" size={12} color="#38BDF8" />
+                      <Text style={[styles.exCardMiniText, { color: '#38BDF8' }]}>
+                        +{exerciseWaterBonus} ml
+                      </Text>
+                    </View>
+                  )}
+                  {exerciseChronoWarning && (
+                    <View style={styles.exCardMiniItem}>
+                      <Ionicons name="moon" size={12} color={Colors.warning} />
+                      <Text style={[styles.exCardMiniText, { color: Colors.warning }]}>
+                        Geç saatte
+                      </Text>
+                    </View>
                   )}
                 </View>
-                {exerciseWaterBonus > 0 && (
-                  <View style={styles.bufferWater}>
-                    <Text style={styles.bufferWaterNum}>+{exerciseWaterBonus}</Text>
-                    <Text style={styles.bufferWaterUnit}>ml su</Text>
-                  </View>
-                )}
               </View>
-            )}
 
-            {todayExercises.slice(0, 3).map((ex) => {
-              const cat = EXERCISE_CATALOG.find((c) => c.id === ex.exercise_type);
-              const intInfo = INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
-              return (
-                <View key={ex.id} style={styles.exerciseRow}>
-                  <Text style={styles.exerciseEmoji}>{cat?.emoji ?? '🏅'}</Text>
-                  <View style={styles.exerciseInfo}>
-                    <Text style={styles.exerciseName}>{ex.exercise_name}</Text>
-                    <Text style={styles.exerciseMeta}>{ex.duration_minutes} dk · {intInfo.label}</Text>
+              {/* Divider */}
+              <View style={styles.exCardDivider} />
+
+              {/* Exercise list */}
+              {todayExercises.slice(0, 3).map((ex, idx) => {
+                const cat = EXERCISE_CATALOG.find((c) => c.id === ex.exercise_type);
+                const intInfo =
+                  INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
+                return (
+                  <View
+                    key={ex.id}
+                    style={[
+                      styles.exRow,
+                      idx < Math.min(todayExercises.length, 3) - 1 && styles.exRowBorder,
+                    ]}
+                  >
+                    <View style={[styles.exEmojiBg, { backgroundColor: (cat?.color ?? Colors.primary) + '18' }]}>
+                      <Text style={styles.exEmoji}>{cat?.emoji ?? '🏅'}</Text>
+                    </View>
+                    <View style={styles.exInfo}>
+                      <Text style={styles.exName}>{ex.exercise_name}</Text>
+                      <Text style={styles.exMeta}>
+                        {ex.duration_minutes} dk
+                        <Text style={styles.exMetaDot}> · </Text>
+                        <Text style={[styles.exMetaIntensity, { color: intInfo.color }]}>
+                          {intInfo.label}
+                        </Text>
+                      </Text>
+                    </View>
+                    <Text style={[styles.exCal, { color: cat?.color ?? Colors.accent }]}>
+                      {ex.calories_burned}
+                    </Text>
                   </View>
-                  <Text style={styles.exerciseCal}>{ex.calories_burned} kcal</Text>
+                );
+              })}
+
+              {todayExercises.length > 3 && (
+                <Text style={styles.exMore}>+{todayExercises.length - 3} egzersiz daha →</Text>
+              )}
+
+              {/* Buffer note */}
+              {exerciseEatBack > 0 && (
+                <View style={styles.exBuffer}>
+                  <Text style={styles.exBufferText}>
+                    +{exerciseEatBack} kcal tampon eklendi
+                    {goal === 'lose' ? ' (%50 güvenli pay)' : ''}
+                  </Text>
                 </View>
-              );
-            })}
+              )}
+            </TouchableOpacity>
           </View>
         )}
 
@@ -575,80 +638,145 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Exercise
+  // Exercise section
   exerciseSection: {
     paddingHorizontal: 22,
     paddingTop: 26,
   },
-  exerciseRow: {
+  exerciseSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+  },
+  exerciseSeeAll: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.line,
+    gap: 2,
+  },
+  exerciseSeeAllText: {
+    fontSize: 11,
+    color: Colors.primary,
+    fontWeight: '700',
+  },
+
+  // Exercise card
+  exCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md + 4,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    overflow: 'hidden',
+    shadowColor: Colors.ink,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  exCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+  },
+  exCardKcalWrap: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+  },
+  exCardKcalNum: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    fontFamily: 'Georgia, serif',
+    letterSpacing: -1,
+  },
+  exCardKcalUnit: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    fontFamily: MONO,
+  },
+  exCardMiniStats: {
+    gap: 4,
+    alignItems: 'flex-end',
+  },
+  exCardMiniItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  exCardMiniText: {
+    fontSize: 10,
+    color: Colors.primary,
+    fontWeight: '600',
+    fontFamily: MONO,
+  },
+  exCardDivider: {
+    height: 0.5,
+    backgroundColor: Colors.borderLight,
+    marginHorizontal: Spacing.md,
+  },
+  exRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
     gap: Spacing.sm,
   },
-  exerciseEmoji: {
-    fontSize: 20,
-    width: 32,
+  exRowBorder: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.borderLight,
   },
-  exerciseInfo: {
-    flex: 1,
+  exEmojiBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  exerciseName: {
-    fontSize: 15,
-    color: Colors.ink,
+  exEmoji: { fontSize: 18 },
+  exInfo: { flex: 1 },
+  exName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textPrimary,
     fontFamily: 'Georgia, serif',
   },
-  exerciseMeta: {
+  exMeta: {
     fontSize: 11,
-    color: Colors.ink3,
-    marginTop: 2,
+    color: Colors.textMuted,
+    marginTop: 1,
   },
-  exerciseCal: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.terracotta,
-    fontFamily: 'Menlo, Courier, monospace',
-  },
-  bufferBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primary + '0E',
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.primary + '25',
-  },
-  bufferTitle: {
+  exMetaDot: { color: Colors.textFaint },
+  exMetaIntensity: { fontWeight: '600' },
+  exCal: {
     fontSize: 14,
     fontWeight: '800',
+    fontFamily: MONO,
+  },
+  exMore: {
+    fontSize: 11,
     color: Colors.primary,
-    marginBottom: 2,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingVertical: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.borderLight,
   },
-  bufferSub: {
+  exBuffer: {
+    backgroundColor: Colors.primary + '0C',
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.primary + '20',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+  },
+  exBufferText: {
     fontSize: 11,
-    color: Colors.ink3,
-    lineHeight: 16,
-  },
-  bufferChrono: {
-    fontSize: 10,
-    color: Colors.terracotta,
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  bufferWater: {
-    alignItems: 'center',
-    paddingLeft: Spacing.md,
-  },
-  bufferWaterNum: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#38BDF8',
-  },
-  bufferWaterUnit: {
-    fontSize: 10,
-    color: Colors.ink3,
+    color: Colors.primary,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
