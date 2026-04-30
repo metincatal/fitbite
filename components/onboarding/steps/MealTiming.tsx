@@ -32,7 +32,9 @@ function DayClock({ first, last }: { first: string; last: string }) {
   const a2 = hourAngle(lh);
   const [x1, y1] = polar(a1, r - 6, cx, cy);
   const [x2, y2] = polar(a2, r - 6, cx, cy);
-  const large = a2 - a1 > 180 ? 1 : 0;
+  // CW angle from first to last (handles midnight crossing and edge cases)
+  const cwAngle = ((a2 - a1) + 360) % 360;
+  const large = cwAngle > 180 ? 1 : 0;
 
   const ticks = Array.from({ length: 24 }, (_, h) => {
     const a = hourAngle(h);
@@ -42,7 +44,8 @@ function DayClock({ first, last }: { first: string; last: string }) {
     return { h, x1t, y1t, x2t, y2t };
   });
 
-  const window = lh - fh;
+  // Window in hours, handles midnight crossing
+  const windowH = lh >= fh ? lh - fh : 24 - fh + lh;
 
   return (
     <Svg width={220} height={220} viewBox="0 0 220 220">
@@ -75,7 +78,7 @@ function DayClock({ first, last }: { first: string; last: string }) {
         YEMEK PENCERESİ
       </SvgText>
       <SvgText x={cx} y={cy + 14} textAnchor="middle" fontSize="22" fontFamily={SERIF} fill={OnbColors.ink}>
-        {window}
+        {windowH}
       </SvgText>
       <SvgText x={cx + 16} y={cy + 14} textAnchor="start" fontSize="12" fontFamily={MONO} fill={OnbColors.ink3}>
         {' '}saat
@@ -124,7 +127,7 @@ export function MealTiming({ onNext, onBack }: Props) {
   const last  = data.last_meal_time  || '20:00';
   const [fh]  = first.split(':').map(Number);
   const [lh]  = last.split(':').map(Number);
-  const window = lh - fh;
+  const windowH = lh >= fh ? lh - fh : 24 - fh + lh;
 
   return (
     <OnbShell step={15} total={26}>
@@ -145,7 +148,7 @@ export function MealTiming({ onNext, onBack }: Props) {
             <Text style={styles.timeLabel}>İLK ÖĞÜN</Text>
             <Text style={styles.timeValue}>{first}</Text>
           </View>
-          <Text style={styles.windowLabel}>↔ {window} SAATLİK PENCERE</Text>
+          <Text style={styles.windowLabel}>↔ {windowH} SAATLİK PENCERE</Text>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={styles.timeLabel}>SON ÖĞÜN</Text>
             <Text style={styles.timeValue}>{last}</Text>

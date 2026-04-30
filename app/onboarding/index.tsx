@@ -15,7 +15,6 @@ import {
   calculateScoffScore,
   UserMetrics,
 } from '../../lib/nutrition';
-import { ProgressBar } from '../../components/onboarding/shared/ProgressBar';
 import { Colors, getBodyFatPercentageFromBand } from '../../lib/constants';
 
 // Adım bileşenleri
@@ -185,11 +184,17 @@ export default function OnboardingScreen() {
     const heightCm = parseFloat(data.height_cm);
     const weightKg = parseFloat(data.weight_kg);
 
-    if (!data.gender || !data.goal || isNaN(heightCm) || isNaN(weightKg)) {
+    if (!data.gender || isNaN(heightCm) || isNaN(weightKg)) {
       setLoading(false);
       Alert.alert('Hata', 'Bazı bilgiler eksik. Lütfen geri dönüp kontrol et.');
       return;
     }
+
+    // goal, ScientificPlanPreview'da açıkça set edilmemişse weekly_weight_goal_kg'dan türet
+    const resolvedGoal: 'lose' | 'maintain' | 'gain' = data.goal
+      ?? (data.weekly_weight_goal_kg > 0 ? 'lose'
+        : data.weekly_weight_goal_kg < 0 ? 'gain'
+        : 'maintain');
 
     // Güvenlik değerlendirmesi → blocker varsa goal'u maintain'e zorla
     const bmi = calculateBMI(weightKg, heightCm);
@@ -200,7 +205,7 @@ export default function OnboardingScreen() {
       age,
       height_cm: heightCm,
       weight_kg: weightKg,
-      goal: data.goal,
+      goal: resolvedGoal,
       activity_level: data.activity_level ?? 'moderate',
       occupational_activity: data.occupational_activity ?? undefined,
       exercise_frequency: data.exercise_frequency ?? undefined,
@@ -217,7 +222,7 @@ export default function OnboardingScreen() {
       amdr_flags: preMacros.amdr_flags,
     });
 
-    const effectiveGoal = safety.canProceed ? data.goal : 'maintain';
+    const effectiveGoal = safety.canProceed ? resolvedGoal : 'maintain';
     const effectiveWeekly = safety.canProceed ? data.weekly_weight_goal_kg : 0;
 
     const metrics: UserMetrics = { ...preMetrics, goal: effectiveGoal };
@@ -295,8 +300,6 @@ export default function OnboardingScreen() {
 
   const step = currentStep;
   const isStoryStep = STORY_STEPS.has(step);
-  const showProgress = !isStoryStep;
-  const dataStepIndex = getDataStepIndex(step);
 
   const enteringAnim = isStoryStep
     ? undefined
@@ -351,7 +354,6 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {showProgress && <ProgressBar current={dataStepIndex} total={DATA_STEPS} />}
       {isStoryStep ? (
         <GestureDetector gesture={swipeGesture}>
           <Animated.View key={step} style={styles.stepWrapper}>

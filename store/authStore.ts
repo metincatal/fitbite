@@ -8,6 +8,7 @@ interface AuthState {
   user: User | null;
   profile: Profile | null;
   isLoading: boolean;
+  profileFetched: boolean;
   setSession: (session: Session | null) => void;
   setProfile: (profile: Profile | null) => void;
   signOut: () => Promise<void>;
@@ -19,6 +20,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   profile: null,
   isLoading: true,
+  profileFetched: false,
 
   setSession: (session) =>
     set({ session, user: session?.user ?? null, isLoading: false }),
@@ -27,7 +29,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
-    set({ session: null, user: null, profile: null });
+    set({ session: null, user: null, profile: null, profileFetched: false });
   },
 
   fetchProfile: async () => {
@@ -40,6 +42,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       .eq('user_id', user.id)
       .single();
 
-    if (data) set({ profile: data });
+    set({ profile: data ?? null, profileFetched: true });
   },
 }));

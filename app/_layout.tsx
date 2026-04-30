@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 
 export default function RootLayout() {
-  const { setSession, fetchProfile, session, profile, isLoading } = useAuthStore();
+  const { setSession, fetchProfile, session, profile, isLoading, profileFetched } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
   const mounted = useRef(false);
@@ -17,14 +17,27 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) fetchProfile();
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session }, error }) => {
+        if (error) {
+          // Geçersiz/süresi dolmuş token — temizle ve login'e yönlendir
+          supabase.auth.signOut().catch(() => {});
+          setSession(null);
+          return;
+        }
+        setSession(session);
+        if (session) fetchProfile();
+      })
+      .catch(() => {
+        supabase.auth.signOut().catch(() => {});
+        setSession(null);
+      });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchProfile();
+      if (session) {
+        fetchProfile();
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -47,11 +60,14 @@ export default function RootLayout() {
       if (inAuthGroup || inOnboarding) {
         router.replace('/(tabs)');
       }
-    } else if (session && !profile && !inOnboarding && !inAuthGroup && !inTabs) {
-      // Oturum var ama profil yok ve uygun ekranda değil: onboarding'e
-      router.replace('/onboarding');
+    } else if (session && !profile && profileFetched) {
+      // fetchProfile tamamlandı ama profil DB'de yok: onboarding'e gönder
+      if (!inOnboarding && !inAuthGroup) {
+        router.replace('/onboarding');
+      }
     }
-  }, [session, profile, isLoading, segments]);
+    // session && !profile && !profileFetched: fetchProfile henüz bitmedi, bekle
+  }, [session, profile, isLoading, profileFetched, segments]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

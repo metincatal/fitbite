@@ -237,6 +237,10 @@ export default function ProfileScreen() {
         <View style={styles.emptyState}>
           <Ionicons name="person-circle-outline" size={56} color={Colors.textMuted} />
           <Text style={styles.emptyText}>Profil bilgileri yükleniyor...</Text>
+          <TouchableOpacity style={styles.emergencySignOut} onPress={signOut}>
+            <Ionicons name="log-out-outline" size={18} color={Colors.error} />
+            <Text style={styles.emergencySignOutText}>Oturumu Kapat</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -732,6 +736,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
   emptyText: { fontSize: FontSize.md, color: Colors.textMuted },
+  emergencySignOut: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderWidth: 1.5,
+    borderColor: Colors.error,
+    borderRadius: BorderRadius.full,
+  },
+  emergencySignOutText: { fontSize: FontSize.sm, color: Colors.error, fontWeight: '600' },
   profileHeader: { alignItems: 'center', paddingVertical: Spacing.xl },
   avatar: {
     width: 88,

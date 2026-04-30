@@ -130,8 +130,9 @@ const styles = StyleSheet.create({
     fontFamily: SERIF,
     color: OnbColors.ink3,
     fontStyle: 'italic',
-    width: 36,
-    lineHeight: 36,
+    width: 56,
+    lineHeight: 44,
+    flexShrink: 0,
   },
   qText: {
     fontSize: 13.5,
