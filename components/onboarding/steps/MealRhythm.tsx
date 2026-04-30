@@ -1,135 +1,199 @@
+// Onboarding 17 — Meal Count
+// Big number readout + segmented chooser + meal stones visualization.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius, MEAL_RHYTHMS } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
+const OPTS = [
+  { k: 2, label: '2', hint: '16/8 oruç akışı',    desc: 'Aralıklı oruç (IF)' },
+  { k: 3, label: '3', hint: 'Dengeli akış',        desc: 'Klasik düzen — kahvaltı / öğle / akşam' },
+  { k: 4, label: '4', hint: 'Sık ve az',           desc: 'Üç ana + bir ara öğün' },
+  { k: 5, label: '5+', hint: 'Yoğun antrenman',    desc: 'Bodybuilding tarzı' },
+] as const;
+
+const STONE_TIMES = ['08:00', '11:00', '13:30', '16:30', '20:00', '22:00'];
+
 export function MealRhythm({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
+  const count = data.meal_count ?? 3;
+  const sel = OPTS.find((o) => o.k === count) ?? OPTS[1];
 
   return (
-    <StepContainer scrollable={false}>
-      <View style={styles.inner}>
-        <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-          🍽️
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-          Günde kaç öğün{'\n'}yemek istersin?
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-          Öğün hatırlatıcıları ve günlük plan buna göre ayarlanır
-        </Animated.Text>
+    <OnbShell step={14} total={26}>
+      <OnbHead
+        kicker="Plan · 1/3"
+        title="Günde kaç öğün"
+        italic="yemek istersin?"
+        subtitle="Öğün hatırlatıcıları ve günlük plan buna göre ayarlanır."
+      />
 
-        <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.cardsRow}>
-          {MEAL_RHYTHMS.map((r) => {
-            const selected = data.meal_count === r.count;
+      <View style={styles.body}>
+        {/* Big readout */}
+        <View style={styles.readout}>
+          <Text style={styles.bigNum}>{count}</Text>
+          <View style={styles.readoutMeta}>
+            <Text style={styles.readoutLabel}>Günlük öğün</Text>
+            <Text style={styles.readoutHint}>{sel.hint}</Text>
+            <Text style={styles.readoutDesc}>{sel.desc}</Text>
+          </View>
+        </View>
+
+        {/* Segmented chooser */}
+        <View style={styles.seg}>
+          {OPTS.map((o, i) => {
+            const active = count === o.k;
             return (
-              <View
-                key={r.count}
-                style={[styles.card, selected && styles.cardSelected]}
-                onTouchEnd={() => updateField('meal_count', r.count)}
+              <TouchableOpacity
+                key={o.k}
+                onPress={() => updateField('meal_count', o.k)}
+                style={[
+                  styles.segBtn,
+                  i < OPTS.length - 1 && styles.segBtnBorder,
+                  active && styles.segBtnActive,
+                ]}
+                activeOpacity={0.8}
               >
-                <Ionicons
-                  name={r.icon as any}
-                  size={32}
-                  color={selected ? Colors.primary : Colors.textMuted}
+                <Text style={[styles.segLabel, active && styles.segLabelActive]}>
+                  {o.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Meal stones */}
+        <View style={styles.stones}>
+          {STONE_TIMES.map((time, i) => {
+            const active = i < count;
+            const size = active ? (i === 0 ? 36 : i === count - 1 ? 32 : 28) : 14;
+            return (
+              <View key={i} style={[styles.stone, { opacity: active ? 1 : 0.3 }]}>
+                <View
+                  style={[
+                    styles.stoneDot,
+                    { width: size, height: size, borderRadius: size / 2 },
+                    active ? styles.stoneDotActive : styles.stoneDotEmpty,
+                  ]}
                 />
-                <Text style={[styles.cardLabel, selected && styles.cardLabelSelected]}>
-                  {r.label}
-                </Text>
-                <Text style={[styles.cardSubtitle, selected && styles.cardSubtitleSelected]}>
-                  {r.subtitle}
-                </Text>
-                {selected && (
-                  <View style={styles.selectedBadge}>
-                    <Ionicons name="checkmark" size={14} color="#fff" />
-                  </View>
-                )}
+                <Text style={styles.stoneTime}>{active ? time : '—'}</Text>
               </View>
             );
           })}
-        </Animated.View>
-
-        <View style={styles.footer}>
-          <OnboardingButton title="Devam Et →" onPress={onNext} />
-          <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
         </View>
       </View>
-    </StepContainer>
+
+      <OnbFoot onNext={onNext} onBack={onBack} />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  inner: { flex: 1, justifyContent: 'space-between' },
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
-    lineHeight: FontSize.md * 1.5,
-  },
-  cardsRow: {
+  readout: {
     flexDirection: 'row',
-    gap: Spacing.sm,
-    flex: 1,
-    alignItems: 'stretch',
-  },
-  card: {
-    flex: 1,
-    borderWidth: 2,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.md,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surface,
-    gap: Spacing.sm,
-    position: 'relative',
-    minHeight: 140,
+    gap: 18,
+    padding: 16,
+    backgroundColor: OnbColors.surface,
+    borderWidth: 0.5,
+    borderColor: OnbColors.line,
   },
-  cardSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primaryPale + '30',
+  bigNum: {
+    fontSize: 88,
+    lineHeight: 78,
+    fontFamily: SERIF,
+    color: OnbColors.terracotta,
+    letterSpacing: -3.5,
   },
-  cardLabel: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    textAlign: 'center',
+  readoutMeta: {
+    flex: 1,
   },
-  cardLabelSelected: { color: Colors.primary },
-  cardSubtitle: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    lineHeight: FontSize.xs * 1.4,
+  readoutLabel: {
+    fontSize: 9,
+    letterSpacing: 1.8,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    textTransform: 'uppercase',
   },
-  cardSubtitleSelected: { color: Colors.primaryLight },
-  selectedBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.primary,
+  readoutHint: {
+    fontSize: 18,
+    fontFamily: SERIF,
+    fontStyle: 'italic',
+    color: OnbColors.ink,
+    marginTop: 4,
+  },
+  readoutDesc: {
+    fontSize: 11.5,
+    color: OnbColors.ink2,
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  seg: {
+    flexDirection: 'row',
+    marginTop: 14,
+    borderWidth: 0.5,
+    borderColor: OnbColors.ink,
+  },
+  segBtn: {
+    flex: 1,
+    paddingVertical: 14,
     alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
-  footer: { gap: Spacing.sm, paddingTop: Spacing.lg },
+  segBtnBorder: {
+    borderRightWidth: 0.5,
+    borderRightColor: OnbColors.ink,
+  },
+  segBtnActive: {
+    backgroundColor: OnbColors.ink,
+  },
+  segLabel: {
+    fontSize: 18,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+  },
+  segLabelActive: {
+    color: OnbColors.bg,
+    fontStyle: 'italic',
+  },
+  stones: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-end',
+    paddingTop: 24,
+    paddingBottom: 6,
+    height: 110,
+  },
+  stone: {
+    alignItems: 'center',
+  },
+  stoneDot: {},
+  stoneDotActive: {
+    backgroundColor: OnbColors.ink,
+  },
+  stoneDotEmpty: {
+    borderWidth: 0.5,
+    borderStyle: 'dashed' as any,
+    borderColor: OnbColors.ink3,
+    backgroundColor: 'transparent',
+  },
+  stoneTime: {
+    fontSize: 9,
+    letterSpacing: 1,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    marginTop: 6,
+  },
 });

@@ -1,164 +1,214 @@
+// Onboarding 18 — Meal Times
+// DayClock 24h SVG + time chip ScrollViews.
+
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
-const HOURS = Array.from({ length: 18 }, (_, i) => {
-  const h = i + 5; // 05:00 - 22:00
-  return `${String(h).padStart(2, '0')}:00`;
-});
+const HOURS = [
+  '05:00','06:00','07:00','08:00','09:00','10:00','11:00','12:00',
+  '13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00',
+];
 
-function TimeSelector({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function hourAngle(h: number) { return (h / 24) * 360 - 90; }
+function polar(a: number, r: number, cx = 110, cy = 110): [number, number] {
+  return [cx + Math.cos((a * Math.PI) / 180) * r, cy + Math.sin((a * Math.PI) / 180) * r];
+}
+
+function DayClock({ first, last }: { first: string; last: string }) {
+  const cx = 110, cy = 110, r = 88;
+  const fh = parseInt(first);
+  const lh = parseInt(last);
+  const a1 = hourAngle(fh);
+  const a2 = hourAngle(lh);
+  const [x1, y1] = polar(a1, r - 6, cx, cy);
+  const [x2, y2] = polar(a2, r - 6, cx, cy);
+  const large = a2 - a1 > 180 ? 1 : 0;
+
+  const ticks = Array.from({ length: 24 }, (_, h) => {
+    const a = hourAngle(h);
+    const [x1t, y1t] = polar(a, r, cx, cy);
+    const len = h % 6 === 0 ? 12 : h % 3 === 0 ? 7 : 4;
+    const [x2t, y2t] = polar(a, r - len, cx, cy);
+    return { h, x1t, y1t, x2t, y2t };
+  });
+
+  const window = lh - fh;
+
   return (
-    <View style={selectorStyles.container}>
-      <Text style={selectorStyles.label}>{label}</Text>
-      <View style={selectorStyles.row}>
-        {HOURS.map((h) => (
-          <TouchableOpacity
-            key={h}
-            style={[selectorStyles.chip, value === h && selectorStyles.chipSelected]}
-            onPress={() => onChange(h)}
-            activeOpacity={0.7}
-          >
-            <Text style={[selectorStyles.chipText, value === h && selectorStyles.chipTextSelected]}>
-              {h}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+    <Svg width={220} height={220} viewBox="0 0 220 220">
+      <Circle cx={cx} cy={cy} r={r} fill={OnbColors.surface} stroke={OnbColors.ink} strokeWidth="0.6" />
+      {ticks.map(({ h, x1t, y1t, x2t, y2t }) => (
+        <Line
+          key={h}
+          x1={x1t} y1={y1t} x2={x2t} y2={y2t}
+          stroke={OnbColors.ink}
+          strokeWidth={h % 6 === 0 ? 1 : 0.4}
+          opacity={h % 6 === 0 ? 0.8 : 0.4}
+        />
+      ))}
+      <SvgText x={cx} y={cy - r + 24} textAnchor="middle" fontSize="9" fontFamily={MONO} fill={OnbColors.ink3}>00</SvgText>
+      <SvgText x={cx + r - 22} y={cy + 4} textAnchor="middle" fontSize="9" fontFamily={MONO} fill={OnbColors.ink3}>06</SvgText>
+      <SvgText x={cx} y={cy + r - 18} textAnchor="middle" fontSize="9" fontFamily={MONO} fill={OnbColors.ink3}>12</SvgText>
+      <SvgText x={cx - r + 22} y={cy + 4} textAnchor="middle" fontSize="9" fontFamily={MONO} fill={OnbColors.ink3}>18</SvgText>
+
+      <Path
+        d={`M ${x1} ${y1} A ${r - 6} ${r - 6} 0 ${large} 1 ${x2} ${y2}`}
+        fill="none"
+        stroke={OnbColors.terracotta}
+        strokeWidth="6"
+        strokeLinecap="round"
+      />
+      <Circle cx={x1} cy={y1} r="6" fill={OnbColors.ink} />
+      <Circle cx={x2} cy={y2} r="6" fill={OnbColors.ink} />
+
+      <SvgText x={cx} y={cy - 4} textAnchor="middle" fontSize="9" fontFamily={MONO} fill={OnbColors.ink3}>
+        YEMEK PENCERESİ
+      </SvgText>
+      <SvgText x={cx} y={cy + 14} textAnchor="middle" fontSize="22" fontFamily={SERIF} fill={OnbColors.ink}>
+        {window}
+      </SvgText>
+      <SvgText x={cx + 16} y={cy + 14} textAnchor="start" fontSize="12" fontFamily={MONO} fill={OnbColors.ink3}>
+        {' '}saat
+      </SvgText>
+    </Svg>
+  );
+}
+
+function TimeStrip({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <View style={strip.wrap}>
+      <Text style={strip.label}>{label}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={strip.scroll} contentContainerStyle={strip.row}>
+        {HOURS.map((h) => {
+          const sel = h === value;
+          return (
+            <TouchableOpacity
+              key={h}
+              onPress={() => onChange(h)}
+              style={[strip.chip, sel && strip.chipSel]}
+              activeOpacity={0.8}
+            >
+              <Text style={[strip.chipText, sel && strip.chipTextSel]}>{h}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 }
 
-const selectorStyles = StyleSheet.create({
-  container: { marginBottom: Spacing.xl },
-  label: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    marginBottom: Spacing.md,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  chip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
-  },
-  chipSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primaryPale + '40',
-  },
-  chipText: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
-  chipTextSelected: {
-    color: Colors.primary,
-    fontWeight: '700',
-  },
+const strip = StyleSheet.create({
+  wrap: { marginTop: 18 },
+  label: { fontSize: 9, letterSpacing: 3.2, fontFamily: MONO, color: OnbColors.ink3, textTransform: 'uppercase', marginBottom: 8 },
+  scroll: {},
+  row: { flexDirection: 'row', gap: 4, paddingBottom: 4 },
+  chip: { flexShrink: 0, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 0.5, borderColor: OnbColors.line, backgroundColor: 'transparent' },
+  chipSel: { backgroundColor: OnbColors.ink, borderColor: OnbColors.ink },
+  chipText: { fontSize: 11, letterSpacing: 0.6, fontFamily: MONO, color: OnbColors.ink },
+  chipTextSel: { color: OnbColors.bg },
 });
 
 export function MealTiming({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
-
-  const windowHours = (() => {
-    const [fh] = data.first_meal_time.split(':').map(Number);
-    const [lh] = data.last_meal_time.split(':').map(Number);
-    return lh - fh;
-  })();
+  const first = data.first_meal_time || '08:00';
+  const last  = data.last_meal_time  || '20:00';
+  const [fh]  = first.split(':').map(Number);
+  const [lh]  = last.split(':').map(Number);
+  const window = lh - fh;
 
   return (
-    <StepContainer>
-      <View style={styles.inner}>
-        <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-          ⏰
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-          Öğün zamanların{'\n'}nasıl?
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-          Bildirimler ve IF penceresi buna göre ayarlanır
-        </Animated.Text>
+    <OnbShell step={15} total={26}>
+      <OnbHead
+        kicker="Plan · 2/3"
+        title="Öğün zamanların"
+        italic="nasıl?"
+        subtitle="Bildirimler ve aralıklı oruç (IF) penceresi buna göre ayarlanır."
+      />
 
-        <Animated.View entering={FadeInDown.delay(300).duration(500)}>
-          <TimeSelector
-            label="İlk öğün saati"
-            value={data.first_meal_time}
-            onChange={(v) => updateField('first_meal_time', v)}
-          />
-          <TimeSelector
-            label="Son öğün saati"
-            value={data.last_meal_time}
-            onChange={(v) => updateField('last_meal_time', v)}
-          />
-
-          {windowHours > 0 && (
-            <Animated.View entering={FadeInDown.duration(300)} style={styles.windowChip}>
-              <Text style={styles.windowText}>
-                🕐 {windowHours} saatlik beslenme penceresi
-                {windowHours <= 10 ? '  |  Aralıklı oruç uyumlu ⚡' : ''}
-              </Text>
-            </Animated.View>
-          )}
-        </Animated.View>
-
-        <View style={styles.footer}>
-          <OnboardingButton title="Devam Et →" onPress={onNext} />
-          <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
+      <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+        <View style={styles.clockWrap}>
+          <DayClock first={first} last={last} />
         </View>
-      </View>
-    </StepContainer>
+
+        <View style={styles.timesRow}>
+          <View>
+            <Text style={styles.timeLabel}>İLK ÖĞÜN</Text>
+            <Text style={styles.timeValue}>{first}</Text>
+          </View>
+          <Text style={styles.windowLabel}>↔ {window} SAATLİK PENCERE</Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.timeLabel}>SON ÖĞÜN</Text>
+            <Text style={styles.timeValue}>{last}</Text>
+          </View>
+        </View>
+
+        <TimeStrip label="İLK ÖĞÜN" value={first} onChange={(v) => updateField('first_meal_time', v)} />
+        <TimeStrip label="SON ÖĞÜN" value={last}  onChange={(v) => updateField('last_meal_time', v)} />
+
+        <View style={styles.tipBox}>
+          <Text style={styles.tipText}>ÖNERİ · SON ÖĞÜN UYKUDAN ≥ 3 SAAT ÖNCE OLMALI.</Text>
+        </View>
+      </ScrollView>
+
+      <OnbFoot onNext={onNext} onBack={onBack} />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  inner: { flex: 1, paddingBottom: Spacing.xxl },
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
+  clockWrap: {
+    alignItems: 'center',
+    paddingBottom: 14,
   },
-  windowChip: {
-    backgroundColor: Colors.surfaceSecondary,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginTop: -Spacing.md,
+  timesRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginTop: 8,
   },
-  windowText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-    lineHeight: FontSize.sm * 1.4,
+  timeLabel: {
+    fontSize: 9,
+    letterSpacing: 1.8,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
   },
-  footer: { marginTop: 'auto', gap: Spacing.sm, paddingTop: Spacing.lg },
+  timeValue: {
+    fontSize: 32,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+  },
+  windowLabel: {
+    fontSize: 11,
+    letterSpacing: 1.6,
+    fontFamily: MONO,
+    color: OnbColors.terracotta,
+  },
+  tipBox: {
+    marginTop: 14,
+    marginBottom: 20,
+    padding: 12,
+    backgroundColor: OnbColors.surface2,
+    borderLeftWidth: 2,
+    borderLeftColor: OnbColors.terracotta,
+  },
+  tipText: {
+    fontSize: 10,
+    letterSpacing: 1.4,
+    fontFamily: MONO,
+    color: OnbColors.ink2,
+  },
 });

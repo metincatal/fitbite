@@ -1,10 +1,11 @@
+// Onboarding 26 — Ready (final screen)
+// Dark ink background, plate donut SVG.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
+import { OnbColors, SERIF, MONO } from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { OnboardingButton } from '../shared/OnboardingButton';
 
 interface Props {
   onNext: () => void;
@@ -12,68 +13,81 @@ interface Props {
   loading?: boolean;
 }
 
-const FEATURES = [
-  { icon: 'camera-outline', title: 'Fotoğrafla tanı', desc: 'Tabağını fotoğrafla, besin değerlerini saniyeler içinde gör' },
-  { icon: 'barcode-outline', title: 'Barkod okuyucu', desc: 'Marketteki ürünleri anında tara ve ekle' },
-  { icon: 'chatbubble-ellipses-outline', title: 'FitBot AI', desc: 'Diyetisyen AI\'ın her an yanında' },
-  { icon: 'trending-up-outline', title: 'İlerleme takibi', desc: 'Haftalık raporlar ve kilo timeline\'ı' },
-];
+function PlateSvg({ kcal }: { kcal: number }) {
+  const cx = 110, cy = 110;
+  const slices = [
+    { s: -90, e: 0,   c: '#7CB9E8' },
+    { s: 0,   e: 110, c: '#A8E6CF' },
+    { s: 110, e: 200, c: '#FFD3A0' },
+    { s: 200, e: 270, c: OnbColors.terracotta },
+  ];
+
+  function polar(a: number, r: number): [number, number] {
+    return [cx + Math.cos((a * Math.PI) / 180) * r, cy + Math.sin((a * Math.PI) / 180) * r];
+  }
+
+  return (
+    <Svg width={220} height={220} viewBox="0 0 220 220">
+      <Circle cx={cx} cy={cy} r={94} fill="none" stroke={OnbColors.bg} strokeWidth="0.8" opacity="0.4" />
+      <Circle cx={cx} cy={cy} r={70} fill="none" stroke={OnbColors.bg} strokeWidth="0.5" opacity="0.6" />
+      {slices.map((sl, i) => {
+        const [x1, y1] = polar(sl.s, 88);
+        const [x2, y2] = polar(sl.e, 88);
+        const [xi1, yi1] = polar(sl.e, 26);
+        const [xi2, yi2] = polar(sl.s, 26);
+        const large = sl.e - sl.s > 180 ? 1 : 0;
+        return (
+          <Path
+            key={i}
+            d={`M ${x1} ${y1} A 88 88 0 ${large} 1 ${x2} ${y2} L ${xi1} ${yi1} A 26 26 0 ${large} 0 ${xi2} ${yi2} Z`}
+            fill={sl.c}
+            opacity="0.85"
+          />
+        );
+      })}
+      <Circle cx={cx} cy={cy} r={22} fill={OnbColors.ink} />
+      <SvgText x={cx} y={cx - 4} textAnchor="middle" fontSize="8" fontFamily={MONO} fill="rgba(242,239,230,0.6)" letterSpacing="1.8">
+        HEDEF
+      </SvgText>
+      <SvgText x={cx} y={cx + 10} textAnchor="middle" fontSize="14" fontFamily={SERIF} fill={OnbColors.bg}>
+        {kcal}
+      </SvgText>
+    </Svg>
+  );
+}
 
 export function PhotoDemo({ onNext, onBack, loading = false }: Props) {
   const { data } = useOnboardingData();
+  const name = data.name || 'arkadaş';
 
   return (
     <View style={styles.container}>
-      <Animated.View entering={FadeIn.duration(600)} style={styles.topSection}>
-        <View style={styles.demoScreen}>
-          <View style={styles.mockCamera}>
-            <Ionicons name="camera" size={48} color={Colors.primaryLight} />
-            <View style={styles.scanLine} />
-            <View style={styles.focusCornerTL} />
-            <View style={styles.focusCornerTR} />
-            <View style={styles.focusCornerBL} />
-            <View style={styles.focusCornerBR} />
-          </View>
-          <Animated.View
-            entering={FadeInDown.delay(800).duration(400)}
-            style={styles.resultCard}
-          >
-            <Text style={styles.resultEmoji}>🥗</Text>
-            <View>
-              <Text style={styles.resultName}>Mercimek Çorbası</Text>
-              <Text style={styles.resultCalorie}>245 kcal · %92 güven</Text>
-            </View>
-          </Animated.View>
-        </View>
-      </Animated.View>
+      <Text style={styles.kicker}>Kurulum tamamlandı · 26 / 26</Text>
 
-      <View style={styles.content}>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.title}>
-          Hazır mısın,{'\n'}{data.name || 'arkadaş'}? 🚀
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(350).duration(500)} style={styles.subtitle}>
-          FitBite'ın güçlü özelliklerini keşfet
-        </Animated.Text>
-
-        <Animated.View entering={FadeInDown.delay(500).duration(500)} style={styles.featureList}>
-          {FEATURES.map((f, i) => (
-            <View key={i} style={styles.featureItem}>
-              <View style={styles.featureIcon}>
-                <Ionicons name={f.icon as any} size={20} color={Colors.primary} />
-              </View>
-              <View style={styles.featureText}>
-                <Text style={styles.featureTitle}>{f.title}</Text>
-                <Text style={styles.featureDesc}>{f.desc}</Text>
-              </View>
-            </View>
-          ))}
-        </Animated.View>
+      <View style={styles.svgWrap}>
+        <PlateSvg kcal={1606} />
       </View>
 
-      <Animated.View entering={FadeInDown.delay(900).duration(400)} style={styles.footer}>
-        <OnboardingButton title="Haydi başlayalım! 🌿" onPress={onNext} loading={loading} />
-        <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
-      </Animated.View>
+      <Text style={styles.headline}>
+        Tabağın hazır,{'\n'}
+        <Text style={styles.headlineItalic}>{name}.</Text>
+      </Text>
+      <Text style={styles.body}>
+        İlk öğünü kaydetmek için ortadaki diyaframı dokun. Bugün küçük bir adım yeter.
+      </Text>
+
+      <View style={styles.footer}>
+        <TouchableOpacity
+          onPress={onNext}
+          style={[styles.cta, loading && { opacity: 0.7 }]}
+          activeOpacity={0.85}
+          disabled={loading}
+        >
+          <Text style={styles.ctaLeft}>↵</Text>
+          <Text style={styles.ctaCenter}><Text style={styles.ctaItalic}>FitBite'a giriş</Text></Text>
+          <Text style={styles.ctaRight}>→</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -81,126 +95,76 @@ export function PhotoDemo({ onNext, onBack, loading = false }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.xxl,
-  },
-  topSection: {
-    height: 180,
-    marginBottom: Spacing.lg,
-  },
-  demoScreen: {
-    flex: 1,
-    backgroundColor: Colors.primaryDark,
-    borderRadius: BorderRadius.xl,
+    backgroundColor: OnbColors.ink,
+    paddingTop: 70,
+    paddingHorizontal: 28,
+    paddingBottom: 36,
     overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  mockCamera: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
+  kicker: {
+    fontSize: 10,
+    letterSpacing: 4.8,
+    fontFamily: MONO,
+    color: 'rgba(242,239,230,0.55)',
+    textTransform: 'uppercase',
   },
-  scanLine: {
+  svgWrap: {
+    alignItems: 'center',
+    marginTop: 30,
+  },
+  headline: {
+    fontSize: 44,
+    fontFamily: SERIF,
+    lineHeight: 48,
+    marginTop: 30,
+    letterSpacing: -0.88,
+    color: OnbColors.bg,
+  },
+  headlineItalic: {
+    fontStyle: 'italic',
+    color: OnbColors.terracotta,
+  },
+  body: {
+    fontSize: 13.5,
+    color: 'rgba(242,239,230,0.7)',
+    marginTop: 12,
+    lineHeight: 20,
+    maxWidth: 300,
+  },
+  footer: {
     position: 'absolute',
-    width: '60%',
-    height: 2,
-    backgroundColor: Colors.primaryLight + '80',
-    top: '50%',
+    left: 22,
+    right: 22,
+    bottom: 36,
   },
-  focusCornerTL: {
-    position: 'absolute', top: 20, left: 30,
-    width: 24, height: 24,
-    borderTopWidth: 3, borderLeftWidth: 3,
-    borderColor: Colors.primaryLight,
-  },
-  focusCornerTR: {
-    position: 'absolute', top: 20, right: 30,
-    width: 24, height: 24,
-    borderTopWidth: 3, borderRightWidth: 3,
-    borderColor: Colors.primaryLight,
-  },
-  focusCornerBL: {
-    position: 'absolute', bottom: 20, left: 30,
-    width: 24, height: 24,
-    borderBottomWidth: 3, borderLeftWidth: 3,
-    borderColor: Colors.primaryLight,
-  },
-  focusCornerBR: {
-    position: 'absolute', bottom: 20, right: 30,
-    width: 24, height: 24,
-    borderBottomWidth: 3, borderRightWidth: 3,
-    borderColor: Colors.primaryLight,
-  },
-  resultCard: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 12,
-    backgroundColor: 'rgba(255,255,255,0.95)',
-    borderRadius: BorderRadius.md,
-    padding: Spacing.sm,
+  cta: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: Spacing.sm,
+    backgroundColor: OnbColors.bg,
+    borderRadius: 999,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
   },
-  resultEmoji: { fontSize: 28 },
-  resultName: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+  ctaLeft: {
+    fontSize: 10,
+    letterSpacing: 3.2,
+    fontFamily: MONO,
+    color: OnbColors.ink,
+    opacity: 0.55,
   },
-  resultCalorie: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    fontWeight: '600',
+  ctaCenter: {
+    fontSize: 19,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
   },
-  content: { flex: 1 },
-  title: {
-    fontSize: FontSize.xxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxl * 1.25,
-    marginBottom: Spacing.sm,
+  ctaItalic: {
+    fontStyle: 'italic',
+    color: OnbColors.terracotta,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.lg,
+  ctaRight: {
+    fontSize: 19,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
   },
-  featureList: { gap: Spacing.sm },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
-  featureIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primaryPale + '40',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  featureText: { flex: 1 },
-  featureTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  featureDesc: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    marginTop: 2,
-    lineHeight: FontSize.xs * 1.4,
-  },
-  footer: { gap: Spacing.sm, paddingTop: Spacing.md },
 });

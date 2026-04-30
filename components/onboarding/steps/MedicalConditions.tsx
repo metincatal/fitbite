@@ -1,101 +1,154 @@
+// Onboarding 07 — Health Conditions
+// Pill-shaped multi-select chips.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import {
-  Colors,
-  Spacing,
-  FontSize,
-  BorderRadius,
-  MEDICAL_CONDITIONS,
-} from '../../../lib/constants';
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
-import { OptionCard } from '../shared/OptionCard';
+import { MedicalCondition } from '../../../lib/constants';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
+const CONDITIONS: { k: MedicalCondition; label: string; hint: string }[] = [
+  { k: 'none',          label: 'Hiçbiri',           hint: 'Bilinen bir durum yok' },
+  { k: 'diabetes',      label: 'Diyabet',            hint: 'Tip 1 / 2' },
+  { k: 'hypertension',  label: 'Yüksek Tansiyon',   hint: 'Hipertansiyon' },
+  { k: 'heart_disease', label: 'Kalp Rahatsızlığı', hint: 'Kardiyovasküler' },
+  { k: 'kidney_disease',label: 'Böbrek Hastalığı',  hint: 'KBH dahil' },
+  { k: 'thyroid',       label: 'Tiroid',             hint: 'Hipo / Hiper' },
+  { k: 'pregnancy',     label: 'Hamileyim',          hint: 'Trimester farklı' },
+  { k: 'lactation',     label: 'Emziriyorum',        hint: '+500 kcal' },
+];
+
 export function MedicalConditions({ onNext, onBack }: Props) {
   const { data, toggleMedicalCondition } = useOnboardingData();
-  const isValid = data.medical_conditions.length > 0;
+  const selected = data.medical_conditions;
 
   return (
-    <StepContainer>
-      <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-        🩺
-      </Animated.Text>
-      <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-        Bilinmesi gereken{'\n'}sağlık durumun var mı?
-      </Animated.Text>
-      <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-        Önerileri sağlık durumuna göre hassaslaştırırız.{'\n'}Doktor önerilerinin yerini tutmaz.
-      </Animated.Text>
+    <OnbShell step={5} total={26}>
+      <OnbHead
+        kicker="Klinik bağlam"
+        title="Bilmemizi istediğin bir"
+        italic="durum var mı?"
+        subtitle="Önerileri buna göre hassaslaştırırız. Doktor tavsiyesinin yerini tutmaz."
+      />
 
-      <Animated.View entering={FadeInDown.delay(250).duration(500)} style={styles.disclaimerBox}>
-        <Ionicons name="information-circle" size={16} color={Colors.primary} />
-        <Text style={styles.disclaimerText}>
-          Birden fazla seçebilirsin. "Hiçbiri" seçilince diğerleri temizlenir.
-        </Text>
-      </Animated.View>
+      <View style={styles.body}>
+        <View style={styles.chipGrid}>
+          {CONDITIONS.map((c) => {
+            const sel = selected.includes(c.k);
+            return (
+              <TouchableOpacity
+                key={c.k}
+                onPress={() => toggleMedicalCondition(c.k)}
+                style={[styles.chip, sel && styles.chipActive]}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.chipRadio, sel && styles.chipRadioActive]}>
+                  {sel ? <View style={styles.chipRadioDot} /> : null}
+                </View>
+                <Text style={[styles.chipLabel, sel && styles.chipLabelActive]}>
+                  {c.label}
+                </Text>
+                <Text style={[styles.chipHint, sel && { opacity: 0.65 }]}>
+                  {c.hint}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-      <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.chipWrap}>
-        {MEDICAL_CONDITIONS.map((c) => (
-          <OptionCard
-            key={c.key}
-            emoji={c.emoji}
-            label={c.label}
-            selected={data.medical_conditions.includes(c.key)}
-            onPress={() => toggleMedicalCondition(c.key)}
-            variant="chip"
-          />
-        ))}
-      </Animated.View>
-
-      <View style={styles.footer}>
-        <OnboardingButton title="Devam Et →" onPress={onNext} disabled={!isValid} />
-        <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
+        <View style={styles.infoBox}>
+          <Text style={styles.infoLabel}>BİRDEN FAZLA SEÇEBİLİRSİN</Text>
+          <Text style={styles.infoText}>
+            "Hiçbiri" işaretlenince diğerleri temizlenir. Ciddi durumlar için uzman desteği önerilir.
+          </Text>
+        </View>
       </View>
-    </StepContainer>
+
+      <OnbFoot onNext={onNext} onBack={onBack} />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 6,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.md,
-    lineHeight: FontSize.md * 1.5,
-  },
-  disclaimerBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.surfaceSecondary,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.lg,
-  },
-  disclaimerText: {
-    flex: 1,
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-  },
-  chipWrap: {
+  chipGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 6,
   },
-  footer: { marginTop: Spacing.md, gap: Spacing.sm, paddingBottom: Spacing.lg },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 0.5,
+    borderColor: OnbColors.ink,
+    borderRadius: 999,
+    backgroundColor: 'transparent',
+  },
+  chipActive: {
+    backgroundColor: OnbColors.ink,
+  },
+  chipRadio: {
+    width: 14,
+    height: 14,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: OnbColors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipRadioActive: {
+    borderColor: OnbColors.bg,
+  },
+  chipRadioDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: OnbColors.bg,
+  },
+  chipLabel: {
+    fontSize: 13,
+    color: OnbColors.ink,
+  },
+  chipLabelActive: {
+    color: OnbColors.bg,
+  },
+  chipHint: {
+    fontSize: 9,
+    letterSpacing: 1.2,
+    color: OnbColors.ink3,
+    fontFamily: MONO,
+  },
+  infoBox: {
+    marginTop: 24,
+    padding: 14,
+    backgroundColor: OnbColors.surface,
+    borderWidth: 0.5,
+    borderColor: OnbColors.line,
+  },
+  infoLabel: {
+    fontSize: 9.5,
+    letterSpacing: 1.8,
+    color: OnbColors.ink3,
+    fontFamily: MONO,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  infoText: {
+    fontSize: 12,
+    color: OnbColors.ink2,
+    lineHeight: 18,
+  },
 });

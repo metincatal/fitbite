@@ -1,192 +1,262 @@
+// Onboarding 08 — Body Measurements
+// +/- stepper, BMI + fark stat kutucukları.
+
 import React from 'react';
-import { View, Text, TextInput, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
-export function BodyMetrics({ onNext, onBack }: Props) {
-  const { data, updateField } = useOnboardingData();
-
-  const height = parseFloat(data.height_cm);
-  const weight = parseFloat(data.weight_kg);
-  const targetWeight = parseFloat(data.target_weight_kg);
-
-  const isValid =
-    data.height_cm.length > 0 &&
-    data.weight_kg.length > 0 &&
-    data.target_weight_kg.length > 0 &&
-    height > 100 && height < 250 &&
-    weight > 30 && weight < 300;
-
-  function handleNext() {
-    // goal'ı otomatik hesapla
-    if (!isNaN(weight) && !isNaN(targetWeight)) {
-      const diff = targetWeight - weight;
-      if (diff < -1) updateField('goal', 'lose');
-      else if (diff > 1) updateField('goal', 'gain');
-      else updateField('goal', 'maintain');
-    }
-    onNext();
-  }
-
-  const bmi =
-    height > 0 && weight > 0
-      ? (weight / Math.pow(height / 100, 2)).toFixed(1)
-      : null;
-
-  const diff =
-    !isNaN(weight) && !isNaN(targetWeight) ? targetWeight - weight : null;
+function RulerInput({
+  label,
+  unit,
+  value,
+  min,
+  max,
+  step = 1,
+  onChange,
+  accent,
+}: {
+  label: string;
+  unit: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (v: number) => void;
+  accent?: boolean;
+}) {
+  const dec = () => onChange(Math.max(min, Math.round((value - step) * 10) / 10));
+  const inc = () => onChange(Math.min(max, Math.round((value + step) * 10) / 10));
 
   return (
-    <StepContainer>
-      <View style={styles.inner}>
-        <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-          📏
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-          Vücut ölçülerin
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-          BMI ve kalori hedefiniz hesaplanacak
-        </Animated.Text>
+    <View style={styles.rulerBlock}>
+      <View style={styles.rulerHeader}>
+        <Text style={styles.rulerLabel}>{label.toUpperCase()}</Text>
+        <Text style={styles.rulerRange}>{min}–{max} {unit}</Text>
+      </View>
+      <View style={styles.rulerValueRow}>
+        <TouchableOpacity onPress={dec} style={styles.stepBtn} activeOpacity={0.7}>
+          <Text style={styles.stepBtnText}>−</Text>
+        </TouchableOpacity>
+        <Text style={[styles.rulerValue, accent && { color: OnbColors.terracotta }]}>
+          {value}
+          <Text style={styles.rulerUnit}> {unit}</Text>
+        </Text>
+        <TouchableOpacity onPress={inc} style={styles.stepBtn} activeOpacity={0.7}>
+          <Text style={styles.stepBtnText}>+</Text>
+        </TouchableOpacity>
+      </View>
+      {/* Visual track */}
+      <View style={styles.track}>
+        <View
+          style={[
+            styles.trackFill,
+            {
+              width: `${((value - min) / (max - min)) * 100}%` as any,
+              backgroundColor: accent ? OnbColors.terracotta : OnbColors.ink,
+            },
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
 
-        <Animated.View entering={FadeInDown.delay(300).duration(500)}>
-          <Text style={styles.label}>Boyun (cm)</Text>
-          <TextInput
-            style={styles.input}
-            value={data.height_cm}
-            onChangeText={(v) => updateField('height_cm', v)}
-            placeholder="170"
-            keyboardType="number-pad"
-            maxLength={3}
-            placeholderTextColor={Colors.textMuted}
+function StatBox({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  accent?: boolean;
+}) {
+  return (
+    <View style={styles.statBox}>
+      <Text style={styles.statLabel}>{label.toUpperCase()}</Text>
+      <Text style={[styles.statValue, accent && { color: OnbColors.terracotta }]}>
+        {value}
+      </Text>
+      <Text style={styles.statHint}>{hint}</Text>
+    </View>
+  );
+}
+
+export function BodyMetrics({ onNext, onBack }: Props) {
+  const { data, updateField } = useOnboardingData();
+  const height = parseFloat(data.height_cm) || 170;
+  const weight = parseFloat(data.weight_kg) || 70;
+  const target = parseFloat(data.target_weight_kg) || 65;
+
+  const bmi = +(weight / ((height / 100) ** 2)).toFixed(1);
+  const diff = +(target - weight).toFixed(1);
+  const bmiLabel = bmi < 18.5 ? 'Düşük' : bmi < 25 ? 'Normal' : bmi < 30 ? 'Fazla' : 'Yüksek';
+  const diffLabel = diff < 0 ? 'Vereceksin' : 'Alacaksın';
+
+  const isValid = height > 0 && weight > 0;
+
+  return (
+    <OnbShell step={6} total={26}>
+      <OnbHead
+        kicker="Biyometrik · 2/3"
+        title="Şu anki vücut"
+        italic="ölçülerin."
+        subtitle="BMR ve günlük kalori hedefin bunlardan hesaplanır. Sonradan değiştirebilirsin."
+      />
+
+      <View style={styles.body}>
+        <RulerInput
+          label="Boy"
+          unit="cm"
+          value={height}
+          min={140}
+          max={210}
+          onChange={(v) => updateField('height_cm', String(v))}
+        />
+        <RulerInput
+          label="Mevcut kilo"
+          unit="kg"
+          value={weight}
+          min={40}
+          max={160}
+          step={0.5}
+          onChange={(v) => updateField('weight_kg', String(v))}
+        />
+        <RulerInput
+          label="Hedef kilo"
+          unit="kg"
+          value={target}
+          min={40}
+          max={160}
+          step={0.5}
+          onChange={(v) => updateField('target_weight_kg', String(v))}
+          accent
+        />
+
+        <View style={styles.statRow}>
+          <StatBox label="BMI" value={String(bmi)} hint={bmiLabel} />
+          <StatBox
+            label={diffLabel}
+            value={`${diff > 0 ? '+' : ''}${diff} kg`}
+            hint={`%${Math.abs((diff / weight) * 100).toFixed(1)} değişim`}
+            accent
           />
-        </Animated.View>
-
-        <Animated.View entering={FadeInDown.delay(400).duration(500)}>
-          <Text style={styles.label}>Mevcut kilonuz (kg)</Text>
-          <TextInput
-            style={styles.input}
-            value={data.weight_kg}
-            onChangeText={(v) => updateField('weight_kg', v)}
-            placeholder="70"
-            keyboardType="decimal-pad"
-            maxLength={5}
-            placeholderTextColor={Colors.textMuted}
-          />
-        </Animated.View>
-
-        <Animated.View entering={FadeInDown.delay(500).duration(500)}>
-          <Text style={styles.label}>Hedef kilonuz (kg)</Text>
-          <TextInput
-            style={styles.input}
-            value={data.target_weight_kg}
-            onChangeText={(v) => updateField('target_weight_kg', v)}
-            placeholder="65"
-            keyboardType="decimal-pad"
-            maxLength={5}
-            placeholderTextColor={Colors.textMuted}
-          />
-        </Animated.View>
-
-        {(bmi || diff !== null) && (
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.infoRow}>
-            {bmi && (
-              <View style={styles.infoChip}>
-                <Text style={styles.infoValue}>{bmi}</Text>
-                <Text style={styles.infoLabel}>BMI</Text>
-              </View>
-            )}
-            {diff !== null && !isNaN(diff) && (
-              <View style={styles.infoChip}>
-                <Text style={[styles.infoValue, diff < 0 ? styles.lose : diff > 0 ? styles.gain : styles.maintain]}>
-                  {diff > 0 ? '+' : ''}{diff.toFixed(1)} kg
-                </Text>
-                <Text style={styles.infoLabel}>
-                  {diff < -1 ? 'Vereceksin' : diff > 1 ? 'Alacaksın' : 'Koruyacaksın'}
-                </Text>
-              </View>
-            )}
-          </Animated.View>
-        )}
-
-        <View style={styles.footer}>
-          <OnboardingButton title="Devam Et →" onPress={handleNext} disabled={!isValid} />
-          <OnboardingButton title="Geri" onPress={onBack} variant="ghost" style={styles.backBtn} />
         </View>
       </View>
-    </StepContainer>
+
+      <OnbFoot onNext={onNext} onBack={onBack} dim={!isValid} />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  inner: { flex: 1, paddingBottom: Spacing.xxl },
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
+  rulerBlock: {
+    marginTop: 20,
   },
-  label: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    marginBottom: Spacing.sm,
-    marginTop: Spacing.md,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  input: {
-    borderWidth: 2,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    fontSize: FontSize.xl,
-    color: Colors.textPrimary,
-    fontWeight: '600',
-    backgroundColor: Colors.surface,
-  },
-  infoRow: {
+  rulerHeader: {
     flexDirection: 'row',
-    gap: Spacing.md,
-    marginTop: Spacing.lg,
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 4,
   },
-  infoChip: {
-    flex: 1,
-    backgroundColor: Colors.surfaceSecondary,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
+  rulerLabel: {
+    fontSize: 9.5,
+    letterSpacing: 2,
+    color: OnbColors.ink3,
+    fontFamily: MONO,
+  },
+  rulerRange: {
+    fontSize: 9,
+    color: OnbColors.ink3,
+    fontFamily: MONO,
+    letterSpacing: 1,
+  },
+  rulerValueRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  infoValue: {
-    fontSize: FontSize.xl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
+  stepBtn: {
+    width: 44,
+    height: 44,
+    borderWidth: 0.5,
+    borderColor: OnbColors.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  infoLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: '600',
-    color: Colors.textMuted,
+  stepBtnText: {
+    fontSize: 22,
+    color: OnbColors.ink,
+    fontFamily: SERIF,
+    lineHeight: 26,
+  },
+  rulerValue: {
+    fontSize: 44,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+    letterSpacing: -1,
+    lineHeight: 48,
+    textAlign: 'center',
+    flex: 1,
+  },
+  rulerUnit: {
+    fontSize: 14,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    letterSpacing: 1.2,
+  },
+  track: {
+    height: 2,
+    backgroundColor: OnbColors.line,
+    marginTop: 10,
+    borderRadius: 1,
+    overflow: 'hidden',
+  },
+  trackFill: {
+    height: '100%',
+    borderRadius: 1,
+  },
+  statRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 18,
+  },
+  statBox: {
+    flex: 1,
+    padding: 14,
+    backgroundColor: OnbColors.surface,
+    borderWidth: 0.5,
+    borderColor: OnbColors.line,
+  },
+  statLabel: {
+    fontSize: 9,
+    letterSpacing: 1.8,
+    color: OnbColors.ink3,
+    fontFamily: MONO,
+    marginBottom: 2,
+  },
+  statValue: {
+    fontSize: 26,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
     marginTop: 2,
   },
-  lose: { color: Colors.primary },
-  gain: { color: Colors.accent },
-  maintain: { color: Colors.info },
-  footer: { marginTop: 'auto', gap: Spacing.sm, paddingTop: Spacing.xl },
-  backBtn: {},
+  statHint: {
+    fontSize: 11,
+    color: OnbColors.ink3,
+    marginTop: 2,
+  },
 });

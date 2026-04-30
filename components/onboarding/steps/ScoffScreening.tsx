@@ -1,95 +1,169 @@
+// Onboarding 06 — SCOFF Tarama
+// 5 hassas soru, Hayır/Evet split button, kilit ikonu.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius, SCOFF_QUESTIONS } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import Svg, { Rect, Path } from 'react-native-svg';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
-import { YesNoQuestion } from '../shared/YesNoQuestion';
-import type { ScoffAnswers } from '../../../types/database';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
-const KEYS: (keyof ScoffAnswers)[] = ['q1', 'q2', 'q3', 'q4', 'q5'];
+const QUESTIONS = [
+  { k: 'q1' as const, text: 'Kendini tok hissettirecek kadar yemek yedikten sonra kusma ihtiyacı duyar mısın?' },
+  { k: 'q2' as const, text: 'Ne yediğin konusunda kontrolü kaybettiğin endişesini taşıyor musun?' },
+  { k: 'q3' as const, text: "Son 3 ayda 6 kg'dan fazla kilo verdin mi?" },
+  { k: 'q4' as const, text: 'Başkaları seni zayıf bulsa bile kendini kilolu hissediyor musun?' },
+  { k: 'q5' as const, text: 'Yemeğin hayatına hükmettiğini söyler misin?' },
+];
+
+function LockIcon() {
+  return (
+    <Svg width={12} height={12} viewBox="0 0 12 12">
+      <Rect x={2} y={5} width={8} height={6} fill="none" stroke={OnbColors.ink} strokeWidth={0.8} />
+      <Path d="M 4 5 V 3.5 A 2 2 0 0 1 8 3.5 V 5" fill="none" stroke={OnbColors.ink} strokeWidth={0.8} />
+    </Svg>
+  );
+}
 
 export function ScoffScreening({ onNext, onBack }: Props) {
   const { data, setScoffAnswer } = useOnboardingData();
-  const isValid = KEYS.every((k) => typeof data.scoff_answers[k] === 'boolean');
+  const answers = data.scoff_answers;
 
   return (
-    <StepContainer>
-      <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-        🤍
-      </Animated.Text>
-      <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-        Birkaç hassas soru
-      </Animated.Text>
-      <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-        Cevapların tamamen gizli. Sağlıklı bir plan kurabilmek için gerekli.
-      </Animated.Text>
+    <OnbShell step={4} total={26}>
+      <OnbHead
+        kicker="Hassas — gizli kalır"
+        title="Beş kısa"
+        italic="soru."
+        subtitle="SCOFF tarama testi. Cevapların şifrelenir; üyelik ekibi dahil kimse okuyamaz."
+      />
 
-      <Animated.View entering={FadeInDown.delay(250).duration(500)} style={styles.privacyRow}>
-        <Ionicons name="lock-closed" size={14} color={Colors.primary} />
-        <Text style={styles.privacyText}>Cevapların şifrelenmiş olarak saklanır.</Text>
-      </Animated.View>
+      <View style={styles.body}>
+        {/* Encryption badge */}
+        <View style={styles.badge}>
+          <LockIcon />
+          <Text style={styles.badgeText}>AES-256 · UÇTAN UCA</Text>
+        </View>
 
-      <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.list}>
-        {SCOFF_QUESTIONS.map((q, i) => (
-          <YesNoQuestion
-            key={i}
-            number={i + 1}
-            question={q}
-            value={data.scoff_answers[KEYS[i]]}
-            onChange={(v) => setScoffAnswer(KEYS[i], v)}
-          />
-        ))}
-      </Animated.View>
-
-      <View style={styles.footer}>
-        <OnboardingButton title="Devam Et →" onPress={onNext} disabled={!isValid} />
-        <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
+        {QUESTIONS.map((q, i) => {
+          const ans = answers[q.k];
+          return (
+            <View key={q.k} style={styles.qRow}>
+              <Text style={styles.qNum}>{String(i + 1).padStart(2, '0')}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.qText}>{q.text}</Text>
+                <View style={styles.answerRow}>
+                  {(['no', 'yes'] as const).map((v, vi) => {
+                    const selected = ans === (v === 'yes');
+                    return (
+                      <TouchableOpacity
+                        key={v}
+                        onPress={() => setScoffAnswer(q.k, v === 'yes')}
+                        style={[
+                          styles.ansBtn,
+                          vi === 0 && styles.ansBtnLeft,
+                          selected && styles.ansBtnActive,
+                        ]}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.ansBtnText, selected && styles.ansBtnTextActive]}>
+                          {v === 'no' ? 'Hayır' : 'Evet'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          );
+        })}
       </View>
-    </StepContainer>
+
+      <OnbFoot
+        onNext={onNext}
+        onBack={onBack}
+        note="Cevaplar yargılamak için değil — koruyucu."
+      />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.md,
-    lineHeight: FontSize.md * 1.5,
-  },
-  privacyRow: {
+  badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
-    backgroundColor: Colors.primaryPale + '40',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.lg,
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: OnbColors.surface,
+    borderWidth: 0.5,
+    borderColor: OnbColors.line,
     alignSelf: 'flex-start',
+    marginBottom: 14,
   },
-  privacyText: {
-    fontSize: FontSize.xs,
-    color: Colors.primary,
-    fontWeight: '600',
+  badgeText: {
+    fontSize: 9.5,
+    letterSpacing: 1.6,
+    color: OnbColors.ink2,
+    fontFamily: MONO,
   },
-  list: {
-    gap: 0,
+  qRow: {
+    flexDirection: 'row',
+    gap: 14,
+    paddingVertical: 16,
+    borderTopWidth: 0.5,
+    borderTopColor: OnbColors.line,
+    alignItems: 'flex-start',
   },
-  footer: { marginTop: Spacing.md, gap: Spacing.sm, paddingBottom: Spacing.lg },
+  qNum: {
+    fontSize: 36,
+    fontFamily: SERIF,
+    color: OnbColors.ink3,
+    fontStyle: 'italic',
+    width: 36,
+    lineHeight: 36,
+  },
+  qText: {
+    fontSize: 13.5,
+    color: OnbColors.ink,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  answerRow: {
+    flexDirection: 'row',
+    borderWidth: 0.5,
+    borderColor: OnbColors.ink,
+  },
+  ansBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  ansBtnLeft: {
+    borderRightWidth: 0.5,
+    borderRightColor: OnbColors.ink,
+  },
+  ansBtnActive: {
+    backgroundColor: OnbColors.ink,
+  },
+  ansBtnText: {
+    fontSize: 16,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+  },
+  ansBtnTextActive: {
+    color: OnbColors.bg,
+    fontStyle: 'italic',
+  },
 });

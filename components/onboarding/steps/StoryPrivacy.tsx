@@ -1,59 +1,100 @@
+// Onboarding 20 — Data Safety
+// BigShield SVG centered, 3 principle rows.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
-import { OnboardingButton } from '../shared/OnboardingButton';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import Svg, { Path, Rect, Circle, Line, Text as SvgText } from 'react-native-svg';
+import { OnbColors, SERIF, MONO } from '../shared/OnbDesign';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
-const TRUST_POINTS = [
-  { icon: 'lock-closed-outline', title: 'Veriler şifrelenir', desc: 'Tüm verilerin AES-256 ile korunur' },
-  { icon: 'server-outline', title: 'Satılmaz, paylaşılmaz', desc: 'Verilerini hiçbir 3. tarafla paylaşmıyoruz' },
-  { icon: 'trash-outline', title: 'İstediğinde sil', desc: 'Hesabını ve tüm verilerini dilediğinde silebilirsin' },
+const PRINCIPLES = [
+  { label: 'Veriler şifrelenir',      hint: 'Tüm verilerin AES-256 ile uçtan uca korunur.' },
+  { label: 'Satılmaz, paylaşılmaz',   hint: 'Üçüncü taraflarla paylaşmıyoruz; reklam izlemeye kapalı.' },
+  { label: 'İstediğinde sil',         hint: 'Hesabını ve tüm verilerini bir tıkla silebilirsin (KVKK).' },
 ];
+
+function BigShield() {
+  const cx = 60, cy = 70;
+  const dots = Array.from({ length: 16 }, (_, i) => {
+    const a = (i / 16) * Math.PI * 2 - Math.PI / 2;
+    return [cx + Math.cos(a) * 50, cy + Math.sin(a) * 50];
+  });
+  return (
+    <Svg width={120} height={140} viewBox="0 0 120 140">
+      <Path
+        d="M60 8 L 110 22 V 70 Q 110 110 60 132 Q 10 110 10 70 V 22 Z"
+        fill={OnbColors.surface}
+        stroke={OnbColors.ink}
+        strokeWidth="1"
+      />
+      <Path
+        d="M60 16 L 102 28 V 70 Q 102 104 60 122 Q 18 104 18 70 V 28 Z"
+        fill="none"
+        stroke={OnbColors.ink}
+        strokeWidth="0.4"
+        opacity="0.5"
+      />
+      <Rect x="44" y="60" width="32" height="28" rx="2" fill={OnbColors.ink} />
+      <Path d="M50 60 V 50 A 10 10 0 0 1 70 50 V 60" fill="none" stroke={OnbColors.ink} strokeWidth="2" />
+      <Circle cx="60" cy="72" r="3" fill={OnbColors.terracotta} />
+      <Line x1="60" y1="72" x2="60" y2="80" stroke={OnbColors.terracotta} strokeWidth="2" />
+      {dots.map(([x, y], i) => (
+        <Circle key={i} cx={x} cy={y} r="0.8" fill={OnbColors.ink} opacity="0.3" />
+      ))}
+      <SvgText x="60" y="135" textAnchor="middle" fontSize="8" fontFamily={MONO} fill={OnbColors.ink3} letterSpacing="3.2">
+        AES-256
+      </SvgText>
+    </Svg>
+  );
+}
 
 export function StoryPrivacy({ onNext, onBack }: Props) {
   return (
     <View style={styles.container}>
-      <View style={styles.content}>
-        <Animated.View entering={FadeInDown.delay(0).duration(600)} style={styles.shieldContainer}>
-          <Ionicons name="shield-checkmark" size={80} color={Colors.primaryLight} />
-        </Animated.View>
-
-        <Animated.Text entering={FadeInDown.delay(200).duration(600)} style={styles.title}>
-          Verilerin{'\n'}güvende
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(350).duration(600)} style={styles.subtitle}>
-          Sağlık verilerinin ne kadar özel olduğunu biliyoruz.
-        </Animated.Text>
-
-        <View style={styles.trustList}>
-          {TRUST_POINTS.map((p, i) => (
-            <Animated.View
-              key={i}
-              entering={FadeInDown.delay(500 + i * 150).duration(500)}
-              style={styles.trustItem}
-            >
-              <View style={styles.trustIcon}>
-                <Ionicons name={p.icon as any} size={22} color={Colors.primary} />
-              </View>
-              <View style={styles.trustText}>
-                <Text style={styles.trustTitle}>{p.title}</Text>
-                <Text style={styles.trustDesc}>{p.desc}</Text>
-              </View>
-            </Animated.View>
-          ))}
-        </View>
+      <View style={styles.shieldWrap}>
+        <BigShield />
       </View>
 
-      <Animated.View entering={FadeInDown.delay(1100).duration(400)} style={styles.footer}>
-        <OnboardingButton title="Anladım, devam et →" onPress={onNext} />
-        <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
-      </Animated.View>
+      <Text style={styles.kicker}>Gizlilik · KVKK uyumlu</Text>
+      <Text style={styles.title}>
+        Verilerin <Text style={styles.titleItalic}>güvende.</Text>
+      </Text>
+      <Text style={styles.subtitle}>
+        Sağlık verilerinin ne kadar özel olduğunu biliyoruz. Üç prensiple çalışıyoruz.
+      </Text>
+
+      <View style={styles.list}>
+        {PRINCIPLES.map((p, i) => (
+          <View
+            key={p.label}
+            style={[
+              styles.principleRow,
+              i === PRINCIPLES.length - 1 && styles.principleRowLast,
+            ]}
+          >
+            <Text style={styles.principleNum}>0{i + 1}</Text>
+            <View style={styles.principleBody}>
+              <Text style={styles.principleLabel}>{p.label}</Text>
+              <Text style={styles.principleHint}>{p.hint}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.footer}>
+        <TouchableOpacity onPress={onNext} style={styles.cta} activeOpacity={0.85}>
+          <Text style={styles.ctaLeft}>↵</Text>
+          <Text style={styles.ctaCenter}>Anladım, devam et</Text>
+          <Text style={styles.ctaRight}>→</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
+          <Text style={styles.backText}>← GERİ</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -61,61 +102,122 @@ export function StoryPrivacy({ onNext, onBack }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xxl,
-    paddingBottom: Spacing.xxl,
-    justifyContent: 'space-between',
+    backgroundColor: OnbColors.bg,
+    paddingTop: 70,
+    paddingHorizontal: 22,
+    paddingBottom: 36,
   },
-  content: { flex: 1, justifyContent: 'center' },
-  shieldContainer: {
+  shieldWrap: {
     alignItems: 'center',
-    marginBottom: Spacing.xl,
+    paddingVertical: 14,
+  },
+  kicker: {
+    fontSize: 10,
+    letterSpacing: 2.2,
+    fontFamily: MONO,
+    color: OnbColors.terracotta,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginTop: 8,
   },
   title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+    fontSize: 38,
+    fontFamily: SERIF,
+    lineHeight: 42,
+    marginTop: 8,
     textAlign: 'center',
+    letterSpacing: -0.38,
+    color: OnbColors.ink,
+  },
+  titleItalic: {
+    fontStyle: 'italic',
+    color: OnbColors.terracotta,
   },
   subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
+    fontSize: 13,
+    color: OnbColors.ink2,
+    marginTop: 8,
     textAlign: 'center',
-    lineHeight: FontSize.md * 1.5,
+    lineHeight: 20,
+    maxWidth: 320,
+    alignSelf: 'center',
   },
-  trustList: { gap: Spacing.md },
-  trustItem: {
+  list: {
+    marginTop: 28,
+  },
+  principleRow: {
     flexDirection: 'row',
+    gap: 16,
+    paddingVertical: 16,
+    borderTopWidth: 0.5,
+    borderTopColor: OnbColors.line,
+  },
+  principleRowLast: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: OnbColors.line,
+  },
+  principleNum: {
+    fontSize: 28,
+    fontFamily: SERIF,
+    fontStyle: 'italic',
+    color: OnbColors.terracotta,
+    width: 36,
+  },
+  principleBody: {
+    flex: 1,
+  },
+  principleLabel: {
+    fontSize: 19,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+  },
+  principleHint: {
+    fontSize: 12.5,
+    color: OnbColors.ink2,
+    marginTop: 3,
+    lineHeight: 18,
+  },
+  footer: {
+    position: 'absolute',
+    left: 22,
+    right: 22,
+    bottom: 36,
+  },
+  cta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+    backgroundColor: OnbColors.ink,
+    borderRadius: 999,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
   },
-  trustIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primaryPale + '40',
+  ctaLeft: {
+    fontSize: 10,
+    letterSpacing: 3.2,
+    fontFamily: MONO,
+    color: OnbColors.bg,
+    opacity: 0.55,
+  },
+  ctaCenter: {
+    fontSize: 19,
+    fontFamily: SERIF,
+    color: OnbColors.bg,
+  },
+  ctaRight: {
+    fontSize: 19,
+    fontFamily: SERIF,
+    color: OnbColors.bg,
+  },
+  backBtn: {
     alignItems: 'center',
-    justifyContent: 'center',
+    marginTop: 10,
   },
-  trustText: { flex: 1 },
-  trustTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+  backText: {
+    fontSize: 10.5,
+    letterSpacing: 2.88,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    textTransform: 'uppercase',
   },
-  trustDesc: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  footer: { gap: Spacing.sm },
 });

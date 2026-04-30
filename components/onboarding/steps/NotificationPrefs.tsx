@@ -1,11 +1,12 @@
+// Onboarding 21 — Notifications
+// Toggle list + sample notification preview box.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
 import { NotificationPreferences } from '../../../types/database';
 
 interface Props {
@@ -13,166 +14,159 @@ interface Props {
   onBack: () => void;
 }
 
-const NOTIF_OPTIONS: {
-  key: keyof NotificationPreferences;
-  icon: string;
-  title: string;
-  desc: string;
-}[] = [
-  {
-    key: 'meals',
-    icon: 'restaurant-outline',
-    title: 'Öğün Hatırlatıcıları',
-    desc: 'Seçtiğin öğün saatlerinde bildirim al',
-  },
-  {
-    key: 'water',
-    icon: 'water-outline',
-    title: 'Su Hatırlatıcıları',
-    desc: 'Günlük su hedefine ulaşman için',
-  },
-  {
-    key: 'weekly_report',
-    icon: 'bar-chart-outline',
-    title: 'Haftalık Rapor',
-    desc: 'Her Pazartesi beslenme özeti',
-  },
-  {
-    key: 'motivation',
-    icon: 'heart-outline',
-    title: 'Motivasyon Mesajları',
-    desc: 'FitBot\'tan kişisel ilham notları',
-  },
+const ITEMS: { k: keyof NotificationPreferences; label: string; hint: string }[] = [
+  { k: 'meals',         label: 'Öğün hatırlatıcıları', hint: 'Seçtiğin öğün saatlerinde bildirim al' },
+  { k: 'water',         label: 'Su hatırlatıcıları',   hint: 'Günlük su hedefine ulaşman için' },
+  { k: 'weekly_report', label: 'Haftalık rapor',        hint: 'Her Pazartesi beslenme özeti' },
+  { k: 'motivation',    label: 'Motivasyon mesajları',  hint: "FitBot'tan kişisel ilham notları" },
 ];
+
+function Toggle({ on }: { on: boolean }) {
+  return (
+    <View style={[styles.toggle, on && styles.toggleOn]}>
+      <View style={[styles.knob, on && styles.knobOn]} />
+    </View>
+  );
+}
 
 export function NotificationPrefs({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
   const prefs = data.notification_preferences;
 
-  function toggle(key: keyof NotificationPreferences) {
-    updateField('notification_preferences', {
-      ...prefs,
-      [key]: !prefs[key],
-    });
-  }
+  const toggle = (key: keyof NotificationPreferences) => {
+    updateField('notification_preferences', { ...prefs, [key]: !prefs[key] });
+  };
 
   return (
-    <StepContainer scrollable={false}>
-      <View style={styles.inner}>
-        <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-          🔔
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-          Bildirim{'\n'}tercihlerin
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-          İstediğin zaman değiştirebilirsin
-        </Animated.Text>
+    <OnbShell step={17} total={26}>
+      <OnbHead
+        kicker="Bildirimler"
+        title="Ne sıklıkla"
+        italic="hatırlatalım?"
+        subtitle="İstediğin zaman değiştirebilirsin. Sessiz saatleri Profil'den ayarlayabilirsin."
+      />
 
-        <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.list}>
-          {NOTIF_OPTIONS.map((opt) => {
-            const active = prefs[opt.key];
-            return (
-              <View key={opt.key} style={styles.item}>
-                <View style={[styles.iconBox, active && styles.iconBoxActive]}>
-                  <Ionicons
-                    name={opt.icon as any}
-                    size={22}
-                    color={active ? Colors.primary : Colors.textMuted}
-                  />
-                </View>
-                <View style={styles.itemText}>
-                  <Text style={styles.itemTitle}>{opt.title}</Text>
-                  <Text style={styles.itemDesc}>{opt.desc}</Text>
-                </View>
-                <View
-                  style={[styles.toggle, active && styles.toggleActive]}
-                  onTouchEnd={() => toggle(opt.key)}
-                >
-                  <View style={[styles.knob, active && styles.knobActive]} />
-                </View>
+      <View style={styles.body}>
+        {ITEMS.map((it, i) => {
+          const on = !!prefs[it.k];
+          const isLast = i === ITEMS.length - 1;
+          return (
+            <TouchableOpacity
+              key={it.k}
+              onPress={() => toggle(it.k)}
+              style={[styles.row, isLast && styles.rowLast]}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.num}>{String(i + 1).padStart(2, '0')}</Text>
+              <View style={styles.rowBody}>
+                <Text style={[styles.rowLabel, on && styles.rowLabelOn]}>
+                  {it.label}
+                </Text>
+                <Text style={styles.rowHint}>{it.hint}</Text>
               </View>
-            );
-          })}
-        </Animated.View>
+              <Toggle on={on} />
+            </TouchableOpacity>
+          );
+        })}
 
-        <View style={styles.footer}>
-          <OnboardingButton title="Devam Et →" onPress={onNext} />
-          <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
+        {/* Sample notification */}
+        <View style={styles.preview}>
+          <Text style={styles.previewMeta}>FITBITE · BUGÜN · 12:55</Text>
+          <Text style={styles.previewText}>
+            Öğle vakti —{' '}
+            <Text style={styles.previewItalic}>tabağını dinle</Text>.
+          </Text>
         </View>
       </View>
-    </StepContainer>
+
+      <OnbFoot onNext={onNext} onBack={onBack} />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  inner: { flex: 1, justifyContent: 'space-between' },
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
-  },
-  list: { gap: Spacing.md, flex: 1 },
-  item: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    gap: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+    gap: 14,
+    paddingVertical: 16,
+    borderTopWidth: 0.5,
+    borderTopColor: OnbColors.line,
   },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceSecondary,
-    alignItems: 'center',
-    justifyContent: 'center',
+  rowLast: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: OnbColors.line,
   },
-  iconBoxActive: {
-    backgroundColor: Colors.primaryPale + '40',
+  num: {
+    fontSize: 9,
+    letterSpacing: 1.8,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    width: 24,
   },
-  itemText: { flex: 1 },
-  itemTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+  rowBody: {
+    flex: 1,
   },
-  itemDesc: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
+  rowLabel: {
+    fontSize: 19,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+  },
+  rowLabelOn: {
+    color: OnbColors.terracotta,
+    fontStyle: 'italic',
+  },
+  rowHint: {
+    fontSize: 12,
+    color: OnbColors.ink3,
     marginTop: 2,
   },
   toggle: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.borderLight,
+    width: 44,
+    height: 22,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: OnbColors.ink,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     paddingHorizontal: 2,
   },
-  toggleActive: { backgroundColor: Colors.primary },
-  knob: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
+  toggleOn: {
+    backgroundColor: OnbColors.ink,
   },
-  knobActive: { transform: [{ translateX: 20 }] },
-  footer: { gap: Spacing.sm, paddingTop: Spacing.md },
+  knob: {
+    width: 17,
+    height: 17,
+    borderRadius: 999,
+    backgroundColor: OnbColors.ink,
+  },
+  knobOn: {
+    backgroundColor: OnbColors.terracotta,
+    alignSelf: 'flex-end',
+  },
+  preview: {
+    marginTop: 18,
+    padding: 14,
+    backgroundColor: OnbColors.ink,
+  },
+  previewMeta: {
+    fontSize: 9,
+    letterSpacing: 3.2,
+    fontFamily: MONO,
+    color: 'rgba(242,239,230,0.55)',
+  },
+  previewText: {
+    fontSize: 16,
+    fontFamily: SERIF,
+    color: OnbColors.bg,
+    marginTop: 4,
+  },
+  previewItalic: {
+    fontStyle: 'italic',
+    color: OnbColors.terracotta,
+  },
 });

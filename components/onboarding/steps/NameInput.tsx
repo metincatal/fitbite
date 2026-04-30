@@ -1,10 +1,12 @@
+// Onboarding 03 — Name
+// Alt çizgili serif input, canlı "Merhaba {isim}" önizleme.
+
 import React from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
 
 interface Props {
   onNext: () => void;
@@ -13,80 +15,122 @@ interface Props {
 
 export function NameInput({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
-  const isValid = data.name.trim().length >= 2;
+  const name = data.name;
+  const isValid = name.trim().length >= 2;
 
   return (
-    <StepContainer>
-      <View style={styles.inner}>
-        <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-          👋
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-          Merhaba!{'\n'}Adın nedir?
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-          Seni nasıl çağıralım?
-        </Animated.Text>
+    <OnbShell step={1} total={26}>
+      <OnbHead
+        kicker="Tanışalım"
+        title="Sana ne diye"
+        italic="hitap edelim?"
+        subtitle="FitBot mesajlarında bu ismi kullanacak. Takma ad da olur — kimliğini doğrulamıyoruz."
+      />
 
-        <Animated.View entering={FadeInDown.delay(350).duration(500)}>
+      <View style={styles.body}>
+        <Text style={styles.inputLabel}>ADIN ↓</Text>
+        <View style={styles.inputWrap}>
           <TextInput
-            style={styles.input}
-            value={data.name}
-            onChangeText={(v) => updateField('name', v)}
-            placeholder="Adın ve soyadın"
+            value={name}
+            onChangeText={(v) => updateField('name', v.slice(0, 24))}
+            placeholder="Adın"
+            placeholderTextColor={OnbColors.ink4}
             autoCapitalize="words"
             autoFocus
-            placeholderTextColor={Colors.textMuted}
             returnKeyType="done"
             onSubmitEditing={() => isValid && onNext()}
+            style={styles.input}
           />
-        </Animated.View>
+          <Text style={styles.charCount}>{name.length} / 24</Text>
+        </View>
 
-        <Animated.Text entering={FadeInDown.delay(500).duration(500)} style={styles.hint}>
-          FitBot sana isminle hitap edecek 🌿
-        </Animated.Text>
-
-        <View style={styles.footer}>
-          <OnboardingButton title="Devam Et →" onPress={onNext} disabled={!isValid} />
-          <OnboardingButton title="Geri" onPress={onBack} variant="ghost" style={styles.backBtn} />
+        <View style={styles.hintRow}>
+          <View style={styles.hintDot}>
+            <Text style={styles.hintDotText}>i</Text>
+          </View>
+          <Text style={styles.hintText}>
+            FitBot mesajlarına{' '}
+            <Text style={{ fontStyle: 'italic', color: OnbColors.ink }}>
+              "Merhaba {name || 'Adın'},"
+            </Text>{' '}
+            diye başlayacak.
+          </Text>
         </View>
       </View>
-    </StepContainer>
+
+      <OnbFoot
+        cta="Memnun oldum"
+        onNext={onNext}
+        onBack={onBack}
+        dim={!isValid}
+      />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  inner: { flex: 1, paddingBottom: Spacing.xxl },
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 12,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
+  inputLabel: {
+    fontSize: 9.5,
+    letterSpacing: 2.2,
+    color: OnbColors.ink3,
+    fontFamily: MONO,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  inputWrap: {
+    position: 'relative',
+    borderBottomWidth: 1,
+    borderBottomColor: OnbColors.ink,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   input: {
-    borderWidth: 2,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    fontSize: FontSize.xl,
-    color: Colors.textPrimary,
-    fontWeight: '600',
-    backgroundColor: Colors.surface,
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 36,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+    letterSpacing: -0.5,
+    backgroundColor: 'transparent',
   },
-  hint: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    marginTop: Spacing.md,
-    marginLeft: Spacing.xs,
+  charCount: {
+    position: 'absolute',
+    right: 0,
+    bottom: 14,
+    fontSize: 10,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    letterSpacing: 1.6,
   },
-  footer: { marginTop: 'auto', gap: Spacing.sm, paddingTop: Spacing.xl },
-  backBtn: {},
+  hintRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 24,
+  },
+  hintDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 99,
+    backgroundColor: OnbColors.terracotta,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  hintDotText: {
+    color: OnbColors.bg,
+    fontSize: 10,
+    fontFamily: MONO,
+  },
+  hintText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: OnbColors.ink2,
+    lineHeight: 19,
+  },
 });

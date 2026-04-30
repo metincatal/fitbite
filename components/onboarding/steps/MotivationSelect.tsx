@@ -1,155 +1,169 @@
+// Onboarding 11 — Goals (multi-select)
+// 2-col grid, GoalGlyph SVGs, ordered selection badges.
+
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
-import { Colors, Spacing, FontSize, BorderRadius, MOTIVATIONS } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import Svg, { Circle, Rect, Path, Line } from 'react-native-svg';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
+const GOALS = [
+  { k: 'weight',  label: 'Kilo Yönetimi',     hint: 'Düzenli, kalıcı', glyph: 'scale' },
+  { k: 'energy',  label: 'Daha Fazla Enerji', hint: 'Sabah & akşam',   glyph: 'bolt' },
+  { k: 'focus',   label: 'Zihinsel Berraklık', hint: 'Konsantrasyon',   glyph: 'lamp' },
+  { k: 'gut',     label: 'Daha İyi Sindirim', hint: 'Lif, fermente',   glyph: 'leaf' },
+  { k: 'immune',  label: 'Bağışıklık',        hint: 'Mevsim geçişi',   glyph: 'shield' },
+  { k: 'glucose', label: 'Kan Şekeri Dengesi',hint: 'CGM ile',         glyph: 'wave' },
+  { k: 'muscle',  label: 'Kas Kazanımı',      hint: 'Protein hedefi',  glyph: 'dumb' },
+  { k: 'sleep',   label: 'Daha İyi Uyku',     hint: 'Akşam pencereleri',glyph: 'moon' },
+  { k: 'skin',    label: 'Cilt & Saç',        hint: 'Su, omega',       glyph: 'spark' },
+  { k: 'stress',  label: 'Stres Yönetimi',    hint: 'Mikro besinler',  glyph: 'heart' },
+] as const;
+
+type GoalKey = typeof GOALS[number]['k'];
+
+function GoalGlyph({ kind, active }: { kind: string; active: boolean }) {
+  const c = active ? OnbColors.terracotta : OnbColors.ink;
+  const p = { fill: 'none' as const, stroke: c, strokeWidth: 1.1, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  if (kind === 'scale')  return <Svg width={22} height={22} viewBox="0 0 24 24"><Circle cx="12" cy="12" r="9" {...p}/><Path d="M12 3v18M3 12h18" {...p}/><Circle cx="12" cy="12" r="2" fill={c}/></Svg>;
+  if (kind === 'bolt')   return <Svg width={22} height={22} viewBox="0 0 24 24"><Path d="M13 3 L5 13 H11 L9 21 L17 11 H11 Z" {...p}/></Svg>;
+  if (kind === 'lamp')   return <Svg width={22} height={22} viewBox="0 0 24 24"><Circle cx="12" cy="10" r="5" {...p}/><Path d="M9 16h6M10 19h4" {...p}/></Svg>;
+  if (kind === 'leaf')   return <Svg width={22} height={22} viewBox="0 0 24 24"><Path d="M5 19 Q 5 5 19 5 Q 19 19 5 19 Z M 5 19 L 12 12" {...p}/></Svg>;
+  if (kind === 'shield') return <Svg width={22} height={22} viewBox="0 0 24 24"><Path d="M12 3 L20 6 V12 Q 20 18 12 21 Q 4 18 4 12 V6 Z" {...p}/></Svg>;
+  if (kind === 'wave')   return <Svg width={22} height={22} viewBox="0 0 24 24"><Path d="M3 12 Q 7 6 11 12 T 19 12" {...p}/><Path d="M3 17 Q 7 11 11 17 T 19 17" {...p} opacity="0.5"/></Svg>;
+  if (kind === 'dumb')   return <Svg width={22} height={22} viewBox="0 0 24 24"><Rect x="2" y="9" width="3" height="6" {...p}/><Rect x="19" y="9" width="3" height="6" {...p}/><Line x1="5" y1="12" x2="19" y2="12" {...p}/></Svg>;
+  if (kind === 'moon')   return <Svg width={22} height={22} viewBox="0 0 24 24"><Path d="M19 14 A 8 8 0 1 1 10 5 A 6 6 0 0 0 19 14 Z" {...p}/></Svg>;
+  if (kind === 'spark')  return <Svg width={22} height={22} viewBox="0 0 24 24"><Path d="M12 4 L13 11 L20 12 L13 13 L12 20 L11 13 L4 12 L11 11 Z" {...p}/></Svg>;
+  if (kind === 'heart')  return <Svg width={22} height={22} viewBox="0 0 24 24"><Path d="M12 20 C 4 14 4 8 8 7 Q 11 7 12 10 Q 13 7 16 7 C 20 8 20 14 12 20 Z" {...p}/></Svg>;
+  return null;
+}
+
 export function MotivationSelect({ onNext, onBack }: Props) {
   const { data, toggleArrayItem } = useOnboardingData();
-  const isValid = data.motivations.length > 0;
+  const selected: string[] = data.motivations ?? [];
+  const isValid = selected.length > 0;
 
   return (
-    <StepContainer>
-      <View style={styles.inner}>
-        <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-          ✨
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-          Neyi başarmak{'\n'}istiyorsun?
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-          FitBot odak noktalarını bilmek istiyor.{'\n'}Birden fazla seçebilirsin.
-        </Animated.Text>
+    <OnbShell step={8} total={26}>
+      <OnbHead
+        kicker={`Hedefler · ${selected.length} seçildi`}
+        title="Neyi başarmak"
+        italic="istiyorsun?"
+        subtitle="FitBot odak noktalarını bilmek istiyor. Birden fazla seçilebilir — sıralama önemli."
+      />
 
-        <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.grid}>
-          {MOTIVATIONS.map((m) => {
-            const selected = data.motivations.includes(m.key);
+      <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+        <View style={styles.grid}>
+          {GOALS.map((g, i) => {
+            const sel = selected.includes(g.k);
+            const order = selected.indexOf(g.k);
+            const isLeft = i % 2 === 0;
             return (
-              <View key={m.key} style={styles.itemWrapper}>
-                <View
-                  style={[styles.item, selected && styles.itemSelected]}
-                  onTouchEnd={() => toggleArrayItem('motivations', m.key)}
-                >
-                  <View style={[styles.iconBox, selected && styles.iconBoxSelected]}>
-                    <Ionicons
-                      name={m.icon as any}
-                      size={22}
-                      color={selected ? Colors.primary : Colors.textMuted}
-                    />
+              <TouchableOpacity
+                key={g.k}
+                onPress={() => toggleArrayItem('motivations', g.k)}
+                style={[
+                  styles.cell,
+                  isLeft ? styles.cellLeft : styles.cellRight,
+                  sel && styles.cellSel,
+                ]}
+                activeOpacity={0.8}
+              >
+                <GoalGlyph kind={g.glyph} active={sel} />
+                <Text style={[styles.cellLabel, sel && styles.cellLabelSel]}>
+                  {g.label}
+                </Text>
+                <Text style={styles.cellHint}>{g.hint}</Text>
+                {sel && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{order + 1}</Text>
                   </View>
-                  <Text style={[styles.itemLabel, selected && styles.itemLabelSelected]}>
-                    {m.label}
-                  </Text>
-                  {selected && (
-                    <View style={styles.checkBadge}>
-                      <Ionicons name="checkmark" size={12} color="#fff" />
-                    </View>
-                  )}
-                </View>
-              </View>
+                )}
+              </TouchableOpacity>
             );
           })}
-        </Animated.View>
-
-        {data.motivations.length > 0 && (
-          <Animated.Text entering={FadeInDown.duration(300)} style={styles.selectedCount}>
-            {data.motivations.length} hedef seçildi
-          </Animated.Text>
-        )}
-
-        <View style={styles.footer}>
-          <OnboardingButton title="Devam Et →" onPress={onNext} disabled={!isValid} />
-          <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
         </View>
-      </View>
-    </StepContainer>
+      </ScrollView>
+
+      <OnbFoot
+        onNext={onNext}
+        onBack={onBack}
+        dim={!isValid}
+        cta={isValid ? 'Devam' : 'En az bir tane seç'}
+      />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  inner: { flex: 1, paddingBottom: Spacing.xxl },
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
-  },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
-    lineHeight: FontSize.md * 1.5,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.sm,
+    borderTopWidth: 0.5,
+    borderTopColor: OnbColors.line,
+    borderLeftWidth: 0.5,
+    borderLeftColor: OnbColors.line,
+    marginBottom: 16,
   },
-  itemWrapper: {
-    width: '47%',
-  },
-  item: {
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    backgroundColor: Colors.surface,
+  cell: {
+    width: '50%',
+    minHeight: 86,
+    padding: 14,
+    borderRightWidth: 0.5,
+    borderRightColor: OnbColors.line,
+    borderBottomWidth: 0.5,
+    borderBottomColor: OnbColors.line,
     position: 'relative',
-    minHeight: 72,
-    justifyContent: 'center',
   },
-  itemSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primaryPale + '30',
+  cellLeft: {},
+  cellRight: {},
+  cellSel: {
+    backgroundColor: OnbColors.surface,
   },
-  iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surfaceSecondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sm,
+  cellLabel: {
+    fontSize: 16,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+    marginTop: 8,
+    lineHeight: 18,
   },
-  iconBoxSelected: {
-    backgroundColor: Colors.primaryPale,
+  cellLabelSel: {
+    color: OnbColors.terracotta,
+    fontStyle: 'italic',
   },
-  itemLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-    color: Colors.textSecondary,
+  cellHint: {
+    fontSize: 9,
+    letterSpacing: 1.2,
+    color: OnbColors.ink3,
+    fontFamily: MONO,
+    marginTop: 3,
   },
-  itemLabelSelected: {
-    color: Colors.primary,
-    fontWeight: '700',
-  },
-  checkBadge: {
+  badge: {
     position: 'absolute',
     top: 8,
     right: 8,
     width: 20,
     height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.primary,
+    borderRadius: 99,
+    backgroundColor: OnbColors.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  selectedCount: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.primary,
-    marginTop: Spacing.md,
-    textAlign: 'center',
+  badgeText: {
+    fontSize: 10,
+    letterSpacing: 0.6,
+    fontFamily: MONO,
+    color: OnbColors.bg,
   },
-  footer: { marginTop: 'auto', gap: Spacing.sm, paddingTop: Spacing.lg },
 });

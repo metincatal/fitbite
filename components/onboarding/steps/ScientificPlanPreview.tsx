@@ -1,17 +1,16 @@
+// Onboarding 22–25 — Scientific Plan Preview
+// Big calorie banner, math row, macro bar, eating window, safety checks.
+
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Linking } from 'react-native';
 import {
-  Colors,
-  Spacing,
-  FontSize,
-  BorderRadius,
+  OnbColors, OnbShell, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
+import { useOnboardingData } from '../../../hooks/useOnboardingData';
+import {
   OCCUPATIONAL_ACTIVITIES,
   EXERCISE_FREQUENCIES,
 } from '../../../lib/constants';
-import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { OnboardingButton } from '../shared/OnboardingButton';
 import {
   calculateBMR,
   calculateTDEE,
@@ -71,192 +70,197 @@ export function ScientificPlanPreview({ onNext, onBack }: Props) {
     });
 
     const offset = macros.calories - tdee;
-
     return { metrics, bmr, tdee, pal, macros, bmi, safety, offset, weight };
   }, [
-    data.birth_year,
-    data.height_cm,
-    data.weight_kg,
-    data.gender,
-    data.goal,
-    data.activity_level,
-    data.occupational_activity,
-    data.exercise_frequency,
-    data.body_fat_band,
-    data.weekly_weight_goal_kg,
-    data.scoff_answers,
-    data.medical_conditions,
+    data.birth_year, data.height_cm, data.weight_kg, data.gender, data.goal,
+    data.activity_level, data.occupational_activity, data.exercise_frequency,
+    data.body_fat_band, data.weekly_weight_goal_kg, data.scoff_answers, data.medical_conditions,
   ]);
 
   const { bmr, tdee, pal, macros, safety, offset } = computed;
-
   const canProceed = safety.canProceed;
+
+  const proteinPct = Math.round(((macros.protein_g * 4) / macros.calories) * 100);
+  const carbsPct   = Math.round(((macros.carbs_g   * 4) / macros.calories) * 100);
+  const fatPct     = Math.round(((macros.fat_g     * 9) / macros.calories) * 100);
+
+  const occLabel = data.occupational_activity
+    ? OCCUPATIONAL_ACTIVITIES.find((o) => o.key === data.occupational_activity)?.label
+    : null;
 
   const handleConfirm = () => {
     if (!canProceed) {
-      // Maintenance planına indir, haftalık hedefi sıfırla
       updateField('goal', 'maintain');
       updateField('weekly_weight_goal_kg', 0);
     }
     onNext();
   };
 
-  const occLabel = data.occupational_activity
-    ? OCCUPATIONAL_ACTIVITIES.find((o) => o.key === data.occupational_activity)?.label
-    : null;
-  const exLabel = data.exercise_frequency
-    ? EXERCISE_FREQUENCIES.find((e) => e.key === data.exercise_frequency)?.label
-    : null;
-
-  const proteinPct = Math.round(((macros.protein_g * 4) / macros.calories) * 100);
-  const carbsPct = Math.round(((macros.carbs_g * 4) / macros.calories) * 100);
-  const fatPct = Math.round(((macros.fat_g * 9) / macros.calories) * 100);
+  const first = data.first_meal_time || '08:00';
+  const last  = data.last_meal_time  || '20:00';
+  const startH = parseInt(first) || 8;
+  const endH   = parseInt(last)  || 20;
+  const windowH = endH - startH;
 
   return (
-    <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <Animated.View entering={FadeInDown.delay(0).duration(500)} style={styles.header}>
-          <View style={styles.avatarBox}>
-            <Ionicons name="sparkles" size={32} color={Colors.primary} />
-          </View>
-          <Text style={styles.greeting}>
-            {canProceed ? `Hazırsın, ${data.name || 'arkadaş'}! 🎉` : 'Seni daha iyi tanıdık.'}
+    <OnbShell step={18} total={26}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Plan header */}
+        <View style={styles.planHeader}>
+          <Text style={styles.planKicker}>
+            Plan hazır · {canProceed ? 'Dengeli' : 'Koruma'}
           </Text>
-          <Text style={styles.subtitle}>
-            {canProceed
-              ? 'Bilimsel temelli planın hazır:'
-              : 'Sağlıklı bir başlangıç için planını dengeleme odaklı hazırladık.'}
+          <Text style={styles.planTitle}>
+            Hazırsın,{' '}
+            <Text style={styles.planTitleItalic}>{data.name || 'arkadaş'}.</Text>
           </Text>
-        </Animated.View>
+          <Text style={styles.planSubtitle}>Bilimsel temelli planın aşağıda.</Text>
+        </View>
 
-        {/* Safety — blocker varsa ÖNCE, warning varsa SONRA */}
+        {/* Safety alerts */}
         {(safety.blockers.length > 0 || safety.warnings.length > 0) && (
-          <Animated.View entering={FadeInDown.delay(150).duration(500)} style={styles.safetyBox}>
-            <View style={styles.safetyHeader}>
-              <Ionicons
-                name={safety.blockers.length > 0 ? 'shield-checkmark' : 'alert-circle'}
-                size={18}
-                color={safety.blockers.length > 0 ? Colors.primary : Colors.warning}
-              />
-              <Text style={styles.safetyTitle}>Güvenlik kontrolleri</Text>
-            </View>
-            {safety.blockers.map((b) => (
-              <SafetyRow key={b} flag={b} />
-            ))}
-            {safety.warnings.map((w) => (
-              <SafetyRow key={w} flag={w} />
-            ))}
-          </Animated.View>
+          <View style={styles.safetySection}>
+            {safety.blockers.map((b) => <SafetyRow key={b} flag={b} />)}
+            {safety.warnings.map((w) => <SafetyRow key={w} flag={w} />)}
+          </View>
         )}
 
-        {/* Hero kalori kartı */}
-        <Animated.View entering={FadeInDown.delay(250).duration(500)} style={styles.heroCard}>
-          <Text style={styles.heroLabel}>Günlük kalori hedefin</Text>
-          <View style={styles.heroValueRow}>
-            <Text style={styles.heroValue}>{macros.calories}</Text>
-            <Text style={styles.heroUnit}>kcal</Text>
+        {/* Big calorie banner */}
+        <View style={styles.calorieBanner}>
+          <Text style={styles.bannerLabel}>GÜNLÜK KALORİ HEDEFİN</Text>
+          <View style={styles.bannerValueRow}>
+            <Text style={styles.bannerValue}>{macros.calories}</Text>
+            <Text style={styles.bannerUnit}>kcal</Text>
           </View>
-          <Text style={styles.heroFormula}>
-            {bmr.formula === 'katch_mcardle' ? 'Katch-McArdle' : 'Mifflin-St Jeor'} · BMR {bmr.value}{' '}
-            kcal
+          <Text style={styles.bannerFormula}>
+            {bmr.formula === 'katch_mcardle' ? 'KATCH-MCARDLE' : 'MİFFLİN-ST JEOR'} · BMR {bmr.value} kcal
           </Text>
-        </Animated.View>
+        </View>
 
-        {/* TDEE breakdown */}
-        <Animated.View entering={FadeInDown.delay(350).duration(500)} style={styles.breakdownCard}>
-          <Text style={styles.sectionLabel}>Matematik</Text>
-          <View style={styles.breakdownRow}>
-            <Chip label={`BMR ${bmr.value}`} />
-            <Text style={styles.operator}>×</Text>
-            <Chip label={`PAL ${pal.multiplier.toFixed(2)}`} sub={occLabel && exLabel ? `${occLabel} + ${exLabel}` : 'Aktivite tahmini'} />
-            <Text style={styles.operator}>=</Text>
-            <Chip label={`TDEE ${tdee}`} variant="accent" />
+        {/* Math row */}
+        <View style={styles.mathCard}>
+          <Text style={styles.mathLabel}>MATEMATİK</Text>
+          <View style={styles.mathRow}>
+            <Pill>BMR {bmr.value}</Pill>
+            <Text style={styles.mathOp}>×</Text>
+            <Pill>{`PAL ${pal.multiplier.toFixed(2)}`}</Pill>
+            <Text style={styles.mathOp}>=</Text>
+            <Pill accent>TDEE {tdee}</Pill>
           </View>
-          <Text style={styles.offsetText}>
+          <Text style={styles.mathOffset}>
             {offset === 0
-              ? 'Koruma planı — ne açık ne fazla.'
+              ? '→ Koruma planı — açık yok'
               : offset > 0
-                ? `Hedef fazlası: +${offset} kcal/gün`
-                : `Hedef açığı: ${offset} kcal/gün`}
+                ? `→ HEDEF FAZLASI +${offset} kcal/gün`
+                : `→ HEDEF AÇIĞI ${offset} kcal/gün`}
           </Text>
-        </Animated.View>
+        </View>
 
-        {/* Makrolar */}
-        <Animated.View entering={FadeInDown.delay(450).duration(500)} style={styles.macroRow}>
-          <MacroChip
-            label="Protein"
-            value={macros.protein_g}
-            pct={proteinPct}
-            color={Colors.protein}
-            warn={macros.amdr_flags.protein_over_amdr}
-            amdrRange={`${Math.round(AMDR.protein.min * 100)}–${Math.round(AMDR.protein.max * 100)}%`}
-          />
-          <MacroChip
-            label="Karb"
-            value={macros.carbs_g}
-            pct={carbsPct}
-            color={Colors.carbs}
-            warn={macros.amdr_flags.carbs_under_amdr}
-            amdrRange={`${Math.round(AMDR.carbs.min * 100)}–${Math.round(AMDR.carbs.max * 100)}%`}
-          />
-          <MacroChip
-            label="Yağ"
-            value={macros.fat_g}
-            pct={fatPct}
-            color={Colors.fat}
-            warn={macros.amdr_flags.fat_over_amdr}
-            amdrRange={`${Math.round(AMDR.fat.min * 100)}–${Math.round(AMDR.fat.max * 100)}%`}
-          />
-        </Animated.View>
-
-        {/* Sirkadiyen pencere */}
-        <Animated.View entering={FadeInDown.delay(550).duration(500)} style={styles.windowCard}>
-          <View style={styles.windowHeader}>
-            <Ionicons name="time-outline" size={16} color={Colors.primary} />
-            <Text style={styles.sectionLabel}>Yemek pencerem</Text>
+        {/* Macro bar */}
+        <View style={styles.macroSection}>
+          <Text style={styles.macroLabel}>MAKRO DAĞILIMI (AMDR)</Text>
+          <View style={styles.macroBar}>
+            <View style={[styles.macroBarSlice, { flex: macros.protein_g, backgroundColor: '#7CB9E8' }]} />
+            <View style={[styles.macroBarSlice, { flex: macros.carbs_g,   backgroundColor: '#A8E6CF' }]} />
+            <View style={[styles.macroBarSlice, { flex: macros.fat_g,     backgroundColor: '#FFD3A0' }]} />
           </View>
-          <EatingWindowBar first={data.first_meal_time} last={data.last_meal_time} />
-          <Text style={styles.windowHint}>
-            {data.first_meal_time}–{data.last_meal_time}. Son öğün uyku öncesi ≥ 3 saat ideal.
-          </Text>
-        </Animated.View>
+          <View style={styles.macroGrid}>
+            {[
+              { l: 'Protein', g: macros.protein_g, pct: proteinPct, c: '#7CB9E8', amdr: `${Math.round(AMDR.protein.min*100)}–${Math.round(AMDR.protein.max*100)}%`, warn: macros.amdr_flags.protein_over_amdr },
+              { l: 'Karb',    g: macros.carbs_g,   pct: carbsPct,   c: '#A8E6CF', amdr: `${Math.round(AMDR.carbs.min*100)}–${Math.round(AMDR.carbs.max*100)}%`,   warn: macros.amdr_flags.carbs_under_amdr },
+              { l: 'Yağ',     g: macros.fat_g,     pct: fatPct,     c: '#FFD3A0', amdr: `${Math.round(AMDR.fat.min*100)}–${Math.round(AMDR.fat.max*100)}%`,     warn: macros.amdr_flags.fat_over_amdr },
+            ].map((m) => (
+              <View key={m.l} style={[styles.macroBox, m.warn && styles.macroBoxWarn]}>
+                <View style={styles.macroBoxHeader}>
+                  <View style={[styles.macroDot, { backgroundColor: m.c }]} />
+                  <Text style={styles.macroBoxLabel}>{m.l.toUpperCase()}</Text>
+                </View>
+                <Text style={styles.macroBoxValue}>{m.g}<Text style={styles.macroBoxUnit}>g</Text></Text>
+                <Text style={styles.macroBoxAmdr}>%{m.pct} · {m.amdr}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Eating window */}
+        <View style={styles.windowCard}>
+          <Text style={styles.windowLabel}>YEMEK PENCERESİ · {windowH} SAAT</Text>
+          <View style={styles.windowTrack}>
+            <View
+              style={[
+                styles.windowFill,
+                { left: `${(startH / 24) * 100}%` as any, width: `${((endH - startH) / 24) * 100}%` as any },
+              ]}
+            />
+            {[0.25, 0.5, 0.75].map((t) => (
+              <View key={t} style={[styles.windowTick, { left: `${t * 100}%` as any }]} />
+            ))}
+          </View>
+          <View style={styles.windowTimes}>
+            <Text style={styles.windowTimeText}>00:00</Text>
+            <Text style={styles.windowTimeCenter}>{first} → {last}</Text>
+            <Text style={styles.windowTimeText}>24:00</Text>
+          </View>
+        </View>
       </ScrollView>
 
-      <View style={styles.footer}>
-        <OnboardingButton
-          title={canProceed ? 'Planı Onayla ve Devam Et' : 'Dengeli Plan ile Başla'}
-          onPress={handleConfirm}
-          variant={canProceed ? 'primary' : 'secondary'}
-        />
-        <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
-      </View>
+      <OnbFoot
+        onNext={handleConfirm}
+        onBack={onBack}
+        cta={canProceed ? 'Planı Onayla' : 'Dengeli Plan ile Başla'}
+      />
+    </OnbShell>
+  );
+}
+
+function Pill({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
+  return (
+    <View style={[pillStyles.pill, accent && pillStyles.accent]}>
+      <Text style={[pillStyles.text, accent && pillStyles.textAccent]}>{children}</Text>
     </View>
   );
 }
 
-// ===== Yardımcı alt bileşenler =====
+const pillStyles = StyleSheet.create({
+  pill: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderWidth: 0.5,
+    borderColor: OnbColors.ink,
+    borderRadius: 999,
+  },
+  accent: {
+    backgroundColor: OnbColors.terracotta,
+    borderColor: OnbColors.terracotta,
+  },
+  text: {
+    fontSize: 11,
+    letterSpacing: 0.6,
+    fontFamily: MONO,
+    color: OnbColors.ink,
+  },
+  textAccent: {
+    color: OnbColors.bg,
+  },
+});
 
 function SafetyRow({ flag }: { flag: SafetyBlocker | SafetyWarning }) {
   const copy = SAFETY_COPY[flag];
   const isBlocker = copy.tone === 'blocker';
 
-  const openCta = () => {
-    if (copy.ctaUrl) Linking.openURL(copy.ctaUrl).catch(() => {});
-  };
-
   return (
-    <View style={[styles.safetyRow, isBlocker ? styles.safetyRowBlocker : styles.safetyRowWarning]}>
-      <Text style={styles.safetyEmoji}>{copy.emoji}</Text>
-      <View style={styles.safetyBody}>
-        <Text style={styles.safetyRowTitle}>{copy.title}</Text>
-        <Text style={styles.safetyRowText}>{copy.body}</Text>
+    <View style={[safetyStyles.row, isBlocker ? safetyStyles.blocker : safetyStyles.warn]}>
+      <Text style={safetyStyles.emoji}>{copy.emoji}</Text>
+      <View style={safetyStyles.body}>
+        <Text style={safetyStyles.title}>{copy.title}</Text>
+        <Text style={safetyStyles.text}>{copy.body}</Text>
         {copy.ctaLabel && copy.ctaUrl && (
-          <TouchableOpacity onPress={openCta} activeOpacity={0.7} style={styles.safetyCta}>
-            <Text style={styles.safetyCtaText}>{copy.ctaLabel} →</Text>
+          <TouchableOpacity
+            onPress={() => Linking.openURL(copy.ctaUrl!).catch(() => {})}
+            activeOpacity={0.7}
+            style={safetyStyles.cta}
+          >
+            <Text style={safetyStyles.ctaText}>{copy.ctaLabel} →</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -264,374 +268,255 @@ function SafetyRow({ flag }: { flag: SafetyBlocker | SafetyWarning }) {
   );
 }
 
-function Chip({
-  label,
-  sub,
-  variant = 'default',
-}: {
-  label: string;
-  sub?: string | null;
-  variant?: 'default' | 'accent';
-}) {
-  return (
-    <View style={[chipStyles.chip, variant === 'accent' && chipStyles.chipAccent]}>
-      <Text style={[chipStyles.label, variant === 'accent' && chipStyles.labelAccent]}>{label}</Text>
-      {sub && <Text style={chipStyles.sub}>{sub}</Text>}
-    </View>
-  );
-}
-
-function MacroChip({
-  label,
-  value,
-  pct,
-  color,
-  warn,
-  amdrRange,
-}: {
-  label: string;
-  value: number;
-  pct: number;
-  color: string;
-  warn: boolean;
-  amdrRange: string;
-}) {
-  return (
-    <View style={[macroStyles.card, warn && macroStyles.cardWarn]}>
-      <View style={[macroStyles.dot, { backgroundColor: color }]} />
-      <Text style={macroStyles.value}>{value}g</Text>
-      <Text style={macroStyles.label}>{label}</Text>
-      <View style={macroStyles.pctRow}>
-        {warn ? (
-          <Ionicons name="warning" size={11} color={Colors.warning} />
-        ) : (
-          <Ionicons name="checkmark-circle" size={11} color={Colors.primaryLight} />
-        )}
-        <Text style={[macroStyles.pct, warn && macroStyles.pctWarn]}>
-          %{pct} · AMDR {amdrRange}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function EatingWindowBar({ first, last }: { first: string; last: string }) {
-  const startH = parseInt(first.split(':')[0]) || 8;
-  const endH = parseInt(last.split(':')[0]) || 20;
-  const leftPct = (startH / 24) * 100;
-  const widthPct = ((endH - startH) / 24) * 100;
-
-  return (
-    <View style={windowStyles.track}>
-      <View
-        style={[
-          windowStyles.window,
-          { left: `${leftPct}%`, width: `${Math.max(widthPct, 5)}%` },
-        ]}
-      />
-      <View style={[windowStyles.tick, { left: '25%' }]} />
-      <View style={[windowStyles.tick, { left: '50%' }]} />
-      <View style={[windowStyles.tick, { left: '75%' }]} />
-    </View>
-  );
-}
-
-// ===== Styles =====
+const safetyStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    gap: 14,
+    padding: 14,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+  },
+  blocker: {
+    backgroundColor: OnbColors.surface,
+    borderLeftColor: OnbColors.primary,
+  },
+  warn: {
+    backgroundColor: '#F5E8E8',
+    borderLeftColor: '#A3202A',
+  },
+  emoji: { fontSize: 18 },
+  body: { flex: 1 },
+  title: { fontSize: 18, fontFamily: SERIF, color: OnbColors.ink },
+  text: { fontSize: 12, color: OnbColors.ink2, marginTop: 3, lineHeight: 18 },
+  cta: { marginTop: 8, alignSelf: 'flex-start' },
+  ctaText: { fontSize: 13, fontFamily: SERIF, fontStyle: 'italic', color: OnbColors.ink },
+});
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
+  planHeader: {
+    paddingHorizontal: 22,
+    paddingBottom: 12,
   },
-  scrollContent: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.xxl,
-  },
-  header: { alignItems: 'center', marginBottom: Spacing.lg },
-  avatarBox: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: Colors.primaryPale + '60',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.md,
-  },
-  greeting: {
-    fontSize: FontSize.xxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    marginTop: Spacing.xs,
-    lineHeight: FontSize.md * 1.4,
-  },
-
-  // Hero
-  heroCard: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-  },
-  heroLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textLight + 'CC',
+  planKicker: {
+    fontSize: 10,
+    letterSpacing: 3.2,
+    fontFamily: MONO,
+    color: OnbColors.terracotta,
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: Spacing.xs,
   },
-  heroValueRow: {
+  planTitle: {
+    fontSize: 40,
+    fontFamily: SERIF,
+    lineHeight: 44,
+    marginTop: 6,
+    letterSpacing: -0.8,
+    color: OnbColors.ink,
+  },
+  planTitleItalic: {
+    fontStyle: 'italic',
+    color: OnbColors.terracotta,
+  },
+  planSubtitle: {
+    fontSize: 13,
+    color: OnbColors.ink2,
+    marginTop: 6,
+  },
+  safetySection: {
+    marginHorizontal: 22,
+    marginBottom: 10,
+  },
+  calorieBanner: {
+    marginHorizontal: 22,
+    marginTop: 10,
+    padding: 20,
+    backgroundColor: OnbColors.ink,
+  },
+  bannerLabel: {
+    fontSize: 9.5,
+    letterSpacing: 2.2,
+    fontFamily: MONO,
+    color: 'rgba(242,239,230,0.6)',
+  },
+  bannerValueRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 4,
+    gap: 6,
+    marginTop: 4,
   },
-  heroValue: {
-    fontSize: FontSize.hero,
-    fontWeight: '800',
-    color: Colors.textLight,
+  bannerValue: {
+    fontSize: 80,
+    lineHeight: 74,
+    fontFamily: SERIF,
+    color: OnbColors.bg,
+    letterSpacing: -3.2,
   },
-  heroUnit: {
-    fontSize: FontSize.xl,
-    fontWeight: '600',
-    color: Colors.textLight + 'CC',
+  bannerUnit: {
+    fontSize: 22,
+    fontFamily: SERIF,
+    fontStyle: 'italic',
+    color: OnbColors.terracotta,
   },
-  heroFormula: {
-    fontSize: FontSize.sm,
-    color: Colors.textLight + 'AA',
-    marginTop: Spacing.xs,
+  bannerFormula: {
+    fontSize: 10.5,
+    letterSpacing: 1.6,
+    fontFamily: MONO,
+    color: 'rgba(242,239,230,0.55)',
+    marginTop: 6,
   },
-
-  // Breakdown
-  breakdownCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+  mathCard: {
+    marginHorizontal: 22,
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: OnbColors.surface,
+    borderWidth: 0.5,
+    borderColor: OnbColors.line,
   },
-  sectionLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: Spacing.sm,
+  mathLabel: {
+    fontSize: 9,
+    letterSpacing: 3.2,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    marginBottom: 8,
   },
-  breakdownRow: {
+  mathRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: Spacing.xs,
+    gap: 6,
   },
-  operator: {
-    fontSize: FontSize.md,
-    fontWeight: '800',
-    color: Colors.textMuted,
-    marginHorizontal: 2,
+  mathOp: {
+    fontSize: 14,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
   },
-  offsetText: {
-    marginTop: Spacing.sm,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '600',
+  mathOffset: {
+    fontSize: 11,
+    fontFamily: MONO,
+    color: OnbColors.terracotta,
+    marginTop: 8,
+    letterSpacing: 1,
   },
-
-  // Macros
-  macroRow: {
+  macroSection: {
+    marginHorizontal: 22,
+    marginTop: 12,
+  },
+  macroLabel: {
+    fontSize: 9,
+    letterSpacing: 3.2,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    marginBottom: 8,
+  },
+  macroBar: {
     flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
+    height: 22,
+    borderWidth: 0.5,
+    borderColor: OnbColors.ink,
+    overflow: 'hidden',
   },
-
-  // Window
-  windowCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
+  macroBarSlice: {
+    height: '100%',
   },
-  windowHeader: {
+  macroGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  macroBox: {
+    flex: 1,
+    padding: 10,
+    backgroundColor: OnbColors.surface,
+    borderWidth: 0.5,
+    borderColor: OnbColors.line,
+  },
+  macroBoxWarn: {
+    borderColor: '#A3202A',
+    backgroundColor: '#F5E8E8',
+  },
+  macroBoxHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.sm,
-  },
-  windowHint: {
-    fontSize: FontSize.xs,
-    color: Colors.textMuted,
-    marginTop: Spacing.sm,
-  },
-
-  // Safety
-  safetyBox: {
-    backgroundColor: Colors.surfaceSecondary,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
-  safetyHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.sm,
-  },
-  safetyTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  safetyRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    padding: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    marginTop: Spacing.xs,
-  },
-  safetyRowBlocker: {
-    backgroundColor: Colors.primaryPale + '50',
-  },
-  safetyRowWarning: {
-    backgroundColor: Colors.accentLight + '30',
-  },
-  safetyEmoji: { fontSize: 20 },
-  safetyBody: { flex: 1 },
-  safetyRowTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+    gap: 6,
     marginBottom: 2,
   },
-  safetyRowText: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    lineHeight: FontSize.xs * 1.5,
+  macroDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 99,
   },
-  safetyCta: {
-    marginTop: Spacing.xs,
-    alignSelf: 'flex-start',
+  macroBoxLabel: {
+    fontSize: 9,
+    letterSpacing: 1,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
   },
-  safetyCtaText: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.primary,
+  macroBoxValue: {
+    fontSize: 22,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+    marginTop: 2,
   },
-
-  // Footer
-  footer: {
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.md,
+  macroBoxUnit: {
+    fontSize: 12,
+    color: OnbColors.ink3,
   },
-});
-
-const chipStyles = StyleSheet.create({
-  chip: {
-    backgroundColor: Colors.surfaceSecondary,
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: Spacing.xs + 2,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
+  macroBoxAmdr: {
+    fontSize: 9,
+    letterSpacing: 0.6,
+    fontFamily: MONO,
+    color: OnbColors.ink2,
   },
-  chipAccent: {
-    backgroundColor: Colors.primaryPale,
+  windowCard: {
+    marginHorizontal: 22,
+    marginTop: 12,
+    marginBottom: 20,
+    padding: 14,
+    backgroundColor: OnbColors.surface,
+    borderWidth: 0.5,
+    borderColor: OnbColors.line,
   },
-  label: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textSecondary,
+  windowLabel: {
+    fontSize: 9,
+    letterSpacing: 1.8,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    marginBottom: 8,
   },
-  labelAccent: {
-    color: Colors.primaryDark,
-  },
-  sub: {
-    fontSize: FontSize.xs - 1,
-    color: Colors.textMuted,
-    marginTop: 1,
-  },
-});
-
-const macroStyles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.sm + 2,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.borderLight,
-  },
-  cardWarn: {
-    borderColor: Colors.warning,
-    backgroundColor: Colors.accentLight + '20',
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginBottom: Spacing.xs,
-  },
-  value: {
-    fontSize: FontSize.lg,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
-  label: {
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    marginTop: 1,
-  },
-  pctRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    marginTop: Spacing.xs,
-  },
-  pct: {
-    fontSize: FontSize.xs - 1,
-    color: Colors.textMuted,
-    fontWeight: '600',
-  },
-  pctWarn: {
-    color: Colors.warning,
-  },
-});
-
-const windowStyles = StyleSheet.create({
-  track: {
-    height: 12,
-    backgroundColor: Colors.surfaceSecondary,
-    borderRadius: 6,
-    overflow: 'hidden',
+  windowTrack: {
+    height: 14,
+    backgroundColor: OnbColors.line,
     position: 'relative',
+    overflow: 'hidden',
   },
-  window: {
+  windowFill: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    backgroundColor: Colors.primary,
-    borderRadius: 6,
+    backgroundColor: OnbColors.terracotta,
+    borderRadius: 2,
   },
-  tick: {
+  windowTick: {
     position: 'absolute',
     top: 0,
     bottom: 0,
     width: 1,
-    backgroundColor: Colors.border,
+    backgroundColor: OnbColors.bg,
+  },
+  windowTimes: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  windowTimeText: {
+    fontSize: 9,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    letterSpacing: 1.2,
+  },
+  windowTimeCenter: {
+    fontSize: 9.5,
+    fontFamily: MONO,
+    color: OnbColors.ink,
+    letterSpacing: 1.4,
   },
 });

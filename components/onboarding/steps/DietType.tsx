@@ -1,73 +1,111 @@
+// Onboarding 15 — Diet Style
+// 2-col grid, single select, ink bg when active.
+
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { DIET_TYPES, DietType as DietTypeValue } from '../../../lib/constants';
-import { Colors, Spacing, FontSize } from '../../../lib/constants';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import {
+  OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
+} from '../shared/OnbDesign';
 import { useOnboardingData } from '../../../hooks/useOnboardingData';
-import { StepContainer } from '../shared/StepContainer';
-import { OnboardingButton } from '../shared/OnboardingButton';
-import { OptionCard } from '../shared/OptionCard';
 
 interface Props {
   onNext: () => void;
   onBack: () => void;
 }
 
+const ITEMS = [
+  { k: 'normal',         label: 'Normal',           hint: 'HER ŞEY SERBEST' },
+  { k: 'vegetarian',     label: 'Vejetaryen',       hint: 'ET YOK, SÜT/YUMURTA VAR' },
+  { k: 'vegan',          label: 'Vegan',            hint: 'HAYVANSAL ÜRÜN YOK' },
+  { k: 'pescatarian',    label: 'Pesketaryen',      hint: 'BALIK + VEJETARİYEN' },
+  { k: 'keto',           label: 'Keto',             hint: 'DÜŞÜK KARB, YÜKSEK YAĞ' },
+  { k: 'paleo',          label: 'Paleo',            hint: 'DOĞAL, İŞLENMEMİŞ' },
+  { k: 'mediterranean',  label: 'Akdeniz',          hint: 'ZEYTİNYAĞI, SEBZE, BALIK' },
+  { k: 'gluten_free',    label: 'Glutensiz',        hint: 'GLUTENSİZ' },
+  { k: 'flexitarian',    label: 'Esnek Vejeteryan', hint: 'ÇOĞUNLUKLA BİTKİSEL' },
+  { k: 'lactose_free',   label: 'Laktozsuz',        hint: 'SÜT ÜRÜNLERİNDEN KAÇINMA' },
+] as const;
+
+type DietKey = typeof ITEMS[number]['k'];
+
 export function DietType({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
+  const selected = data.diet_type;
 
   return (
-    <StepContainer>
-      <View style={styles.inner}>
-        <Animated.Text entering={FadeInDown.delay(0).duration(500)} style={styles.emoji}>
-          🍽️
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(100).duration(500)} style={styles.title}>
-          Beslenme{'\n'}tarzın ne?
-        </Animated.Text>
-        <Animated.Text entering={FadeInDown.delay(200).duration(500)} style={styles.subtitle}>
-          Tarif ve öneri sistemin buna göre ayarlanır
-        </Animated.Text>
+    <OnbShell step={12} total={26}>
+      <OnbHead
+        kicker="Tabak"
+        title="Beslenme tarzın"
+        italic="ne?"
+        subtitle="Tarif ve öneri sistemimiz buna göre ayarlanır. Sonra değiştirebilirsin."
+      />
 
-        <Animated.View entering={FadeInDown.delay(300).duration(500)}>
-          {(Object.entries(DIET_TYPES) as [DietTypeValue, typeof DIET_TYPES[DietTypeValue]][]).map(
-            ([key, val]) => (
-              <OptionCard
-                key={key}
-                label={val.label}
-                description={val.description}
-                emoji={val.emoji}
-                selected={data.diet_type === key}
-                onPress={() => updateField('diet_type', key)}
-                variant="list"
-              />
-            )
-          )}
-        </Animated.View>
-
-        <View style={styles.footer}>
-          <OnboardingButton title="Devam Et →" onPress={onNext} />
-          <OnboardingButton title="Geri" onPress={onBack} variant="ghost" />
+      <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
+        <View style={styles.grid}>
+          {ITEMS.map((it) => {
+            const sel = selected === it.k;
+            return (
+              <TouchableOpacity
+                key={it.k}
+                onPress={() => updateField('diet_type', it.k as DietKey)}
+                style={[styles.cell, sel && styles.cellSel]}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.label, sel && styles.labelSel]}>{it.label}</Text>
+                <Text style={[styles.hint, sel && { opacity: 0.65 }]}>{it.hint}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-      </View>
-    </StepContainer>
+      </ScrollView>
+
+      <OnbFoot onNext={onNext} onBack={onBack} />
+    </OnbShell>
   );
 }
 
 const styles = StyleSheet.create({
-  inner: { flex: 1, paddingBottom: Spacing.xxl },
-  emoji: { fontSize: 52, marginBottom: Spacing.md },
-  title: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: FontSize.xxxl * 1.2,
-    marginBottom: Spacing.sm,
+  body: {
+    paddingHorizontal: 22,
+    paddingTop: 4,
   },
-  subtitle: {
-    fontSize: FontSize.md,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    borderTopWidth: 0.5,
+    borderTopColor: OnbColors.line,
+    borderLeftWidth: 0.5,
+    borderLeftColor: OnbColors.line,
+    marginBottom: 16,
   },
-  footer: { marginTop: 'auto', gap: Spacing.sm, paddingTop: Spacing.lg },
+  cell: {
+    width: '50%',
+    padding: 14,
+    borderRightWidth: 0.5,
+    borderRightColor: OnbColors.line,
+    borderBottomWidth: 0.5,
+    borderBottomColor: OnbColors.line,
+    backgroundColor: 'transparent',
+    minHeight: 70,
+  },
+  cellSel: {
+    backgroundColor: OnbColors.ink,
+  },
+  label: {
+    fontSize: 18,
+    fontFamily: SERIF,
+    color: OnbColors.ink,
+  },
+  labelSel: {
+    color: OnbColors.bg,
+    fontStyle: 'italic',
+  },
+  hint: {
+    fontSize: 9.5,
+    letterSpacing: 1,
+    fontFamily: MONO,
+    color: OnbColors.ink3,
+    marginTop: 4,
+  },
 });
