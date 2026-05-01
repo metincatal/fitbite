@@ -10,6 +10,7 @@ import {
   Alert,
   Dimensions,
   Platform,
+  PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -599,6 +600,38 @@ function DurationDial({ value, onChange }: { value: number; onChange: (v: number
   const MAX = 120;
   const PRESETS = [10, 15, 20, 30, 45, 60, 90, 120];
 
+  // Keep onChange in a ref so PanResponder (created once) always calls latest version
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const { locationX, locationY } = evt.nativeEvent;
+        const dx = locationX - CX;
+        const dy = locationY - CY;
+        // Only respond to touches near the arc (within ±36px of radius)
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < R - 36 || dist > R + 36) return;
+        let angle = Math.atan2(dx, -dy);
+        if (angle < 0) angle += 2 * Math.PI;
+        const minutes = Math.max(1, Math.min(MAX, Math.round((angle / (2 * Math.PI)) * MAX)));
+        onChangeRef.current(minutes);
+      },
+      onPanResponderMove: (evt) => {
+        const { locationX, locationY } = evt.nativeEvent;
+        const dx = locationX - CX;
+        const dy = locationY - CY;
+        let angle = Math.atan2(dx, -dy);
+        if (angle < 0) angle += 2 * Math.PI;
+        const minutes = Math.max(1, Math.min(MAX, Math.round((angle / (2 * Math.PI)) * MAX)));
+        onChangeRef.current(minutes);
+      },
+    })
+  ).current;
+
   const frac = Math.min(0.999, value / MAX);
   const angDeg = frac * 360 - 90;
   const angRad = (angDeg * Math.PI) / 180;
@@ -622,62 +655,70 @@ function DurationDial({ value, onChange }: { value: number; onChange: (v: number
     };
   });
 
+  // Closest preset to current value (for active chip highlight)
+  const activePreset = PRESETS.includes(value) ? value : null;
+
   return (
     <View style={{ alignItems: 'center' }}>
-      <Svg width={SIZE} height={SIZE}>
-        {ticks.map((t, i) => (
-          <Line
-            key={i}
-            x1={t.x1} y1={t.y1}
-            x2={t.x2} y2={t.y2}
-            stroke={Colors.textMuted}
-            strokeWidth={t.major ? 0.9 : 0.4}
-            opacity={t.major ? 0.7 : 0.4}
-          />
-        ))}
-        <Circle cx={CX} cy={CY} r={R} fill="none" stroke={Colors.borderLight} strokeWidth={0.8} />
-        {frac > 0.01 && (
-          <Path
-            d={`M ${startX} ${startY} A ${R} ${R} 0 ${largeArc} 1 ${hx} ${hy}`}
-            stroke={Colors.accent}
-            strokeWidth={3}
-            fill="none"
-            strokeLinecap="round"
-          />
-        )}
-        <Circle cx={hx} cy={hy} r={9} fill={Colors.background} stroke={Colors.accent} strokeWidth={2} />
-        <Circle cx={hx} cy={hy} r={3} fill={Colors.accent} />
-        <SvgText
-          x={CX} y={CY - 2}
-          textAnchor="middle"
-          fontSize={38}
-          fontFamily={SERIF}
-          fill={Colors.textPrimary}
-        >
-          {value}
-        </SvgText>
-        <SvgText
-          x={CX} y={CY + 16}
-          textAnchor="middle"
-          fontSize={9}
-          fontFamily={MONO}
-          fill={Colors.textMuted}
-          letterSpacing={2}
-        >
-          DAKİKA
-        </SvgText>
-      </Svg>
+      <View
+        style={{ width: SIZE, height: SIZE }}
+        {...panResponder.panHandlers}
+      >
+        <Svg width={SIZE} height={SIZE}>
+          {ticks.map((t, i) => (
+            <Line
+              key={i}
+              x1={t.x1} y1={t.y1}
+              x2={t.x2} y2={t.y2}
+              stroke={Colors.textMuted}
+              strokeWidth={t.major ? 0.9 : 0.4}
+              opacity={t.major ? 0.7 : 0.4}
+            />
+          ))}
+          <Circle cx={CX} cy={CY} r={R} fill="none" stroke={Colors.borderLight} strokeWidth={0.8} />
+          {frac > 0.01 && (
+            <Path
+              d={`M ${startX} ${startY} A ${R} ${R} 0 ${largeArc} 1 ${hx} ${hy}`}
+              stroke={Colors.accent}
+              strokeWidth={3}
+              fill="none"
+              strokeLinecap="round"
+            />
+          )}
+          <Circle cx={hx} cy={hy} r={9} fill={Colors.background} stroke={Colors.accent} strokeWidth={2} />
+          <Circle cx={hx} cy={hy} r={3} fill={Colors.accent} />
+          <SvgText
+            x={CX} y={CY - 2}
+            textAnchor="middle"
+            fontSize={38}
+            fontFamily={SERIF}
+            fill={Colors.textPrimary}
+          >
+            {value}
+          </SvgText>
+          <SvgText
+            x={CX} y={CY + 16}
+            textAnchor="middle"
+            fontSize={9}
+            fontFamily={MONO}
+            fill={Colors.textMuted}
+            letterSpacing={2}
+          >
+            DAKİKA
+          </SvgText>
+        </Svg>
+      </View>
 
-      {/* Preset chips */}
+      {/* Preset chips — active when value matches exactly */}
       <View style={dial.presets}>
         {PRESETS.map((p) => (
           <TouchableOpacity
             key={p}
             onPress={() => onChange(p)}
-            style={[dial.chip, value === p && dial.chipActive]}
+            style={[dial.chip, activePreset === p && dial.chipActive]}
             activeOpacity={0.7}
           >
-            <Text style={[dial.chipText, value === p && dial.chipTextActive]}>{p}</Text>
+            <Text style={[dial.chipText, activePreset === p && dial.chipTextActive]}>{p}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -1625,14 +1666,16 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
     paddingVertical: 12,
+    paddingHorizontal: 8,
     borderRadius: BorderRadius.full,
     borderWidth: 0.5,
     borderColor: Colors.primary + '60',
     backgroundColor: Colors.primary + '0D',
+    overflow: 'hidden',
   },
-  breakdownBtnText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '600' },
+  breakdownBtnText: { fontSize: 11, color: Colors.primary, fontWeight: '600', flexShrink: 1 },
   saveBtn: {
     flex: 2,
     flexDirection: 'row',
