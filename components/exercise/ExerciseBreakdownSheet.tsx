@@ -7,15 +7,57 @@ import {
   Pressable,
   ScrollView,
 } from 'react-native';
+import Svg, { Path, Circle, Line, Rect, Ellipse } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius, INTENSITY_LABELS } from '../../lib/constants';
 import type { ExerciseOutput } from '../../lib/exerciseEngine';
+
+function ExGlyph({ kind, size = 22, color = '#17201A', strokeWidth = 1.3 }: {
+  kind: string; size?: number; color?: string; strokeWidth?: number;
+}) {
+  const p = { fill: 'none' as const, stroke: color, strokeWidth, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  switch (kind) {
+    case 'pulse': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M2 12h4l2-6 4 12 3-9 2 3h5" {...p}/></Svg>;
+    case 'run': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={14} cy={5} r={1.6} {...p}/><Path d="M7 21L10 15L8 11L13 9L17 13L21 12" {...p}/><Path d="M10 15L6 14" {...p}/></Svg>;
+    case 'walk': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={12} cy={4} r={1.5} {...p}/><Path d="M9 21l1.5-6L9 12l3-3 2 2 3-1" {...p}/><Path d="M9 12l-2 2" {...p}/></Svg>;
+    case 'bike': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={6} cy={16} r={3.5} {...p}/><Circle cx={18} cy={16} r={3.5} {...p}/><Path d="M6 16l4-8h4l2 8" {...p}/><Path d="M10 8h4" {...p}/></Svg>;
+    case 'wave': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0" {...p}/><Path d="M2 17c2-4 4-4 6 0s4 4 6 0 4-4 6 0" {...p}/></Svg>;
+    case 'orbit': return <Svg width={size} height={size} viewBox="0 0 24 24"><Ellipse cx={12} cy={12} rx={9} ry={4} {...p}/><Circle cx={12} cy={12} r={2} fill={color} stroke="none"/></Svg>;
+    case 'row': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={17} cy={5} r={1.5} {...p}/><Path d="M3 14l4-4 4 3 4-5 3 1" {...p}/><Path d="M3 18h18" {...p}/></Svg>;
+    case 'stairs': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M3 20H7V16H11V12H15V8H19V4" {...p}/></Svg>;
+    case 'rope': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M12 3v4" {...p}/><Path d="M8 5c0 4 8 4 8 8s-8 4-8 8" {...p}/><Path d="M16 5c0 4-8 4-8 8s8 4 8 8" {...p}/></Svg>;
+    case 'barbell': return <Svg width={size} height={size} viewBox="0 0 24 24"><Line x1={3} y1={12} x2={21} y2={12} {...p}/><Rect x={3} y={9} width={2} height={6} rx={0.5} {...p}/><Rect x={7} y={7} width={2} height={10} rx={0.5} {...p}/><Rect x={15} y={7} width={2} height={10} rx={0.5} {...p}/><Rect x={19} y={9} width={2} height={6} rx={0.5} {...p}/></Svg>;
+    case 'flex': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M6 19c0-4 3-6 6-6s6 2 6 6" {...p}/><Path d="M8 8c0-2 1.5-4 4-4s4 2 4 4-1.5 5-4 5-4-3-4-5z" {...p}/></Svg>;
+    case 'kbell': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={12} cy={9} r={4} {...p}/><Path d="M8 13l-2 7h12l-2-7" {...p}/><Path d="M10 9h4" {...p}/></Svg>;
+    case 'fire': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M12 2c0 6-6 8-6 13a6 6 0 0012 0c0-5-6-7-6-13z" {...p}/><Path d="M12 12c0 3-2 4-2 6a2 2 0 004 0c0-2-2-3-2-6z" {...p}/></Svg>;
+    case 'pitch': return <Svg width={size} height={size} viewBox="0 0 24 24"><Rect x={2} y={4} width={20} height={16} rx={1} {...p}/><Path d="M12 4v16" {...p}/><Circle cx={12} cy={12} r={4} {...p}/></Svg>;
+    case 'court': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={12} cy={8} r={4} {...p}/><Path d="M5 20a7 7 0 0114 0" {...p}/></Svg>;
+    case 'racquet': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={10} cy={10} r={5} {...p}/><Line x1={14} y1={14} x2={21} y2={21} {...p}/></Svg>;
+    case 'net': return <Svg width={size} height={size} viewBox="0 0 24 24"><Line x1={2} y1={12} x2={22} y2={12} {...p}/><Path d="M6 6l-4 12" {...p}/><Path d="M18 6l4 12" {...p}/><Path d="M8 6h8" {...p}/></Svg>;
+    case 'paddle': return <Svg width={size} height={size} viewBox="0 0 24 24"><Ellipse cx={10} cy={10} rx={5} ry={7} {...p}/><Line x1={14} y1={16} x2={20} y2={22} {...p}/></Svg>;
+    case 'shuttle': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={12} cy={7} r={3} {...p}/><Path d="M9 10l-4 10" {...p}/><Path d="M15 10l4 10" {...p}/><Path d="M8 20h8" {...p}/></Svg>;
+    case 'lotus': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M12 21c0-5 3-8 3-11a3 3 0 00-6 0c0 3 3 6 3 11z" {...p}/><Path d="M5 18c2-3 5-4 7-3" {...p}/><Path d="M19 18c-2-3-5-4-7-3" {...p}/></Svg>;
+    case 'arc': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M5 20c0-6 3-10 7-10s7 4 7 10" {...p}/><Path d="M12 10V4" {...p}/></Svg>;
+    case 'spiral': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M12 12 m-1 0 a1 1 0 1 0 2 0 a4 4 0 1 0 -7.5 -2 a8 8 0 1 0 14.5 4" {...p}/></Svg>;
+    case 'dot': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={12} cy={12} r={3} fill={color} stroke="none"/><Circle cx={12} cy={12} r={7} {...p}/></Svg>;
+    case 'reach': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M12 3v10" {...p}/><Path d="M8 7l4-4 4 4" {...p}/><Path d="M5 17c0-3 3-5 7-5s7 2 7 5" {...p}/></Svg>;
+    case 'mountain': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M3 20L9 8l4 6 3-4 5 10H3z" {...p}/></Svg>;
+    case 'mtb': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={6} cy={16} r={3.5} {...p}/><Circle cx={18} cy={16} r={3.5} {...p}/><Path d="M6 16l5-9h3l2 5" {...p}/><Path d="M15 7l3 5" {...p}/></Svg>;
+    case 'ski': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M3 17l6-8 4 3 4-5 4 3" {...p}/><Path d="M2 20l20-2" {...p}/></Svg>;
+    case 'bolt': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M13 2L4 14h8l-1 8 9-12h-8l1-8z" {...p}/></Svg>;
+    case 'glove': return <Svg width={size} height={size} viewBox="0 0 24 24"><Rect x={6} y={8} width={12} height={10} rx={3} {...p}/><Path d="M9 8V5a2 2 0 014 0v3" {...p}/><Path d="M13 8V4a2 2 0 014 0v4" {...p}/></Svg>;
+    case 'spring': return <Svg width={size} height={size} viewBox="0 0 24 24"><Path d="M12 3c0 3-3 5-3 9s3 6 3 9" {...p}/><Path d="M9 8c-2 1-4 3-4 5s2 4 4 5" {...p}/><Path d="M15 8c2 1 4 3 4 5s-2 4-4 5" {...p}/></Svg>;
+    case 'medal': return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={12} cy={14} r={5} {...p}/><Path d="M8 9l-3-6h14l-3 6" {...p}/></Svg>;
+    default: return <Svg width={size} height={size} viewBox="0 0 24 24"><Circle cx={12} cy={12} r={5} {...p}/></Svg>;
+  }
+}
 
 interface Props {
   visible: boolean;
   onClose: () => void;
   exerciseName: string;
   exerciseEmoji: string;
+  exerciseGlyph?: string;
   durationMinutes: number;
   intensity: 'low' | 'moderate' | 'high';
   engine: ExerciseOutput;
@@ -25,7 +67,7 @@ interface Props {
 
 export function ExerciseBreakdownSheet({
   visible, onClose,
-  exerciseName, exerciseEmoji,
+  exerciseName, exerciseEmoji, exerciseGlyph,
   durationMinutes, intensity,
   engine, weightKg, sex,
 }: Props) {
@@ -39,10 +81,12 @@ export function ExerciseBreakdownSheet({
 
           {/* Header */}
           <View style={s.header}>
-            <Text style={s.headerEmoji}>{exerciseEmoji}</Text>
+            {exerciseGlyph
+              ? <ExGlyph kind={exerciseGlyph} size={28} color={Colors.ink} />
+              : <Text style={s.headerEmoji}>{exerciseEmoji}</Text>}
             <View style={{ flex: 1 }}>
               <Text style={s.title}>{exerciseName}</Text>
-              <Text style={s.subtitle}>{durationMinutes} dk · {intensityInfo.emoji} {intensityInfo.label}</Text>
+              <Text style={s.subtitle}>{durationMinutes} dk · {intensityInfo.label}</Text>
             </View>
             <Pressable onPress={onClose} hitSlop={12}>
               <Ionicons name="close" size={22} color={Colors.textMuted} />
