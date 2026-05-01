@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Tabs } from 'expo-router';
-import { Colors, Spacing, BorderRadius } from '../../lib/constants';
+import { Tabs, useSegments } from 'expo-router';
+import { Colors } from '../../lib/constants';
 import {
   View,
   StyleSheet,
@@ -8,14 +8,12 @@ import {
   Animated,
   Platform,
   Dimensions,
+  Alert,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { ApertureMark } from '../../components/ui/ApertureMark';
+import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { QuickActionSheet } from '../../components/ui/QuickActionSheet';
 import * as ImagePicker from 'expo-image-picker';
-import { Alert } from 'react-native';
-
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -31,140 +29,100 @@ export function setQuickActionCallbacks(
   _onGalleryCallback = onGallery;
 }
 
-// Animated tab icon with scale + dot indicator
-function TabIcon({
-  iconName,
-  iconNameFocused,
-  focused,
-}: {
-  iconName: IoniconName;
-  iconNameFocused: IoniconName;
-  focused: boolean;
-}) {
-  const scale = useRef(new Animated.Value(focused ? 1.12 : 1)).current;
-  const dotScale = useRef(new Animated.Value(focused ? 1 : 0)).current;
-  const dotOpacity = useRef(new Animated.Value(focused ? 1 : 0)).current;
-  const colorAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
+// ────────────────────────────────────────────────────────────────────────────
+// Tab icon SVGs — mono-line, matches the design system
+// ────────────────────────────────────────────────────────────────────────────
+function TabSvgIcon({ kind, active }: { kind: string; active: boolean }) {
+  const color = active ? Colors.background : Colors.textSecondary;
+  const sw = active ? 1.6 : 1.3;
+  const p = { fill: 'none' as const, stroke: color, strokeWidth: sw, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scale, {
-        toValue: focused ? 1.18 : 1,
-        useNativeDriver: true,
-        damping: 14,
-        stiffness: 320,
-      }),
-      Animated.spring(dotScale, {
-        toValue: focused ? 1 : 0,
-        useNativeDriver: true,
-        damping: 16,
-        stiffness: 280,
-      }),
-      Animated.timing(dotOpacity, {
-        toValue: focused ? 1 : 0,
-        duration: 160,
-        useNativeDriver: true,
-      }),
-      Animated.timing(colorAnim, {
-        toValue: focused ? 1 : 0,
-        duration: 180,
-        useNativeDriver: false,
-      }),
-    ]).start();
-  }, [focused]);
-
-  const color = colorAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [Colors.textMuted, Colors.primary],
-  });
-
-  return (
-    <View style={styles.tabItem}>
-      <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons
-          name={focused ? iconNameFocused : iconName}
-          size={24}
-          color={focused ? Colors.primary : Colors.textMuted}
-        />
-      </Animated.View>
-      <Animated.View
-        style={[
-          styles.tabDot,
-          {
-            transform: [{ scale: dotScale }],
-            opacity: dotOpacity,
-          },
-        ]}
-      />
-    </View>
+  if (kind === 'home') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M4 11 L12 4 L20 11 V20 H14 V14 H10 V20 H4 Z" {...p} />
+    </Svg>
   );
+  if (kind === 'plate') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Circle cx={12} cy={12} r={8} {...p} />
+      <Circle cx={12} cy={12} r={3} {...p} />
+    </Svg>
+  );
+  if (kind === 'spiral') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M12 12 m-1 0 a1 1 0 1 0 2 0 a4 4 0 1 0 -7.5 -2 a8 8 0 1 0 14.5 4" {...p} />
+    </Svg>
+  );
+  if (kind === 'pulse') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M3 12 H7 L9 6 L13 18 L16 9 L18 12 H21" {...p} />
+    </Svg>
+  );
+  if (kind === 'profile') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Circle cx={12} cy={9} r={3.5} {...p} />
+      <Path d="M5 20 Q5 14 12 14 Q19 14 19 20" {...p} />
+    </Svg>
+  );
+  return null;
 }
 
-export default function TabLayout() {
-  const [showQuickAction, setShowQuickAction] = useState(false);
-  const fabRotation = useRef(new Animated.Value(0)).current;
-  const fabScale = useRef(new Animated.Value(1)).current;
-  const fabProgress = useRef(new Animated.Value(0)).current;
-  const fabGlow = useRef(new Animated.Value(0)).current;
+// ────────────────────────────────────────────────────────────────────────────
+// Tab definitions (no ai-chat)
+// ────────────────────────────────────────────────────────────────────────────
+const TAB_DEFS = [
+  { name: 'index',    label: 'Bugün',    icon: 'home' },
+  { name: 'food-log', label: 'Tabak',    icon: 'plate' },
+  { name: 'progress', label: 'İlerleme', icon: 'spiral' },
+  { name: 'exercise', label: 'Egzersiz', icon: 'pulse' },
+  { name: 'profile',  label: 'Profil',   icon: 'profile' },
+];
 
-  function toggleFab() {
+// ────────────────────────────────────────────────────────────────────────────
+// Custom tab bar
+// ────────────────────────────────────────────────────────────────────────────
+function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+  const [showQuickAction, setShowQuickAction] = useState(false);
+  const indicatorAnim = useRef(new Animated.Value(0)).current;
+  const discRotate = useRef(new Animated.Value(0)).current;
+  const discScale = useRef(new Animated.Value(1)).current;
+
+  // Map Expo Router route names to our TAB_DEFS
+  const routeToTabIdx = (routeName: string): number => {
+    const clean = routeName.replace(/^.*\//, '').replace(/\?.*$/, '');
+    return TAB_DEFS.findIndex((t) => t.name === clean);
+  };
+
+  const activeRouteName = state.routes[state.index]?.name ?? '';
+  const activeTabIdx = Math.max(0, routeToTabIdx(activeRouteName));
+  const isOnFoodLog = (state.routes[state.index]?.name ?? '').includes('food-log');
+
+  // Animate sliding pill indicator
+  useEffect(() => {
+    Animated.spring(indicatorAnim, {
+      toValue: activeTabIdx,
+      useNativeDriver: false,
+      damping: 20,
+      stiffness: 260,
+      mass: 0.8,
+    }).start();
+  }, [activeTabIdx]);
+
+  function toggleDisc() {
     const toValue = showQuickAction ? 0 : 1;
     Animated.parallel([
-      Animated.spring(fabRotation, {
-        toValue,
-        useNativeDriver: true,
-        damping: 14,
-        stiffness: 200,
-      }),
-      Animated.spring(fabProgress, {
-        toValue,
-        useNativeDriver: false,
-        damping: 14,
-        stiffness: 200,
-      }),
-      Animated.spring(fabGlow, {
-        toValue,
-        useNativeDriver: false,
-        damping: 12,
-        stiffness: 180,
-      }),
+      Animated.spring(discRotate, { toValue, useNativeDriver: true, damping: 14, stiffness: 200 }),
       Animated.sequence([
-        Animated.timing(fabScale, {
-          toValue: 0.82,
-          duration: 80,
-          useNativeDriver: true,
-        }),
-        Animated.spring(fabScale, {
-          toValue: 1,
-          useNativeDriver: true,
-          damping: 11,
-          stiffness: 260,
-        }),
+        Animated.timing(discScale, { toValue: 0.85, duration: 70, useNativeDriver: true }),
+        Animated.spring(discScale, { toValue: 1, useNativeDriver: true, damping: 12, stiffness: 280 }),
       ]),
     ]).start();
-    setShowQuickAction(!showQuickAction);
+    setShowQuickAction((v) => !v);
   }
 
-  function closeFab() {
+  function closeDisc() {
     Animated.parallel([
-      Animated.spring(fabRotation, {
-        toValue: 0,
-        useNativeDriver: true,
-        damping: 14,
-        stiffness: 200,
-      }),
-      Animated.spring(fabProgress, {
-        toValue: 0,
-        useNativeDriver: false,
-        damping: 14,
-        stiffness: 200,
-      }),
-      Animated.spring(fabGlow, {
-        toValue: 0,
-        useNativeDriver: false,
-        damping: 12,
-        stiffness: 180,
-      }),
+      Animated.spring(discRotate, { toValue: 0, useNativeDriver: true, damping: 14, stiffness: 200 }),
     ]).start();
     setShowQuickAction(false);
   }
@@ -183,9 +141,7 @@ export default function TabLayout() {
       aspect: [1, 1],
     });
     if (result.canceled || !result.assets[0].base64) return;
-    if (_onCameraCallback) {
-      _onCameraCallback(result.assets[0].base64);
-    }
+    if (_onCameraCallback) _onCameraCallback(result.assets[0].base64);
   }
 
   async function handleOpenGallery() {
@@ -202,150 +158,114 @@ export default function TabLayout() {
       aspect: [1, 1],
     });
     if (result.canceled || !result.assets[0].base64) return;
-    if (_onGalleryCallback) {
-      _onGalleryCallback(result.assets[0].base64);
-    }
+    if (_onGalleryCallback) _onGalleryCallback(result.assets[0].base64);
   }
 
-  const rotate = fabRotation.interpolate({
+  const BAR_H = 58;
+  const BAR_BOTTOM = Platform.OS === 'ios' ? 26 : 14;
+  const BAR_SIDE = 14;
+  const DISC_BOTTOM = BAR_BOTTOM + BAR_H + 10;
+
+  const tabW = (SW - BAR_SIDE * 2 - 16) / TAB_DEFS.length;
+
+  const indicatorLeft = indicatorAnim.interpolate({
+    inputRange: TAB_DEFS.map((_, i) => i),
+    outputRange: TAB_DEFS.map((_, i) => 8 + i * tabW),
+  });
+
+  const rotate = discRotate.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '135deg'],
   });
 
-  const glowRadius = fabGlow.interpolate({
-    inputRange: [0, 1],
-    outputRange: [10, 22],
-  });
-
-  const glowOpacity = fabGlow.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.28, 0.42],
-  });
-
   return (
     <>
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarStyle: {
-            backgroundColor: Colors.surface,
-            borderTopColor: Colors.borderLight,
-            borderTopWidth: 0.5,
-            height: Platform.OS === 'ios' ? 74 : 64,
-            paddingBottom: Platform.OS === 'ios' ? 18 : 8,
-            paddingTop: 8,
-            shadowColor: Colors.ink,
-            shadowOffset: { width: 0, height: -6 },
-            shadowOpacity: 0.07,
-            shadowRadius: 16,
-            elevation: 16,
-          },
-          tabBarShowLabel: false,
-        }}
+      {/* Floating "+" disc — hidden on food-log tab (food-log has its own + button) */}
+      {!isOnFoodLog && (
+        <Animated.View
+          style={[
+            styles.discWrapper,
+            { bottom: DISC_BOTTOM, transform: [{ scale: discScale }, { rotate }] },
+          ]}
+        >
+          <TouchableOpacity
+            onPress={toggleDisc}
+            activeOpacity={0.88}
+            style={styles.discBtn}
+          >
+            {/* Plus icon */}
+            <Svg width={20} height={20} viewBox="0 0 24 24">
+              <Line x1={12} y1={5} x2={12} y2={19} stroke={Colors.background} strokeWidth={2} strokeLinecap="round" />
+              <Line x1={5} y1={12} x2={19} y2={12} stroke={Colors.background} strokeWidth={2} strokeLinecap="round" />
+            </Svg>
+            {/* Terracotta accent dot */}
+            {!showQuickAction && (
+              <View style={styles.discAccentDot} />
+            )}
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+
+      {/* Floating pill tab bar */}
+      <View
+        style={[
+          styles.pillBar,
+          { bottom: BAR_BOTTOM, left: BAR_SIDE, right: BAR_SIDE, height: BAR_H },
+        ]}
       >
-        <Tabs.Screen
-          name="index"
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconName="home-outline"
-                iconNameFocused="home"
-                focused={focused}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="food-log"
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconName="restaurant-outline"
-                iconNameFocused="restaurant"
-                focused={focused}
-              />
-            ),
-          }}
+        {/* Sliding indicator pill */}
+        <Animated.View
+          style={[
+            styles.indicator,
+            { left: indicatorLeft, width: tabW },
+          ]}
         />
 
-        {/* Center FAB slot */}
-        <Tabs.Screen
-          name="ai-chat"
-          options={{
-            tabBarIcon: () => null,
-            tabBarButton: () => (
-              <View style={styles.fabContainer}>
-                <TouchableOpacity
-                  onPress={toggleFab}
-                  activeOpacity={0.88}
-                  style={styles.fabTouchable}
-                >
-                  <Animated.View
-                    style={[
-                      styles.fabGlow,
-                      {
-                        shadowRadius: glowRadius,
-                        shadowOpacity: glowOpacity,
-                      },
-                    ]}
-                  />
-                  <Animated.View
-                    style={[
-                      styles.fabOuter,
-                      {
-                        transform: [{ scale: fabScale }, { rotate }],
-                      },
-                    ]}
-                  >
-                    <ApertureMark animValue={fabProgress} size={62} />
-                  </Animated.View>
-                </TouchableOpacity>
-              </View>
-            ),
-          }}
-        />
+        {/* Tabs */}
+        {TAB_DEFS.map((tab, i) => {
+          const isActive = i === activeTabIdx;
+          // Find the matching route in state.routes
+          const route = state.routes.find((r) => {
+            const clean = r.name.replace(/^.*\//, '').replace(/\?.*$/, '');
+            return clean === tab.name;
+          });
 
-        <Tabs.Screen
-          name="progress"
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconName="trending-up-outline"
-                iconNameFocused="trending-up"
-                focused={focused}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="exercise"
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconName="barbell-outline"
-                iconNameFocused="barbell"
-                focused={focused}
-              />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="profile"
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconName="person-outline"
-                iconNameFocused="person"
-                focused={focused}
-              />
-            ),
-          }}
-        />
-      </Tabs>
+          return (
+            <TouchableOpacity
+              key={tab.name}
+              style={styles.tabBtn}
+              activeOpacity={0.75}
+              onPress={() => {
+                if (route) {
+                  const event = navigation.emit({
+                    type: 'tabPress',
+                    target: route.key,
+                    canPreventDefault: true,
+                  });
+                  if (!event.defaultPrevented) {
+                    navigation.navigate(route.name, route.params);
+                  }
+                }
+              }}
+            >
+              <TabSvgIcon kind={tab.icon} active={isActive} />
+              <Animated.Text
+                style={[
+                  styles.tabLabel,
+                  { color: isActive ? Colors.background : Colors.textSecondary, opacity: isActive ? 1 : 0.75 },
+                ]}
+              >
+                {tab.label}
+              </Animated.Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
 
+      {/* Quick Action Sheet */}
       <QuickActionSheet
         visible={showQuickAction}
-        onClose={closeFab}
+        onClose={closeDisc}
         onOpenCamera={handleOpenCamera}
         onOpenGallery={handleOpenGallery}
       />
@@ -353,47 +273,96 @@ export default function TabLayout() {
   );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Layout
+// ────────────────────────────────────────────────────────────────────────────
+export default function TabLayout() {
+  return (
+    <Tabs
+      tabBar={(props) => <CustomTabBar {...props} />}
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Tabs.Screen name="index" />
+      <Tabs.Screen name="food-log" />
+      <Tabs.Screen name="ai-chat" options={{ href: null }} />
+      <Tabs.Screen name="progress" />
+      <Tabs.Screen name="exercise" />
+      <Tabs.Screen name="profile" />
+    </Tabs>
+  );
+}
+
 const styles = StyleSheet.create({
-  tabItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingTop: 2,
+  pillBar: {
+    position: 'absolute',
+    zIndex: 40,
+    backgroundColor: Colors.background,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    shadowColor: '#17201A',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.10,
+    shadowRadius: 36,
+    elevation: 18,
   },
-  tabDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: Colors.primary,
+  indicator: {
+    position: 'absolute',
+    top: 8,
+    bottom: 8,
+    borderRadius: 999,
+    backgroundColor: Colors.ink,
+    shadowColor: '#17201A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 4,
   },
-  fabContainer: {
+  tabBtn: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    top: -18,
+    paddingVertical: 10,
+    gap: 3,
+    zIndex: 1,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
   },
-  fabTouchable: {
+  tabLabel: {
+    fontSize: 9,
+    letterSpacing: 0.5,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  discWrapper: {
+    position: 'absolute',
+    right: 22,
+    zIndex: 41,
+    shadowColor: '#17201A',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.28,
+    shadowRadius: 16,
+    elevation: 14,
+  },
+  discBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 999,
+    backgroundColor: Colors.ink ?? '#17201A',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fabGlow: {
+  discAccentDot: {
     position: 'absolute',
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: 'transparent',
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-  },
-  fabOuter: {
-    width: 62,
-    height: 62,
-    shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.26,
-    shadowRadius: 12,
-    elevation: 14,
+    top: 8,
+    right: 8,
+    width: 7,
+    height: 7,
+    borderRadius: 99,
+    backgroundColor: Colors.accent,
   },
 });

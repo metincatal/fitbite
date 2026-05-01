@@ -12,6 +12,7 @@ import {
   Platform,
   Keyboard,
 } from 'react-native';
+import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
@@ -19,8 +20,8 @@ import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
 
 interface QuickActionSheetProps {
   visible: boolean;
@@ -31,28 +32,78 @@ interface QuickActionSheetProps {
 
 interface ActionItem {
   id: string;
-  icon: IoniconName;
+  icon: string;
   label: string;
-  sublabel: string;
-  bgColor: string;
-  iconColor: string;
+  hint: string;
+  accent: boolean;
 }
 
 const ACTIONS: ActionItem[] = [
-  { id: 'camera', icon: 'camera', label: 'Fotoğraf Çek', sublabel: 'AI ile analiz', bgColor: '#EDF6FF', iconColor: '#2563EB' },
-  { id: 'gallery', icon: 'images', label: 'Galeriden Seç', sublabel: 'Önceki fotoğraf', bgColor: '#F5F0FF', iconColor: '#7C3AED' },
-  { id: 'water', icon: 'water', label: 'Su Ekle', sublabel: 'Hızlı kayıt', bgColor: '#ECFEFF', iconColor: '#0891B2' },
-  { id: 'weight', icon: 'scale-outline', label: 'Kilo Kaydet', sublabel: 'Anlık ölçüm', bgColor: '#FFF7ED', iconColor: '#EA580C' },
-  { id: 'exercise', icon: 'barbell', label: 'Egzersiz Ekle', sublabel: 'Aktivite kayıt', bgColor: '#FEF2F2', iconColor: '#DC2626' },
-  { id: 'fitbot', icon: 'chatbubble-ellipses', label: 'FitBot\'a Sor', sublabel: 'AI diyetisyen', bgColor: '#ECFDF5', iconColor: '#059669' },
+  { id: 'camera',   icon: 'camera',   label: 'Fotoğraf Çek',      hint: 'Tabağını tanıyalım',    accent: true  },
+  { id: 'gallery',  icon: 'gallery',  label: 'Galeriden Seç',     hint: 'Mevcut bir fotoğraf',   accent: false },
+  { id: 'fitbot',   icon: 'chat',     label: 'FitBot ile Konuş',  hint: 'Soru sor, plan kur',    accent: false },
+  { id: 'water',    icon: 'drop',     label: 'Su Ekle',           hint: '+1 bardak · 240 ml',    accent: false },
+  { id: 'weight',   icon: 'scale',    label: 'Anlık Kilo Kaydet', hint: 'Günün tartısı',         accent: false },
+  { id: 'exercise', icon: 'steps',    label: 'Egzersiz Ekle',     hint: 'Yürüyüş, koşu, yoga…', accent: false },
 ];
 
-// Premium Renkli Simgeler ve Tanımlamalar
-const WATER_AMOUNTS: { ml: number; label: string; icon: IoniconName; size: number; iconColor: string; bgColor: string }[] = [
-  { ml: 150, label: '150 ml', icon: 'cafe', size: 24, iconColor: '#2563EB', bgColor: '#DBEAFE' },     // Koyu Mavi & Açık Zemin
-  { ml: 250, label: '250 ml', icon: 'pint', size: 32, iconColor: '#0891B2', bgColor: '#CFFAFE' },     // Cyan & Açık Cyan
-  { ml: 500, label: '500 ml', icon: 'flask', size: 38, iconColor: '#059669', bgColor: '#D1FAE5' },    // Premium Zümrüt Yeşili
+const WATER_AMOUNTS = [
+  { ml: 150, label: '150 ml' },
+  { ml: 250, label: '250 ml' },
+  { ml: 500, label: '500 ml' },
 ];
+
+// ── SVG Quick Action Icons (from prototype) ──────────────────────────────────
+function QAIcon({ kind, color }: { kind: string; color: string }) {
+  const p = {
+    fill: 'none' as const,
+    stroke: color,
+    strokeWidth: 1.3,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  if (kind === 'camera') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M4 8h3l2-2.5h6L17 8h3v11H4z" {...p} />
+      <Circle cx={12} cy={13.5} r={3.8} {...p} />
+      <Circle cx={12} cy={13.5} r={1.4} fill={color} stroke="none" />
+    </Svg>
+  );
+  if (kind === 'gallery') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Rect x={4} y={5} width={16} height={14} rx={1.5} {...p} />
+      <Path d="M4 16l4.5-5 3.5 4 2.5-2.5L20 16" {...p} />
+      <Circle cx={9} cy={9.5} r={1.4} {...p} />
+    </Svg>
+  );
+  if (kind === 'chat') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M4 6 H18 A2 2 0 0 1 20 8 V14 A2 2 0 0 1 18 16 H10 L6 19 V16 H4 A2 2 0 0 1 2 14 V8 A2 2 0 0 1 4 6 Z" {...p} />
+      <Circle cx={8.5} cy={11} r={0.9} fill={color} stroke="none" />
+      <Circle cx={12} cy={11} r={0.9} fill={color} stroke="none" />
+      <Circle cx={15.5} cy={11} r={0.9} fill={color} stroke="none" />
+    </Svg>
+  );
+  if (kind === 'drop') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M12 3.5 Q 6 11 6 15 A 6 6 0 0 0 18 15 Q 18 11 12 3.5 Z" {...p} />
+      <Path d="M8.5 15.5 Q 10 17.5 12 17.5" {...p} strokeWidth={1} />
+    </Svg>
+  );
+  if (kind === 'scale') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Rect x={3.5} y={5.5} width={17} height={13} rx={2} {...p} />
+      <Path d="M8 9v1M10 9v1.5M12 9v1M14 9v1.5M16 9v1" {...p} />
+      <Path d="M9 15 L 12 12 L 15 15" {...p} />
+    </Svg>
+  );
+  if (kind === 'steps') return (
+    <Svg width={22} height={22} viewBox="0 0 24 24">
+      <Path d="M3 12 H7 L9 6 L13 18 L16 9 L18 12 H21" {...p} />
+    </Svg>
+  );
+  return null;
+}
 
 export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery }: QuickActionSheetProps) {
   const router = useRouter();
@@ -79,10 +130,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => setKeyboardHeight(0)
     );
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
+    return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
   useEffect(() => {
@@ -115,9 +163,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
     Animated.parallel([
       Animated.timing(slideAnim, { toValue: SCREEN_HEIGHT, duration: 200, useNativeDriver: true }),
       Animated.timing(backdropAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => {
-      onClose();
-    });
+    ]).start(() => { onClose(); });
   }
 
   async function handleAction(id: string) {
@@ -165,14 +211,12 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
       return;
     }
     if (!user) return;
-
     const { supabase } = require('../../lib/supabase');
     await supabase.from('weight_logs').insert({
       user_id: user.id,
       weight_kg: weight,
       logged_at: new Date().toISOString(),
     });
-
     showToast(`⚖️ ${weight} kg kaydedildi`);
     setShowWeightInput(false);
     setWeightValue('');
@@ -202,41 +246,66 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
       </Animated.View>
 
       {/* Sheet */}
-      <Animated.View style={[
-        styles.sheet, 
-        { 
-          transform: [{ translateY: slideAnim }],
-          paddingBottom: keyboardHeight + (Platform.OS === 'ios' ? 34 : 16)
-        }
-      ]}>
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            transform: [{ translateY: slideAnim }],
+            paddingBottom: keyboardHeight > 0 ? keyboardHeight + 16 : 110,
+          },
+        ]}
+      >
         {/* Handle */}
         <View style={styles.handleWrap}>
           <View style={styles.handle} />
         </View>
 
-        {/* Title */}
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>Hızlı İşlemler</Text>
+        {/* Header */}
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.overline}>HIZLI İŞLEMLER</Text>
+            <Text style={styles.title}>
+              Ne <Text style={styles.titleAccent}>kaydedelim</Text>?
+            </Text>
+          </View>
           <TouchableOpacity onPress={closeSheet} style={styles.closeBtn}>
-            <Ionicons name="close" size={22} color={Colors.textSecondary} />
+            <Ionicons name="close" size={16} color={Colors.textSecondary} />
           </TouchableOpacity>
         </View>
 
-        {/* Action Grid */}
+        {/* Main action list */}
         {!showWaterPicker && !showWeightInput && (
-          <View style={styles.grid}>
-            {ACTIONS.map((action) => (
+          <View style={styles.actionList}>
+            {ACTIONS.map((action, i) => (
               <TouchableOpacity
                 key={action.id}
-                style={styles.actionCard}
+                style={[styles.actionRow, i > 0 && styles.actionRowBorder]}
                 onPress={() => handleAction(action.id)}
-                activeOpacity={0.7}
+                activeOpacity={0.65}
               >
-                <View style={[styles.actionIconWrap, { backgroundColor: action.bgColor }]}>
-                  <Ionicons name={action.icon} size={26} color={action.iconColor} />
+                {/* Icon tile */}
+                <View
+                  style={[
+                    styles.iconTile,
+                    action.accent
+                      ? { backgroundColor: Colors.accent }
+                      : { backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight },
+                  ]}
+                >
+                  <QAIcon
+                    kind={action.icon}
+                    color={action.accent ? Colors.background : Colors.textPrimary}
+                  />
                 </View>
-                <Text style={styles.actionLabel}>{action.label}</Text>
-                <Text style={styles.actionSublabel}>{action.sublabel}</Text>
+
+                {/* Text */}
+                <View style={styles.actionText}>
+                  <Text style={styles.actionLabel}>{action.label}</Text>
+                  <Text style={styles.actionHint}>{action.hint}</Text>
+                </View>
+
+                {/* Chevron */}
+                <Text style={styles.chevron}>›</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -246,7 +315,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
         {showWaterPicker && (
           <View style={styles.subPanel}>
             <TouchableOpacity onPress={() => setShowWaterPicker(false)} style={styles.backBtn}>
-              <Ionicons name="arrow-back" size={20} color={Colors.textSecondary} />
+              <Ionicons name="arrow-back" size={18} color={Colors.textSecondary} />
               <Text style={styles.backText}>Geri</Text>
             </TouchableOpacity>
             <Text style={styles.subTitle}>💧 Ne kadar su içtin?</Text>
@@ -258,10 +327,8 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
                   onPress={() => addWater(w.ml)}
                   activeOpacity={0.8}
                 >
-                  <View style={[styles.waterIconCircle, { backgroundColor: w.bgColor }]}>
-                    <Ionicons name={w.icon} size={w.size} color={w.iconColor} />
-                  </View>
-                  <Text style={styles.waterLabel}>{w.label}</Text>
+                  <Text style={styles.waterMl}>{w.ml}</Text>
+                  <Text style={styles.waterUnit}>ml</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -272,7 +339,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
         {showWeightInput && (
           <View style={styles.subPanel}>
             <TouchableOpacity onPress={() => setShowWeightInput(false)} style={styles.backBtn}>
-              <Ionicons name="arrow-back" size={20} color={Colors.textSecondary} />
+              <Ionicons name="arrow-back" size={18} color={Colors.textSecondary} />
               <Text style={styles.backText}>Geri</Text>
             </TouchableOpacity>
             <Text style={styles.subTitle}>⚖️ Güncel kilonuz</Text>
@@ -295,7 +362,6 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
             </TouchableOpacity>
           </View>
         )}
-
       </Animated.View>
     </Modal>
   );
@@ -304,7 +370,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 32, 26, 0.36)',
   },
   toast: {
     position: 'absolute',
@@ -328,88 +394,117 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    paddingHorizontal: Spacing.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 22,
+    shadowColor: '#17201A',
+    shadowOffset: { width: 0, height: -20 },
+    shadowOpacity: 0.18,
+    shadowRadius: 40,
     elevation: 20,
   },
   handleWrap: {
     alignItems: 'center',
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.xs,
+    paddingTop: 14,
+    paddingBottom: 8,
   },
   handle: {
-    width: 40,
+    width: 38,
     height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.border,
+    borderRadius: 99,
+    backgroundColor: Colors.textMuted,
+    opacity: 0.35,
   },
-  titleRow: {
+  headerRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-    paddingTop: Spacing.xs,
+    marginBottom: 16,
+  },
+  overline: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.textMuted,
+    letterSpacing: 1.6,
+    marginBottom: 2,
   },
   title: {
-    fontSize: FontSize.xl,
-    fontWeight: '800',
+    fontFamily: SERIF,
+    fontSize: 24,
     color: Colors.textPrimary,
+    lineHeight: 28,
+  },
+  titleAccent: {
+    fontStyle: 'italic',
+    color: Colors.accent,
   },
   closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceSecondary,
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    backgroundColor: Colors.surface,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 4,
   },
-  grid: {
+
+  // Action list
+  actionList: {
+    gap: 0,
+  },
+  actionRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  actionCard: {
-    width: '31%',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceSecondary,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xs,
+    gap: 14,
+    paddingVertical: 14,
   },
-  actionIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: BorderRadius.lg,
+  actionRowBorder: {
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.borderLight,
+  },
+  iconTile: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.sm,
+    flexShrink: 0,
+  },
+  actionText: {
+    flex: 1,
+    minWidth: 0,
   },
   actionLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
+    fontFamily: SERIF,
+    fontSize: 18,
     color: Colors.textPrimary,
-    textAlign: 'center',
+    lineHeight: 21,
   },
-  actionSublabel: {
-    fontSize: FontSize.xs,
+  actionHint: {
+    fontFamily: MONO,
+    fontSize: 11,
     color: Colors.textMuted,
-    textAlign: 'center',
     marginTop: 2,
+    letterSpacing: 0.3,
   },
+  chevron: {
+    fontFamily: SERIF,
+    fontSize: 22,
+    color: Colors.textFaint,
+    lineHeight: 24,
+  },
+
+  // Sub-panels (water / weight)
   subPanel: {
-    marginBottom: Spacing.md,
+    paddingTop: 4,
   },
   backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
+    gap: 6,
     marginBottom: Spacing.md,
   },
   backText: {
@@ -418,8 +513,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   subTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
+    fontFamily: SERIF,
+    fontSize: 20,
     color: Colors.textPrimary,
     textAlign: 'center',
     marginBottom: Spacing.lg,
@@ -433,26 +528,23 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.xl,
-    paddingVertical: Spacing.md,
-    shadowColor: Colors.textSecondary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.lg,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
   },
-  waterIconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sm,
-  },
-  waterLabel: {
-    fontSize: FontSize.md,
-    fontWeight: '800',
+  waterMl: {
+    fontFamily: SERIF,
+    fontSize: 26,
     color: Colors.textPrimary,
+    lineHeight: 30,
+  },
+  waterUnit: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.textMuted,
+    letterSpacing: 0.8,
+    marginTop: 2,
   },
   weightRow: {
     flexDirection: 'row',

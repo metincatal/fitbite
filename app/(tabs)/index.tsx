@@ -7,9 +7,11 @@ import {
   TouchableOpacity,
   RefreshControl,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
 import { Colors, Spacing, BorderRadius, getMealTypes } from '../../lib/constants';
@@ -22,8 +24,51 @@ import { usePedometer } from '../../hooks/usePedometer';
 import { EXERCISE_CATALOG, INTENSITY_LABELS, ExerciseIntensity } from '../../lib/constants';
 import { isChronoWindow } from '../../lib/exerciseEngine';
 import { Ionicons } from '@expo/vector-icons';
+import { ExerciseLog } from '../../types';
 
+const { width: SW } = Dimensions.get('window');
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
+const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
+
+// ── Mini pulse trace for dashboard ──────────────────────────────────────────
+function MiniPulse({ exercises }: { exercises: ExerciseLog[] }) {
+  const W = SW - 48 - 32; // card padding
+  const H = 32;
+  const mid = H / 2;
+  let d = `M 0 ${mid}`;
+
+  if (exercises.length === 0) {
+    for (let x = 0; x <= W; x += 6) {
+      d += ` L ${x} ${mid + Math.sin((x / W) * Math.PI * 2) * 3}`;
+    }
+  } else {
+    const maxKcal = Math.max(...exercises.map((e) => e.calories_burned), 1);
+    exercises.forEach((ex, i) => {
+      const cx = (i + 0.5) * (W / exercises.length);
+      const spikeH = 5 + (ex.calories_burned / maxKcal) * (H * 0.65);
+      d += ` L ${cx - 12} ${mid}`;
+      d += ` L ${cx - 5} ${mid}`;
+      d += ` L ${cx - 3} ${mid - spikeH}`;
+      d += ` L ${cx} ${mid + spikeH * 0.28}`;
+      d += ` L ${cx + 3} ${mid - spikeH * 0.12}`;
+      d += ` L ${cx + 7} ${mid}`;
+    });
+    d += ` L ${W} ${mid}`;
+  }
+
+  return (
+    <Svg width={W} height={H}>
+      <Defs>
+        <LinearGradient id="miniPulse" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0" stopColor={Colors.primary} stopOpacity={0.3} />
+          <Stop offset="0.5" stopColor={Colors.accent} stopOpacity={0.9} />
+          <Stop offset="1" stopColor={Colors.primary} stopOpacity={0.3} />
+        </LinearGradient>
+      </Defs>
+      <Path d={d} fill="none" stroke="url(#miniPulse)" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
 
 export default function DashboardScreen() {
   const router = useRouter();
@@ -269,110 +314,72 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* ── EXERCISE CARD ── */}
-        {todayExercises.length > 0 && (
-          <View style={styles.exerciseSection}>
-            <View style={styles.exerciseSectionHeader}>
-              <Text style={styles.overline}>EGZERSİZ</Text>
-              <TouchableOpacity
-                onPress={() => router.push('/(tabs)/exercise')}
-                style={styles.exerciseSeeAll}
-              >
-                <Text style={styles.exerciseSeeAllText}>Tümü</Text>
-                <Ionicons name="chevron-forward" size={12} color={Colors.primary} />
-              </TouchableOpacity>
+        {/* ── EXERCISE DASH CARD (ExerciseDashCard) ── */}
+        <TouchableOpacity
+          style={styles.exDashCard}
+          onPress={() => router.push('/(tabs)/exercise')}
+          activeOpacity={0.88}
+        >
+          {/* Stamp + header */}
+          <View style={styles.exDashTop}>
+            <View>
+              <Text style={styles.exDashStamp}>NABZIN · BUGÜN</Text>
+              <Text style={styles.exDashTitle}>
+                {todayExercises.length === 0
+                  ? <Text>Henüz <Text style={{ color: Colors.accent, fontStyle: 'italic' }}>egzersiz</Text> yok</Text>
+                  : <Text>{todayExercises.length} spike · <Text style={{ color: Colors.accent }}>{exerciseBurned}</Text> kcal</Text>
+                }
+              </Text>
             </View>
-
-            {/* Big stat card */}
-            <TouchableOpacity
-              style={styles.exCard}
-              onPress={() => router.push('/(tabs)/exercise')}
-              activeOpacity={0.88}
-            >
-              {/* Header row */}
-              <View style={styles.exCardTop}>
-                <View style={styles.exCardKcalWrap}>
-                  <Text style={styles.exCardKcalNum}>{exerciseBurned}</Text>
-                  <Text style={styles.exCardKcalUnit}>kcal</Text>
-                </View>
-                <View style={styles.exCardMiniStats}>
-                  <View style={styles.exCardMiniItem}>
-                    <Ionicons name="trending-up" size={12} color={Colors.primary} />
-                    <Text style={styles.exCardMiniText}>
-                      +{exerciseEpocRange[0]}–{exerciseEpocRange[1]} EPOC
-                    </Text>
-                  </View>
-                  {exerciseWaterBonus > 0 && (
-                    <View style={styles.exCardMiniItem}>
-                      <Ionicons name="water" size={12} color="#38BDF8" />
-                      <Text style={[styles.exCardMiniText, { color: '#38BDF8' }]}>
-                        +{exerciseWaterBonus} ml
-                      </Text>
-                    </View>
-                  )}
-                  {exerciseChronoWarning && (
-                    <View style={styles.exCardMiniItem}>
-                      <Ionicons name="moon" size={12} color={Colors.warning} />
-                      <Text style={[styles.exCardMiniText, { color: Colors.warning }]}>
-                        Geç saatte
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {/* Divider */}
-              <View style={styles.exCardDivider} />
-
-              {/* Exercise list */}
-              {todayExercises.slice(0, 3).map((ex, idx) => {
-                const cat = EXERCISE_CATALOG.find((c) => c.id === ex.exercise_type);
-                const intInfo =
-                  INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
-                return (
-                  <View
-                    key={ex.id}
-                    style={[
-                      styles.exRow,
-                      idx < Math.min(todayExercises.length, 3) - 1 && styles.exRowBorder,
-                    ]}
-                  >
-                    <View style={[styles.exEmojiBg, { backgroundColor: (cat?.color ?? Colors.primary) + '18' }]}>
-                      <Text style={styles.exEmoji}>{cat?.emoji ?? '🏅'}</Text>
-                    </View>
-                    <View style={styles.exInfo}>
-                      <Text style={styles.exName}>{ex.exercise_name}</Text>
-                      <Text style={styles.exMeta}>
-                        {ex.duration_minutes} dk
-                        <Text style={styles.exMetaDot}> · </Text>
-                        <Text style={[styles.exMetaIntensity, { color: intInfo.color }]}>
-                          {intInfo.label}
-                        </Text>
-                      </Text>
-                    </View>
-                    <Text style={[styles.exCal, { color: cat?.color ?? Colors.accent }]}>
-                      {ex.calories_burned}
-                    </Text>
-                  </View>
-                );
-              })}
-
-              {todayExercises.length > 3 && (
-                <Text style={styles.exMore}>+{todayExercises.length - 3} egzersiz daha →</Text>
-              )}
-
-              {/* Buffer note */}
-              {exerciseEatBack > 0 && (
-                <View style={styles.exBuffer}>
-                  <Text style={styles.exBufferText}>
-                    +{exerciseEatBack} kcal tampon eklendi
-                    {goal === 'lose' ? ' (%50 güvenli pay)' : ''}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
+            <View style={styles.exDashChevron}>
+              <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
+            </View>
           </View>
-        )}
+
+          {/* Mini pulse trace */}
+          <View style={styles.exDashPulse}>
+            <MiniPulse exercises={todayExercises} />
+          </View>
+
+          {/* 3 mini-stats */}
+          <View style={styles.exDashStats}>
+            {[
+              { label: 'DAKİKA', val: `${todayExercises.reduce((s, e) => s + e.duration_minutes, 0)}` },
+              { label: 'ML SU', val: `+${exerciseWaterBonus}` },
+              { label: 'KCAL', val: `${exerciseBurned}` },
+            ].map((item, i) => (
+              <React.Fragment key={item.label}>
+                {i > 0 && <View style={styles.exDashStatDiv} />}
+                <View style={styles.exDashStatItem}>
+                  <Text style={styles.exDashStatNum}>{item.val}</Text>
+                  <Text style={styles.exDashStatLabel}>{item.label}</Text>
+                </View>
+              </React.Fragment>
+            ))}
+          </View>
+
+          {/* Latest exercise badge */}
+          {todayExercises.length > 0 && (() => {
+            const last = todayExercises[todayExercises.length - 1];
+            const cat = EXERCISE_CATALOG.find((c) => c.id === last.exercise_type);
+            return (
+              <View style={styles.exDashBadge}>
+                <Text style={styles.exDashBadgeEmoji}>{cat?.emoji ?? '🏅'}</Text>
+                <Text style={styles.exDashBadgeName}>{last.exercise_name}</Text>
+                <Text style={styles.exDashBadgeMeta}>{last.duration_minutes} dk</Text>
+              </View>
+            );
+          })()}
+
+          {/* Buffer note */}
+          {exerciseEatBack > 0 && (
+            <View style={styles.exDashBuffer}>
+              <Text style={styles.exDashBufferText}>
+                +{exerciseEatBack} kcal tampon eklendi
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -638,145 +645,92 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Exercise section
-  exerciseSection: {
-    paddingHorizontal: 22,
-    paddingTop: 26,
-  },
-  exerciseSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.sm,
-  },
-  exerciseSeeAll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  exerciseSeeAllText: {
-    fontSize: 11,
-    color: Colors.primary,
-    fontWeight: '700',
-  },
-
-  // Exercise card
-  exCard: {
+  // ExerciseDashCard
+  exDashCard: {
+    marginHorizontal: 22,
+    marginTop: 22,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.md + 4,
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderColor: Colors.borderLight,
     overflow: 'hidden',
     shadowColor: Colors.ink,
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.07,
+    shadowOpacity: 0.06,
     shadowRadius: 10,
-    elevation: 4,
+    elevation: 3,
+    padding: Spacing.md,
   },
-  exCardTop: {
+  exDashTop: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
+    marginBottom: 8,
   },
-  exCardKcalWrap: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-  },
-  exCardKcalNum: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    fontFamily: 'Georgia, serif',
-    letterSpacing: -1,
-  },
-  exCardKcalUnit: {
-    fontSize: 13,
+  exDashStamp: {
+    fontFamily: MONO,
+    fontSize: 9,
     color: Colors.textMuted,
-    fontFamily: MONO,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    marginBottom: 3,
   },
-  exCardMiniStats: {
-    gap: 4,
-    alignItems: 'flex-end',
+  exDashTitle: {
+    fontFamily: SERIF,
+    fontSize: 20,
+    color: Colors.textPrimary,
+    lineHeight: 24,
   },
-  exCardMiniItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  exCardMiniText: {
-    fontSize: 10,
-    color: Colors.primary,
-    fontWeight: '600',
-    fontFamily: MONO,
-  },
-  exCardDivider: {
-    height: 0.5,
-    backgroundColor: Colors.borderLight,
-    marginHorizontal: Spacing.md,
-  },
-  exRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-    gap: Spacing.sm,
-  },
-  exRowBorder: {
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.borderLight,
-  },
-  exEmojiBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  exDashChevron: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.surfaceSecondary,
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
   },
-  exEmoji: { fontSize: 18 },
-  exInfo: { flex: 1 },
-  exName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    fontFamily: 'Georgia, serif',
+  exDashPulse: {
+    marginVertical: 8,
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: Colors.borderLight,
+    paddingVertical: 4,
   },
-  exMeta: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 1,
+  exDashStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceSecondary,
+    borderRadius: BorderRadius.sm,
+    paddingVertical: 10,
+    marginTop: 8,
   },
-  exMetaDot: { color: Colors.textFaint },
-  exMetaIntensity: { fontWeight: '600' },
-  exCal: {
-    fontSize: 14,
-    fontWeight: '800',
-    fontFamily: MONO,
-  },
-  exMore: {
-    fontSize: 11,
-    color: Colors.primary,
-    fontWeight: '600',
-    textAlign: 'center',
-    paddingVertical: 8,
+  exDashStatItem: { flex: 1, alignItems: 'center' },
+  exDashStatDiv: { width: 0.5, height: 24, backgroundColor: Colors.borderLight },
+  exDashStatNum: { fontFamily: SERIF, fontSize: 18, color: Colors.textPrimary },
+  exDashStatLabel: { fontFamily: MONO, fontSize: 8, color: Colors.textMuted, letterSpacing: 0.8, marginTop: 2 },
+  exDashBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 8,
     borderTopWidth: 0.5,
     borderTopColor: Colors.borderLight,
   },
-  exBuffer: {
-    backgroundColor: Colors.primary + '0C',
+  exDashBadgeEmoji: { fontSize: 18 },
+  exDashBadgeName: { flex: 1, fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  exDashBadgeMeta: { fontFamily: MONO, fontSize: 10, color: Colors.textMuted },
+  exDashBuffer: {
+    marginTop: 8,
+    paddingTop: 6,
     borderTopWidth: 0.5,
     borderTopColor: Colors.primary + '20',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
   },
-  exBufferText: {
+  exDashBufferText: {
     fontSize: 11,
     color: Colors.primary,
     fontWeight: '600',
     textAlign: 'center',
+    fontFamily: MONO,
   },
 });
