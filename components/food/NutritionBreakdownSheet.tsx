@@ -104,30 +104,39 @@ export function NutritionBreakdownSheet({
                   <Text style={[styles.confBadgeText, { color: CONF_COLOR[engine.confidence] }]}>
                     {CONF_LABEL[engine.confidence]} · %{Math.round(engine.confidenceScore * 100)}
                   </Text>
-                  <Text style={styles.confBadgeSource}>
-                    {engine.match.source === 'composition'
-                      ? `Eşleşme: ${engine.match.entryId ?? 'kompozisyon'}`
-                      : 'Kompozisyon eşleşmesi yok — Gemini tahmini'}
-                  </Text>
+                  <Text style={styles.confBadgeSource}>FitBot AI analizi</Text>
                 </View>
               </View>
             )}
 
-            {/* Adım adım breakdown */}
-            <Text style={styles.sectionLabel}>Hesap zinciri</Text>
+            {/* Adım adım breakdown — Gemini mimarisinde sabit AI açıklaması */}
+            <Text style={styles.sectionLabel}>Nasıl hesaplandı?</Text>
             <View style={styles.stepsCard}>
-              {engine?.breakdown.map((step, i) => (
-                <View key={i} style={styles.stepRow}>
-                  <View style={styles.stepBullet}>
-                    <Text style={styles.stepBulletText}>{i + 1}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.stepLabel}>{step.label}</Text>
-                    <Text style={styles.stepDetail}>{step.detail}</Text>
-                    {step.value && <Text style={styles.stepValue}>{step.value}</Text>}
-                  </View>
-                </View>
-              ))}
+              {engine?.breakdown && engine.breakdown.length > 0
+                ? engine.breakdown.map((step, i) => (
+                    <View key={i} style={styles.stepRow}>
+                      <View style={styles.stepBullet}>
+                        <Text style={styles.stepBulletText}>{i + 1}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.stepLabel}>{step.label}</Text>
+                        <Text style={styles.stepDetail}>{step.detail}</Text>
+                        {step.value && <Text style={styles.stepValue}>{step.value}</Text>}
+                      </View>
+                    </View>
+                  ))
+                : (
+                    <View style={styles.stepRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.stepLabel}>FitBot AI Analizi</Text>
+                        <Text style={styles.stepDetail}>
+                          Kalori ve makrolar Gemini 2.5 Flash tarafından fotoğraf analizi ile tahmin edildi.
+                          Pişirme yöntemi, porsiyon boyutu ve görünmeyen sos/yağ dahil edildi.
+                        </Text>
+                      </View>
+                    </View>
+                  )
+              }
             </View>
 
             {/* Pişirme yöntemi düzenleme */}

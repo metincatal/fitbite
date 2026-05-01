@@ -232,37 +232,46 @@ export async function recognizeMealFromImage(imageBase64: string, userHint?: str
     ? `\nKullanıcı notu (öncelikli referans al): "${userHint.trim()}"\n`
     : '';
 
-  const prompt = `Bu yemek fotoğrafını dikkatle analiz et. Fotoğraftaki TÜM yiyecek ve içecekleri ayrı ayrı tespit et.
+  const prompt = `Bu yemek fotoğrafını dikkatle analiz et. Fotoğraftaki TÜM yiyecek ve içecekleri tespit et.
 ${hintSection}
-GÖREVİN: Her yiyecek için fiziksel/görsel METADATA çıkar. Kalori veya makro besin tahmini yapma — bunlar sonradan deterministik bir motorda hesaplanacak. Sadece kompozisyon eşleşmesi bulunamazsa diye yaklaşık makroları da yaz; ana çıktı metadata'dır.
+GÖREVİN: Her yiyecek için hem gramaj hem de besin değerlerini sen hesapla. Dışarıda bir düzeltme motoru YOK — senin verdiğin değerler direkt kullanılır.
 
-REFERANS NESNE: Fotoğrafta kaşık, çatal, tabak, kart, el gibi referans nesnesi varsa tespit et — porsiyon ölçüsü için kritik.
+GRAMAJ TAHMİNİ:
+- Fotoğraftaki referans nesnelerden (el, kaşık, tabak, şişe etiketi) gerçekçi gram tahmini yap
+- Tipik porsiyon referansları:
+  • Dilimli ekmek: 30-35g/dilim  • Yumurta: 55g  • Çay bardağı çay: 200ml/g
+  • Küçük tabak yemek: 150-200g  • Büyük tabak: 300-400g  • Pet şişe su: etiket ml'si
+
+BESİN DEĞERLERİ — KENDİN hesapla, şunları dahil et:
+- Pişirme etkisi: Izgara/fırın et %20-25 su kaybeder (gram başına kalori yoğunlaşır). Haşlanan tahıl ~2.5× şişer (gram başına kalori düşer). Kızartma %15-20 yağ absorplar.
+- Görünmeyen sos/yağ: Marinade, döner yağı, sürülen tereyağ, salata sosu — bunları hesabına kat
+- Verdiğin kalori: o porsiyonu o haliyle yiyen kişinin NET aldığı kalori
+- Emin olmadığında ALT SINIRI kullan; asla şişirt
 
 SADECE şu JSON formatında yanıtla (başka hiçbir metin ekleme):
 [
   {
     "name": "yemek/içecek adı (Türkçe)",
     "estimatedGrams": <gram, sayı>,
-    "cookingMethod": "raw" | "boiled" | "grilled" | "fried" | "deep_fried" | "baked" | "steamed" | "sauteed" | "unknown",
-    "texture": "fluffy" | "dense" | "granular" | "liquid" | "amorphous",
-    "hiddenSauceProb": <0..1, görünmeyen sos/yağ olasılığı>,
-    "referenceObject": "spoon" | "fork" | "plate" | "card" | "hand" | "none",
-    "occlusionRatio": <0..1, üst üste bindiyse ne kadarı kapalı>,
+    "calories": <bu porsiyonun toplam kcal, sayı — ZORUNLU>,
+    "protein": <bu porsiyonun toplam protein g, sayı — ZORUNLU>,
+    "carbs": <bu porsiyonun toplam karbonhidrat g, sayı — ZORUNLU>,
+    "fat": <bu porsiyonun toplam yağ g, sayı — ZORUNLU>,
     "confidence": <0..1, tanıma güveni>,
-    "ingredientBreakdown": [{"name":"...","ratio":0.x}],   // karışık tabak için, toplam=1.0; tekil yemekte boş bırak
-    "calories": <yaklaşık kcal — sadece fallback için>,
-    "protein": <yaklaşık g — sadece fallback için>,
-    "carbs": <yaklaşık g — sadece fallback için>,
-    "fat": <yaklaşık g — sadece fallback için>
+    "cookingMethod": "raw" | "boiled" | "grilled" | "fried" | "deep_fried" | "baked" | "steamed" | "sauteed" | "unknown",
+    "ingredientBreakdown": [
+      {"name": "bileşen adı", "grams": <gram>, "calories": <kcal>}
+    ]
   }
 ]
 
 Kurallar:
-- Granüler/sıvı/amorf gıdalarda (pirinç, çorba, püre) confidence ≤ 0.6
-- Karışık tabakta (örn. pilav+tavuk+salata) ingredientBreakdown ile bileşen oranı ver
-- Garnitür, sos, ekmek gibi yan ürünleri ayrı item olarak listele
+- Su, sade çay, kahve → calories: 0
+- Granüler/sıvı gıdalarda (pirinç, çorba) confidence ≤ 0.6
+- Karışık tabakta (pilav+tavuk+salata) ingredientBreakdown doldur; bileşen kcal toplamı üst calories'e eşit olmalı
+- Garnitür, sos, ekmek, içecek → ayrı item
 - Pişirme yöntemi belirsizse "unknown"
-- referenceObject yoksa "none"`;
+- ingredientBreakdown tekil yemekte boş bırak`;
 
   const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
   const text = await withGeminiRetry(async () => {
@@ -329,7 +338,7 @@ function parseJsonArray(text: string, ctx: string): unknown[] {
   throw new Error('Yemek tanınamadı');
 }
 
-// Gemini bazen alanları atlar; motor için minimum guarantilemeli alanları doldur.
+// Gemini bazen alanları atlar; motor için gerekli alanları garantile.
 function normalizeDetection(raw: unknown): DetectedFoodItem {
   const r = raw as Record<string, unknown>;
   const num = (v: unknown, fb: number) => (typeof v === 'number' && !Number.isNaN(v) ? v : fb);
@@ -345,8 +354,13 @@ function normalizeDetection(raw: unknown): DetectedFoodItem {
     confidence: clamp01(num(r.confidence, 0.5)),
     ingredientBreakdown: Array.isArray(r.ingredientBreakdown)
       ? (r.ingredientBreakdown as Array<Record<string, unknown>>)
-          .map((i) => ({ name: String(i.name ?? ''), ratio: clamp01(Number(i.ratio) || 0) }))
-          .filter((i) => i.name && i.ratio > 0)
+          .map((i) => ({
+            name: String(i.name ?? ''),
+            grams: typeof i.grams === 'number' && !Number.isNaN(i.grams) ? Math.max(0, i.grams) : undefined,
+            calories: typeof i.calories === 'number' && !Number.isNaN(i.calories) ? Math.max(0, i.calories) : undefined,
+            ratio: typeof i.ratio === 'number' && !Number.isNaN(i.ratio) ? clamp01(i.ratio) : undefined,
+          }))
+          .filter((i) => i.name)
       : undefined,
     calories: num(r.calories, 0),
     protein: num(r.protein, 0),

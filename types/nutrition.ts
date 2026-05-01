@@ -42,12 +42,13 @@ export type FoodCategory =
 
 export interface IngredientRatio {
   name: string;
-  ratio: number; // 0..1, toplam = 1.0
+  ratio?: number;    // 0..1, eski şema (toplam = 1.0)
+  grams?: number;    // yeni şema: Gemini'den gelen gram
+  calories?: number; // yeni şema: Gemini'den gelen kcal
 }
 
-// Gemini'nin döndürdüğü tanıma çıktısı (v2)
-// Eski mutlak makro alanları (calories/protein/carbs/fat) opsiyonel olarak korunur;
-// motor bunlara sadece kompozisyon eşleşmediğinde fallback olarak başvurur.
+// Gemini'nin döndürdüğü tanıma çıktısı.
+// calories/protein/carbs/fat artık birincil kaynak — Gemini her zaman döndürür.
 export interface DetectedFoodItem {
   name: string;
   estimatedGrams: number;
@@ -113,7 +114,7 @@ export interface EngineSubResult {
   protein: number;
   carbs: number;
   fat: number;
-  match: { entryId: string | null; score: number; source: 'composition' | 'gemini_fallback' };
+  match: { entryId: string | null; score: number; source: 'composition' | 'gemini_fallback' | 'gemini' };
   factors: EngineFactors;
 }
 
@@ -122,7 +123,7 @@ export interface EngineOutput {
   protein: number;
   carbs: number;
   fat: number;
-  match: { entryId: string | null; score: number; source: 'composition' | 'gemini_fallback' };
+  match: { entryId: string | null; score: number; source: 'composition' | 'gemini_fallback' | 'gemini' };
   factors: EngineFactors;
   confidence: EngineConfidence;
   confidenceScore: number;
