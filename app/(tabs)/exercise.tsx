@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Modal,
-  Animated,
   Alert,
   Dimensions,
   Platform,
@@ -15,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Line, Rect, Ellipse, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { ExGlyph, EXERCISE_GLYPHS, GROUP_GLYPHS } from '../../components/exercise/ExGlyph';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Colors, Spacing, FontSize, BorderRadius,
@@ -35,79 +35,119 @@ const RECENT_KEY = 'fitbite_recent_exercises';
 const MAX_RECENT = 3;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pulse Trace SVG — EKG-style horizontal strip representing today's exercises
+// Pulse Trace — EKG card with time-positioned spikes and hour axis
 // ─────────────────────────────────────────────────────────────────────────────
 function PulseTrace({ exercises }: { exercises: ExerciseLog[] }) {
-  const W = SW - 48;
-  const H = 56;
+  const W = SW - 80; // card padding
+  const H = 60;
   const mid = H / 2;
 
-  let d = `M 0 ${mid}`;
+  function timeToX(iso: string) {
+    const d = new Date(iso);
+    const hours = d.getHours() + d.getMinutes() / 60;
+    return (hours / 24) * W;
+  }
+
+  let pathD = `M 0 ${mid}`;
+  let dotX: number | null = null;
+  let dotY: number | null = null;
 
   if (exercises.length === 0) {
-    // Calm sine wave when no exercises
     for (let x = 0; x <= W; x += 4) {
-      const y = mid + Math.sin((x / W) * Math.PI * 3) * 5;
-      d += ` L ${x} ${y}`;
+      const y = mid + Math.sin((x / W) * Math.PI * 3) * 4;
+      pathD += ` L ${x} ${y}`;
     }
   } else {
-    // Spike for each exercise
     const maxKcal = Math.max(...exercises.map((e) => e.calories_burned), 1);
-    exercises.forEach((ex, i) => {
-      const cx = (i + 0.5) * (W / exercises.length);
-      const spikeH = 8 + (ex.calories_burned / maxKcal) * (H * 0.72);
-      // Lead-in flat
-      d += ` L ${cx - 18} ${mid}`;
-      // Spike up
-      d += ` L ${cx - 8} ${mid}`;
-      d += ` L ${cx - 4} ${mid - spikeH}`;
-      d += ` L ${cx} ${mid + spikeH * 0.3}`;
-      d += ` L ${cx + 4} ${mid - spikeH * 0.15}`;
-      d += ` L ${cx + 10} ${mid}`;
+    const sorted = [...exercises].sort(
+      (a, b) => new Date(a.logged_at).getTime() - new Date(b.logged_at).getTime()
+    );
+    let prevX = 0;
+    sorted.forEach((ex, i) => {
+      const cx = timeToX(ex.logged_at);
+      const spikeH = Math.min(mid - 4, 8 + (ex.calories_burned / maxKcal) * (mid - 12));
+      if (cx > prevX + 2) pathD += ` L ${Math.max(prevX, cx - 14)} ${mid}`;
+      pathD += ` L ${cx - 6} ${mid}`;
+      pathD += ` L ${cx - 3} ${mid - spikeH}`;
+      pathD += ` L ${cx} ${mid + spikeH * 0.3}`;
+      pathD += ` L ${cx + 4} ${mid - spikeH * 0.15}`;
+      pathD += ` L ${cx + 10} ${mid}`;
+      if (i === sorted.length - 1) {
+        dotX = cx - 3;
+        dotY = mid - spikeH;
+      }
+      prevX = cx + 10;
     });
-    d += ` L ${W} ${mid}`;
+    pathD += ` L ${W} ${mid}`;
   }
 
   return (
-    <Svg width={W} height={H}>
-      <Defs>
-        <LinearGradient id="pulseGrad" x1="0" y1="0" x2="1" y2="0">
-          <Stop offset="0" stopColor={Colors.primary} stopOpacity={0.4} />
-          <Stop offset="0.5" stopColor={Colors.accent} stopOpacity={1} />
-          <Stop offset="1" stopColor={Colors.primary} stopOpacity={0.4} />
-        </LinearGradient>
-      </Defs>
-      <Path
-        d={d}
-        fill="none"
-        stroke="url(#pulseGrad)"
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
+    <View style={pulse.card}>
+      <Text style={pulse.label}>GÜN BOYU NABIZ İZİ</Text>
+      <Svg width={W} height={H}>
+        <Path
+          d={pathD}
+          fill="none"
+          stroke={Colors.accent}
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {dotX !== null && dotY !== null && (
+          <Circle cx={dotX} cy={dotY} r={4} fill={Colors.accent} />
+        )}
+      </Svg>
+      <View style={pulse.axis}>
+        {['00', '06', '12', '18', '24'].map((h) => (
+          <Text key={h} style={pulse.axisLabel}>{h}</Text>
+        ))}
+      </View>
+    </View>
   );
 }
 
+const pulse = StyleSheet.create({
+  card: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+    marginBottom: Spacing.md,
+  },
+  label: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.textMuted,
+    letterSpacing: 1.4,
+    marginBottom: 8,
+  },
+  axis: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  axisLabel: {
+    fontFamily: MONO,
+    fontSize: 8,
+    color: Colors.textFaint,
+    letterSpacing: 0.5,
+  },
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Effort Orbit — concentric arcs for kcal / minutes / water
+// Effort Orbit — concentric arcs
 // ─────────────────────────────────────────────────────────────────────────────
-function EffortOrbit({
-  kcal,
-  minutes,
-  waterMl,
-}: {
-  kcal: number;
-  minutes: number;
-  waterMl: number;
-}) {
+function EffortOrbit({ kcal, minutes, waterMl }: { kcal: number; minutes: number; waterMl: number }) {
   const size = 148;
   const cx = size / 2;
   const cy = size / 2;
 
   function arc(r: number, pct: number, color: string, strokeW: number) {
     const clamped = Math.min(1, Math.max(0, pct));
-    const angle = clamped * 270 - 135; // -135° to +135°
+    const angle = clamped * 270 - 135;
     const startRad = (-135 * Math.PI) / 180;
     const endRad = (angle * Math.PI) / 180;
     const sx = cx + r * Math.cos(startRad);
@@ -152,40 +192,77 @@ function EffortOrbit({
 
   return (
     <Svg width={size} height={size}>
-      {/* Track rings */}
       {trackArc(60)}
       {trackArc(48)}
       {trackArc(36)}
-      {/* Filled arcs */}
       {arc(60, kcalPct, Colors.accent, 5)}
       {arc(48, minPct, Colors.primary, 5)}
       {arc(36, waterPct, Colors.sky, 5)}
-      {/* Center stats */}
-      <SvgText
-        x={cx}
-        y={cy - 6}
-        textAnchor="middle"
-        fontSize={22}
-        fontWeight="700"
-        fill={Colors.textPrimary}
-        fontFamily={SERIF}
-      >
+      <SvgText x={cx} y={cy - 6} textAnchor="middle" fontSize={22} fontWeight="700" fill={Colors.textPrimary} fontFamily={SERIF}>
         {kcal}
       </SvgText>
-      <SvgText
-        x={cx}
-        y={cy + 10}
-        textAnchor="middle"
-        fontSize={9}
-        fill={Colors.textMuted}
-        fontFamily={MONO}
-        letterSpacing={1}
-      >
+      <SvgText x={cx} y={cy + 10} textAnchor="middle" fontSize={9} fill={Colors.textMuted} fontFamily={MONO} letterSpacing={1}>
         KCAL
       </SvgText>
     </Svg>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stat mini-card — used on the right of the orbit
+// ─────────────────────────────────────────────────────────────────────────────
+function StatCard({
+  iconName, iconColor, iconBg, label, value, unit,
+}: {
+  iconName: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  iconBg: string;
+  label: string;
+  value: string;
+  unit: string;
+}) {
+  return (
+    <View style={sc.card}>
+      <View style={[sc.iconCircle, { backgroundColor: iconBg }]}>
+        <Ionicons name={iconName} size={14} color={iconColor} />
+      </View>
+      <View style={sc.textGroup}>
+        <Text style={sc.label}>{label}</Text>
+        <View style={sc.valueRow}>
+          <Text style={sc.num}>{value}</Text>
+          <Text style={sc.unit}> {unit}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const sc = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+    flex: 1,
+  },
+  iconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textGroup: { flex: 1 },
+  label: { fontFamily: MONO, fontSize: 8, color: Colors.textMuted, letterSpacing: 0.8 },
+  valueRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 1 },
+  num: { fontFamily: SERIF, fontSize: 18, color: Colors.textPrimary, lineHeight: 22 },
+  unit: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted },
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly bar chart
@@ -194,7 +271,7 @@ function WeekChart({ logs }: { logs: ExerciseLog[] }) {
   const today = new Date();
   const dow = today.getDay();
   const weekStart = new Date(today);
-  weekStart.setDate(today.getDate() - ((dow + 6) % 7)); // Monday
+  weekStart.setDate(today.getDate() - ((dow + 6) % 7));
 
   const dayLabels = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
@@ -218,11 +295,10 @@ function WeekChart({ logs }: { logs: ExerciseLog[] }) {
   const avgKcal = activeDays > 0 ? Math.round(weekTotal / activeDays) : 0;
 
   const BAR_H = 80;
-  const BAR_W = (SW - 48 - 28 - 6 * 4) / 7; // 48 scroll padding + 28 chart padding + gaps
+  const BAR_W = (SW - 48 - 28 - 6 * 4) / 7;
 
   return (
     <View style={wc.card}>
-      {/* Summary stats row — inside the card with bottom border */}
       <View style={wc.statsRow}>
         <View style={wc.statItem}>
           <Text style={wc.statLabel}>HAFTA TOPLAMI</Text>
@@ -249,24 +325,20 @@ function WeekChart({ logs }: { logs: ExerciseLog[] }) {
         </View>
       </View>
 
-      {/* Bar chart */}
       <View style={[wc.chart, { height: BAR_H + 28 }]}>
-        {/* Average dotted line */}
         {avgKcal > 0 && (
-          <View
-            style={[
-              wc.avgLine,
-              { bottom: 22 + (avgKcal / maxVal) * BAR_H },
-            ]}
-          />
+          <View style={[wc.avgLine, { bottom: 22 + (avgKcal / maxVal) * BAR_H }]} />
         )}
-
+        {avgKcal > 0 && (
+          <Text style={[wc.avgLineLabel, { bottom: 24 + (avgKcal / maxVal) * BAR_H }]}>
+            ORT {avgKcal}
+          </Text>
+        )}
         {weekKeys.map((key, i) => {
           const val = kcalByDate[key] ?? 0;
           const isToday = key === todayKey;
           const isFuture = key > todayKey;
           const barH = val > 0 ? Math.max(4, (val / maxVal) * BAR_H) : 0;
-
           return (
             <View key={key} style={[wc.dayCol, { width: BAR_W }]}>
               {val > 0 && !isFuture && (
@@ -279,32 +351,24 @@ function WeekChart({ logs }: { logs: ExerciseLog[] }) {
                   <View
                     style={[
                       wc.barFill,
-                      {
-                        height: barH,
-                        backgroundColor: isToday ? Colors.accent : Colors.primary,
-                        opacity: isToday ? 1 : 0.65,
-                      },
+                      { height: barH, backgroundColor: isToday ? Colors.accent : Colors.primary, opacity: isToday ? 1 : 0.65 },
                     ]}
                   />
                 )}
-                {isFuture && (
-                  <View style={wc.futureTick} />
-                )}
+                {isFuture && <View style={wc.futureTick} />}
               </View>
-              <Text style={[wc.dayLabel, isToday && wc.dayLabelToday]}>
-                {dayLabels[i]}
-              </Text>
+              <Text style={[wc.dayLabel, isToday && wc.dayLabelToday]}>{dayLabels[i]}</Text>
+              {isToday && <View style={wc.todayDot} />}
             </View>
           );
         })}
       </View>
 
-      {/* Insight */}
       {weekTotal > 0 && (
         <View style={wc.insight}>
-          <Text style={wc.insightLabel}>EN YÜKSEK</Text>
-          <Text style={wc.insightVal}>
-            {dayLabels[values.indexOf(Math.max(...values))]} · {Math.max(...values)} KCAL
+          <View style={wc.insightDot} />
+          <Text style={wc.insightText}>
+            EN YÜKSEK · {dayLabels[values.indexOf(Math.max(...values))].toUpperCase()} {Math.max(...values)} KCAL
           </Text>
         </View>
       )}
@@ -313,284 +377,7 @@ function WeekChart({ logs }: { logs: ExerciseLog[] }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Exercise → glyph mappings
-// ─────────────────────────────────────────────────────────────────────────────
-const EXERCISE_GLYPHS: Record<string, string> = {
-  running:        'run',
-  walking:        'walk',
-  cycling:        'bike',
-  swimming:       'wave',
-  elliptical:     'orbit',
-  dance:          'reach',
-  rowing_machine: 'row',
-  stair_climbing: 'stairs',
-  jump_rope:      'rope',
-  free_weights:   'barbell',
-  bodyweight:     'flex',
-  kettlebell:     'kbell',
-  crossfit:       'fire',
-  football:       'pitch',
-  basketball:     'court',
-  tennis:         'racquet',
-  volleyball:     'net',
-  table_tennis:   'paddle',
-  badminton:      'shuttle',
-  yoga:           'lotus',
-  pilates:        'arc',
-  tai_chi:        'spiral',
-  meditation:     'dot',
-  stretching:     'reach',
-  hiking:         'mountain',
-  mountain_bike:  'mtb',
-  skiing:         'ski',
-  hiit:           'bolt',
-  boxing:         'glove',
-  gymnastics:     'spring',
-  general_sport:  'medal',
-};
-
-const GROUP_GLYPHS: Record<string, string> = {
-  cardio:   'pulse',
-  strength: 'barbell',
-  sport:    'pitch',
-  mindBody: 'lotus',
-  outdoor:  'mountain',
-  other:    'bolt',
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ExGlyph — mono-line SVG icon set (ported from design prototype)
-// ─────────────────────────────────────────────────────────────────────────────
-function ExGlyph({ kind, size = 22, color = '#17201A', strokeWidth = 1.3 }: {
-  kind: string; size?: number; color?: string; strokeWidth?: number;
-}) {
-  const p = {
-    fill: 'none' as const,
-    stroke: color,
-    strokeWidth,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-  };
-  switch (kind) {
-    case 'pulse': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M2 12h4l2-6 4 12 3-9 2 3h5" {...p} />
-      </Svg>
-    );
-    case 'weight': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Line x1={3} y1={12} x2={21} y2={12} {...p} />
-        <Rect x={2} y={9} width={2} height={6} rx={0.5} {...p} />
-        <Rect x={20} y={9} width={2} height={6} rx={0.5} {...p} />
-        <Rect x={6} y={7} width={3} height={10} rx={0.6} {...p} />
-        <Rect x={15} y={7} width={3} height={10} rx={0.6} {...p} />
-      </Svg>
-    );
-    case 'arc': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M3 18 A 9 9 0 0 1 21 18" {...p} />
-        <Circle cx={12} cy={18} r={1.4} fill={color} stroke="none" />
-      </Svg>
-    );
-    case 'lotus': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M12 5 Q 9 11 12 16 Q 15 11 12 5 Z" {...p} />
-        <Path d="M5 11 Q 8 10 12 16" {...p} />
-        <Path d="M19 11 Q 16 10 12 16" {...p} />
-        <Path d="M3 18 H 21" {...p} />
-      </Svg>
-    );
-    case 'mountain': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M3 19 L 9 9 L 13 14 L 16 10 L 21 19 Z" {...p} />
-        <Path d="M9 9 L 11 11" {...p} />
-      </Svg>
-    );
-    case 'bolt': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M13 3 L 5 14 H 11 L 9 21 L 17 10 H 11 Z" {...p} />
-      </Svg>
-    );
-    case 'run': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={14} cy={5} r={1.6} {...p} />
-        <Path d="M7 21 L 10 15 L 8 11 L 13 9 L 17 13 L 21 12" {...p} />
-        <Path d="M10 15 L 6 14" {...p} />
-      </Svg>
-    );
-    case 'walk': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={13} cy={5} r={1.5} {...p} />
-        <Path d="M9 21 L 11 15 L 9 11 L 13 9 L 16 13 L 18 15" {...p} />
-      </Svg>
-    );
-    case 'bike': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={6} cy={17} r={3} {...p} />
-        <Circle cx={18} cy={17} r={3} {...p} />
-        <Path d="M6 17 L 11 11 L 14 11 L 18 17" {...p} />
-        <Circle cx={14} cy={5} r={1.4} {...p} />
-        <Path d="M14 6 L 14 11" {...p} />
-      </Svg>
-    );
-    case 'wave': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M2 8 Q 5 5 8 8 T 14 8 T 20 8 T 22 8" {...p} />
-        <Path d="M2 13 Q 5 10 8 13 T 14 13 T 20 13 T 22 13" {...p} />
-        <Path d="M2 18 Q 5 15 8 18 T 14 18 T 20 18 T 22 18" {...p} />
-      </Svg>
-    );
-    case 'orbit': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Ellipse cx={12} cy={12} rx={9} ry={4} {...p} />
-        <Circle cx={12} cy={12} r={2} fill={color} stroke="none" />
-      </Svg>
-    );
-    case 'row': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M3 19 L 21 5" {...p} />
-        <Circle cx={6} cy={16} r={2} {...p} />
-        <Path d="M14 12 L 19 17" {...p} />
-      </Svg>
-    );
-    case 'stairs': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M3 20 H 7 V 16 H 11 V 12 H 15 V 8 H 19 V 4" {...p} />
-        <Path d="M19 4 H 23" {...p} />
-      </Svg>
-    );
-    case 'rope': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M5 4 Q 5 14 12 14 Q 19 14 19 4" {...p} />
-        <Path d="M9 18 H 15" {...p} />
-      </Svg>
-    );
-    case 'barbell': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Line x1={3} y1={12} x2={21} y2={12} {...p} />
-        <Rect x={3} y={9} width={2} height={6} rx={0.5} {...p} />
-        <Rect x={19} y={9} width={2} height={6} rx={0.5} {...p} />
-        <Rect x={7} y={7} width={3} height={10} rx={0.5} {...p} />
-        <Rect x={14} y={7} width={3} height={10} rx={0.5} {...p} />
-      </Svg>
-    );
-    case 'flex': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M5 17 Q 9 9 14 11 Q 18 12 18 7" {...p} />
-        <Circle cx={14} cy={11} r={2.5} {...p} />
-      </Svg>
-    );
-    case 'kbell': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M9 4 H 15 V 6 A 6 6 0 1 1 9 6 Z" {...p} />
-      </Svg>
-    );
-    case 'fire': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M12 3 Q 7 9 9 14 Q 7 18 12 21 Q 17 18 15 14 Q 17 9 12 3 Z" {...p} />
-        <Path d="M12 11 Q 10 14 12 17 Q 14 14 12 11" {...p} />
-      </Svg>
-    );
-    case 'pitch': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={12} cy={12} r={9} {...p} />
-        <Path d="M12 5 L 14 9 L 18 9 L 15 12 L 16 16 L 12 13 L 8 16 L 9 12 L 6 9 L 10 9 Z" {...p} />
-      </Svg>
-    );
-    case 'court': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={12} cy={12} r={9} {...p} />
-        <Path d="M3 12 H 21" {...p} />
-        <Path d="M12 3 V 21" {...p} />
-      </Svg>
-    );
-    case 'racquet': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={9} cy={9} r={5.5} {...p} />
-        <Path d="M5.5 12.5 L 3 21" {...p} />
-        <Path d="M6 8 H 12 M6 10 H 12 M9 5 V 13" {...p} />
-      </Svg>
-    );
-    case 'net': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M3 12 H 21" {...p} />
-        <Path d="M6 8 V 16 M10 8 V 16 M14 8 V 16 M18 8 V 16" {...p} />
-        <Path d="M3 8 H 21 M3 16 H 21" {...p} />
-      </Svg>
-    );
-    case 'paddle': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={9} cy={9} r={5} {...p} />
-        <Path d="M5.5 12.5 L 3 19" {...p} />
-        <Circle cx={18} cy={14} r={1} fill={color} stroke="none" />
-      </Svg>
-    );
-    case 'shuttle': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M14 4 L 20 10 L 12 18 L 6 12 Z" {...p} />
-        <Path d="M9 9 L 14 4 M11 11 L 17 5 M14 14 L 20 8" {...p} />
-      </Svg>
-    );
-    case 'spiral': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M12 12 m -1 0 a 1 1 0 1 0 2 0 a 4 4 0 1 0 -7 -3 a 7 7 0 1 0 13 4" {...p} />
-      </Svg>
-    );
-    case 'dot': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={12} cy={12} r={2} fill={color} stroke="none" />
-        <Circle cx={12} cy={12} r={6} {...p} opacity={0.4} />
-        <Circle cx={12} cy={12} r={10} {...p} opacity={0.2} />
-      </Svg>
-    );
-    case 'reach': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={12} cy={5} r={1.5} {...p} />
-        <Path d="M12 6.5 V 14 L 7 21 M12 14 L 17 21 M5 11 L 19 11" {...p} />
-      </Svg>
-    );
-    case 'mtb': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={6} cy={17} r={3} {...p} />
-        <Circle cx={18} cy={17} r={3} {...p} />
-        <Path d="M6 17 L 12 11 L 18 17" {...p} />
-        <Path d="M3 9 L 8 9" {...p} />
-      </Svg>
-    );
-    case 'ski': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M3 19 L 21 5" {...p} />
-        <Path d="M5 18 L 21 4" {...p} />
-        <Circle cx={14} cy={9} r={1.4} {...p} />
-      </Svg>
-    );
-    case 'glove': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M7 4 H 14 Q 18 4 18 9 V 14 Q 18 19 13 19 H 9 Q 5 19 5 15 V 8 Q 5 4 9 4" {...p} />
-        <Path d="M5 9 L 14 9" {...p} />
-      </Svg>
-    );
-    case 'spring': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M5 4 H 19 M5 8 H 19 M5 12 H 19 M5 16 H 19 M5 20 H 19" {...p} />
-      </Svg>
-    );
-    case 'medal': return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={12} cy={15} r={5} {...p} />
-        <Path d="M8 4 L 12 11 L 16 4" {...p} />
-      </Svg>
-    );
-    default: return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx={12} cy={12} r={5} {...p} />
-      </Svg>
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Duration Dial — circular clock-style picker, visual-only; presets drive value
+// Duration Dial
 // ─────────────────────────────────────────────────────────────────────────────
 function DurationDial({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const SIZE = Math.min(SW - 80, 220);
@@ -600,7 +387,6 @@ function DurationDial({ value, onChange }: { value: number; onChange: (v: number
   const MAX = 120;
   const PRESETS = [10, 15, 20, 30, 45, 60, 90, 120];
 
-  // Keep onChange in a ref so PanResponder (created once) always calls latest version
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -612,7 +398,6 @@ function DurationDial({ value, onChange }: { value: number; onChange: (v: number
         const { locationX, locationY } = evt.nativeEvent;
         const dx = locationX - CX;
         const dy = locationY - CY;
-        // Only respond to touches near the arc (within ±36px of radius)
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < R - 36 || dist > R + 36) return;
         let angle = Math.atan2(dx, -dy);
@@ -646,78 +431,31 @@ function DurationDial({ value, onChange }: { value: number; onChange: (v: number
     const major = i % 4 === 0;
     const r1 = R + 12;
     const r2 = R + (major ? 5 : 8);
-    return {
-      x1: CX + Math.cos(a) * r1,
-      y1: CY + Math.sin(a) * r1,
-      x2: CX + Math.cos(a) * r2,
-      y2: CY + Math.sin(a) * r2,
-      major,
-    };
+    return { x1: CX + Math.cos(a) * r1, y1: CY + Math.sin(a) * r1, x2: CX + Math.cos(a) * r2, y2: CY + Math.sin(a) * r2, major };
   });
 
-  // Closest preset to current value (for active chip highlight)
   const activePreset = PRESETS.includes(value) ? value : null;
 
   return (
     <View style={{ alignItems: 'center' }}>
-      <View
-        style={{ width: SIZE, height: SIZE }}
-        {...panResponder.panHandlers}
-      >
+      <View style={{ width: SIZE, height: SIZE }} {...panResponder.panHandlers}>
         <Svg width={SIZE} height={SIZE}>
           {ticks.map((t, i) => (
-            <Line
-              key={i}
-              x1={t.x1} y1={t.y1}
-              x2={t.x2} y2={t.y2}
-              stroke={Colors.textMuted}
-              strokeWidth={t.major ? 0.9 : 0.4}
-              opacity={t.major ? 0.7 : 0.4}
-            />
+            <Line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={Colors.textMuted} strokeWidth={t.major ? 0.9 : 0.4} opacity={t.major ? 0.7 : 0.4} />
           ))}
           <Circle cx={CX} cy={CY} r={R} fill="none" stroke={Colors.borderLight} strokeWidth={0.8} />
           {frac > 0.01 && (
-            <Path
-              d={`M ${startX} ${startY} A ${R} ${R} 0 ${largeArc} 1 ${hx} ${hy}`}
-              stroke={Colors.accent}
-              strokeWidth={3}
-              fill="none"
-              strokeLinecap="round"
-            />
+            <Path d={`M ${startX} ${startY} A ${R} ${R} 0 ${largeArc} 1 ${hx} ${hy}`} stroke={Colors.accent} strokeWidth={3} fill="none" strokeLinecap="round" />
           )}
           <Circle cx={hx} cy={hy} r={9} fill={Colors.background} stroke={Colors.accent} strokeWidth={2} />
           <Circle cx={hx} cy={hy} r={3} fill={Colors.accent} />
-          <SvgText
-            x={CX} y={CY - 2}
-            textAnchor="middle"
-            fontSize={38}
-            fontFamily={SERIF}
-            fill={Colors.textPrimary}
-          >
-            {value}
-          </SvgText>
-          <SvgText
-            x={CX} y={CY + 16}
-            textAnchor="middle"
-            fontSize={9}
-            fontFamily={MONO}
-            fill={Colors.textMuted}
-            letterSpacing={2}
-          >
-            DAKİKA
-          </SvgText>
+          <SvgText x={CX} y={CY - 2} textAnchor="middle" fontSize={38} fontFamily={SERIF} fill={Colors.textPrimary}>{value}</SvgText>
+          <SvgText x={CX} y={CY + 16} textAnchor="middle" fontSize={9} fontFamily={MONO} fill={Colors.textMuted} letterSpacing={2}>DAKİKA</SvgText>
         </Svg>
       </View>
-
-      {/* Preset chips — active when value matches exactly */}
       <View style={dial.presets}>
         {PRESETS.map((p) => (
-          <TouchableOpacity
-            key={p}
-            onPress={() => onChange(p)}
-            style={[dial.chip, activePreset === p && dial.chipActive]}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity key={p} onPress={() => onChange(p)} style={[dial.chip, activePreset === p && dial.chipActive]} activeOpacity={0.7}>
             <Text style={[dial.chipText, activePreset === p && dial.chipTextActive]}>{p}</Text>
           </TouchableOpacity>
         ))}
@@ -727,73 +465,56 @@ function DurationDial({ value, onChange }: { value: number; onChange: (v: number
 }
 
 const dial = StyleSheet.create({
-  presets: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    justifyContent: 'center',
-    marginTop: 10,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: Colors.background,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
-  },
-  chipActive: {
-    backgroundColor: Colors.ink,
-    borderColor: Colors.ink,
-  },
-  chipText: {
-    fontFamily: MONO,
-    fontSize: 10,
-    color: Colors.textMuted,
-    letterSpacing: 0.6,
-  },
-  chipTextActive: {
-    color: Colors.background,
-  },
+  presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 10 },
+  chip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999, backgroundColor: Colors.background, borderWidth: 0.5, borderColor: Colors.borderLight },
+  chipActive: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  chipText: { fontFamily: MONO, fontSize: 10, color: Colors.textMuted, letterSpacing: 0.6 },
+  chipTextActive: { color: Colors.background },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ExerciseCard
+// ExerciseCard — redesigned with time on left, separator, icon, kcal right
 // ─────────────────────────────────────────────────────────────────────────────
 function ExerciseCard({ log, onDelete }: { log: ExerciseLog; onDelete: () => void }) {
   const entry = EXERCISE_CATALOG.find((e) => e.id === log.exercise_type);
   const intensityInfo = INTENSITY_LABELS[log.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
   const accentColor = entry?.color ?? Colors.primary;
-  const time = new Date(log.logged_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+
+  const d = new Date(log.logged_at);
+  const hour = d.toLocaleTimeString('tr-TR', { hour: '2-digit', hour12: false });
+  const minute = d.toLocaleTimeString('tr-TR', { minute: '2-digit' });
 
   return (
     <View style={card.wrap}>
-      <View style={[card.colorBar, { backgroundColor: accentColor }]} />
-      <View style={[card.iconWrap, { backgroundColor: accentColor + '18' }]}>
-        <ExGlyph kind={entry ? (EXERCISE_GLYPHS[entry.id] ?? 'medal') : 'medal'} size={22} color={accentColor} />
+      {/* Time column */}
+      <View style={card.timeCol}>
+        <Text style={card.timeHour}>{hour}</Text>
+        <Text style={card.timeMin}>:{minute}</Text>
       </View>
+
+      {/* Separator */}
+      <View style={card.sep} />
+
+      {/* Icon */}
+      <View style={[card.iconWrap, { backgroundColor: accentColor + '18' }]}>
+        <ExGlyph kind={entry ? (EXERCISE_GLYPHS[entry.id] ?? 'medal') : 'medal'} size={20} color={accentColor} />
+      </View>
+
+      {/* Body */}
       <View style={card.body}>
-        <View style={card.nameRow}>
-          <Text style={card.name}>{log.exercise_name}</Text>
-          <Text style={[card.kcal, { color: accentColor }]}>{log.calories_burned}</Text>
-        </View>
-        <View style={card.metaRow}>
-          <Text style={card.time}>{time}</Text>
-          <Text style={card.dot}> · </Text>
-          <Text style={card.meta}>{log.duration_minutes} dk</Text>
-          <Text style={card.dot}> · </Text>
-          <View style={[card.intensityPill, { backgroundColor: intensityInfo.color + '18' }]}>
-            <Text style={[card.intensityText, { color: intensityInfo.color }]}>
-              {intensityInfo.label}
-            </Text>
-          </View>
-        </View>
+        <Text style={card.name}>{log.exercise_name}</Text>
+        <Text style={card.meta}>
+          {log.duration_minutes} DK · {intensityInfo.label.toUpperCase()} ·
+        </Text>
         {log.epoc_min_kcal != null && (
-          <Text style={card.epoc}>+{log.epoc_min_kcal}–{log.epoc_max_kcal} kcal EPOC</Text>
+          <Text style={card.epoc}>EPOC +{log.epoc_min_kcal}–{log.epoc_max_kcal}</Text>
         )}
       </View>
+
+      {/* Kcal + delete */}
       <View style={card.rightCol}>
-        <Text style={card.kcalUnit}>kcal</Text>
+        <Text style={[card.kcal, { color: accentColor }]}>{log.calories_burned}</Text>
+        <Text style={card.kcalUnit}>KCAL</Text>
         <TouchableOpacity style={card.deleteBtn} onPress={onDelete} hitSlop={10}>
           <Ionicons name="trash-outline" size={14} color={Colors.textFaint} />
         </TouchableOpacity>
@@ -808,8 +529,8 @@ function ExerciseCard({ log, onDelete }: { log: ExerciseLog; onDelete: () => voi
 export default function ExerciseTab() {
   const { user, profile } = useAuthStore();
   const {
-    todayExercises, isLoading,
-    fetchTodayExercises, addExerciseLog, removeExerciseLog,
+    todayExercises, weekExercises, isLoading,
+    fetchTodayExercises, fetchWeekExercises, addExerciseLog, removeExerciseLog,
     getTotalCaloriesBurned, getEpocRange, getWaterBonus,
   } = useExerciseStore();
 
@@ -839,6 +560,7 @@ export default function ExerciseTab() {
     if (user) {
       const today = new Date().toISOString().split('T')[0];
       fetchTodayExercises(user.id, today);
+      fetchWeekExercises(user.id);
     }
     loadRecent();
   }, [user]);
@@ -878,9 +600,7 @@ export default function ExerciseTab() {
     setShowAdd(true);
   }
 
-  function selectGroup(g: ExerciseGroup) {
-    setSelectedGroup(g);
-  }
+  function selectGroup(g: ExerciseGroup) { setSelectedGroup(g); }
 
   function selectEntry(e: ExerciseCatalogEntry) {
     setSelectedEntry(e);
@@ -955,8 +675,11 @@ export default function ExerciseTab() {
     .map((id) => EXERCISE_CATALOG.find((e) => e.id === id))
     .filter(Boolean) as ExerciseCatalogEntry[];
 
-  const todayStr = new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' });
-  const weekdayStr = new Date().toLocaleDateString('tr-TR', { weekday: 'long' }).toUpperCase();
+  const now = new Date();
+  const day = now.getDate();
+  const monthStr = now.toLocaleDateString('tr-TR', { month: 'long' }).toUpperCase();
+  const weekdayStr = now.toLocaleDateString('tr-TR', { weekday: 'long' }).toUpperCase();
+  const overlineStr = `${day} ${monthStr} · ${weekdayStr}`;
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
@@ -965,9 +688,11 @@ export default function ExerciseTab() {
         {/* ── HEADER ── */}
         <View style={s.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={s.headerOverline}>{weekdayStr} · {todayStr.toUpperCase()}</Text>
+            <Text style={s.headerOverline}>{overlineStr}</Text>
             <Text style={s.headerTitle}>
-              Egzersiz<Text style={{ color: Colors.accent, fontStyle: 'italic' }}> nabzı</Text>
+              {'Bugünün '}
+              <Text style={{ color: Colors.accent, fontStyle: 'italic' }}>nabzı</Text>
+              {'.'}
             </Text>
           </View>
           <TouchableOpacity
@@ -978,50 +703,95 @@ export default function ExerciseTab() {
           </TouchableOpacity>
         </View>
 
-        {/* ── PULSE TRACE ── */}
-        <View style={s.pulseWrap}>
-          <PulseTrace exercises={todayExercises} />
-        </View>
+        {/* ── PULSE CARD ── */}
+        <PulseTrace exercises={todayExercises} />
 
-        {/* ── EFFORT ORBIT + STATS ── */}
+        {/* ── EFFORT ORBIT + STAT CARDS ── */}
         <View style={s.heroRow}>
           <EffortOrbit kcal={totalBurned} minutes={totalDuration} waterMl={waterBonus} />
           <View style={s.heroStats}>
-            {/* Legend */}
-            {[
-              { color: Colors.accent, label: 'KCAL YAKILAN', val: `${totalBurned}` },
-              { color: Colors.primary, label: 'AKTİF DAKİKA', val: `${totalDuration}` },
-              { color: Colors.sky, label: 'SU BONUSU (ML)', val: `+${waterBonus}` },
-            ].map((item) => (
-              <View key={item.label} style={s.heroStatRow}>
-                <View style={[s.heroStatDot, { backgroundColor: item.color }]} />
-                <View>
-                  <Text style={s.heroStatNum}>{item.val}</Text>
-                  <Text style={s.heroStatLabel}>{item.label}</Text>
-                </View>
-              </View>
-            ))}
-            {epocRange[0] > 0 && (
-              <View style={s.epocBadge}>
-                <Text style={s.epocText}>+{epocRange[0]}–{epocRange[1]} EPOC</Text>
-              </View>
-            )}
+            <StatCard
+              iconName="flash"
+              iconColor={Colors.accent}
+              iconBg={Colors.accent + '22'}
+              label="YAKILAN"
+              value={`${totalBurned}`}
+              unit="kcal"
+            />
+            <StatCard
+              iconName="happy-outline"
+              iconColor={Colors.primary}
+              iconBg={Colors.primary + '22'}
+              label="AKTİF"
+              value={`${totalDuration}`}
+              unit="dk"
+            />
+            <StatCard
+              iconName="water-outline"
+              iconColor={Colors.sky}
+              iconBg={Colors.sky + '22'}
+              label="SU BONUSU"
+              value={`+${waterBonus}`}
+              unit="ml"
+            />
           </View>
         </View>
 
+        {/* ── EPOC ROW ── */}
+        {epocRange[0] > 0 && (
+          <View style={s.epocRow}>
+            <View style={s.epocDot} />
+            <Text style={s.epocText}>
+              {'EPOC SONRASI EK YAKIM '}
+              <Text style={s.epocBold}>+{epocRange[0]}–{epocRange[1]} KCAL</Text>
+              <Text style={s.epocRef}>{' · Borsheim & Bahr 2003'}</Text>
+            </Text>
+          </View>
+        )}
+
         {/* ── ADD BUTTON ── */}
         <TouchableOpacity style={s.addBtn} onPress={openAdd} activeOpacity={0.85}>
-          <View style={s.addBtnInner}>
-            <Ionicons name="add" size={20} color={Colors.background} />
-            <Text style={s.addBtnText}>Egzersiz Ekle</Text>
+          <View style={s.addBtnCircle}>
+            <Ionicons name="add" size={18} color={Colors.background} />
           </View>
+          <Text style={s.addBtnLabel}>
+            <Text style={{ fontStyle: 'italic' }}>Egzersiz Ekle</Text>
+          </Text>
+          <Text style={s.addBtnRight}>NABZINI YÜKSELT</Text>
         </TouchableOpacity>
+
+        {/* ── TODAY'S SPIKES ── */}
+        <View style={s.section}>
+          <View style={s.sectionHeaderRow}>
+            <Text style={s.sectionTitle}>
+              {'Bugünün '}
+              <Text style={{ fontStyle: 'italic', color: Colors.accent }}>spikeları</Text>
+            </Text>
+            <View style={s.kayitBadge}>
+              <Text style={s.kayitText}>{todayExercises.length} KAYIT</Text>
+            </View>
+          </View>
+
+          {todayExercises.length > 0 ? (
+            todayExercises.map((log) => (
+              <ExerciseCard key={log.id} log={log} onDelete={() => confirmDelete(log.id)} />
+            ))
+          ) : (
+            <View style={s.emptyWrap}>
+              <Text style={s.emptyTitle}>Bugün henüz egzersiz yok</Text>
+              <Text style={s.emptySub}>Yukarıdaki butona dokunarak ilk egzersizini ekle</Text>
+            </View>
+          )}
+        </View>
 
         {/* ── WEEKLY CHART ── */}
         <View style={s.section}>
           <View style={s.weekHeaderRow}>
             <View>
-              <Text style={s.weekTitle}>Bu <Text style={{ fontStyle: 'italic', color: Colors.accent }}>Hafta</Text></Text>
+              <Text style={s.weekTitle}>
+                {'Bu '}
+                <Text style={{ fontStyle: 'italic', color: Colors.accent }}>Hafta</Text>
+              </Text>
               <Text style={s.weekSub}>GÜNLÜK YAKILAN KCAL</Text>
             </View>
             <View style={s.weekLegend}>
@@ -1031,55 +801,24 @@ export default function ExerciseTab() {
               <Text style={s.legendLabel}>GEÇMİŞ</Text>
             </View>
           </View>
-          <WeekChart logs={todayExercises} />
+          <WeekChart logs={weekExercises} />
         </View>
-
-        {/* ── TODAY'S LOGS ── */}
-        {todayExercises.length > 0 && (
-          <View style={s.section}>
-            <Text style={s.overline}>BUGÜNÜN EGZERSİZLERİ</Text>
-            {todayExercises.map((log) => (
-              <ExerciseCard key={log.id} log={log} onDelete={() => confirmDelete(log.id)} />
-            ))}
-          </View>
-        )}
-
-        {todayExercises.length === 0 && (
-          <View style={s.emptyWrap}>
-            <Text style={s.emptyTitle}>Bugün henüz egzersiz yok</Text>
-            <Text style={s.emptySub}>Yukarıdaki butona dokunarak ilk egzersizini ekle</Text>
-          </View>
-        )}
 
         <View style={{ height: 120 }} />
       </ScrollView>
 
       {/* ── ADD EXERCISE MODAL ── */}
-      <Modal
-        visible={showAdd}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowAdd(false)}
-      >
+      <Modal visible={showAdd} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowAdd(false)}>
         <SafeAreaView style={s.modalContainer} edges={['top', 'bottom']}>
-          {/* Modal header */}
           <View style={s.modalHeader}>
             <TouchableOpacity
               onPress={() => {
-                if (addPhase === 'detail') {
-                  setAddPhase('pick');
-                  setSelectedEntry(null);
-                } else {
-                  setShowAdd(false);
-                }
+                if (addPhase === 'detail') { setAddPhase('pick'); setSelectedEntry(null); }
+                else { setShowAdd(false); }
               }}
               style={s.backBtn}
             >
-              <Ionicons
-                name={addPhase === 'detail' ? 'arrow-back' : 'close'}
-                size={18}
-                color={Colors.textSecondary}
-              />
+              <Ionicons name={addPhase === 'detail' ? 'arrow-back' : 'close'} size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
             <View style={{ flex: 1, alignItems: 'center' }}>
               <Text style={s.modalOverline}>
@@ -1092,43 +831,27 @@ export default function ExerciseTab() {
                 }
               </Text>
             </View>
-            <TouchableOpacity
-              onPress={() => setShowAdd(false)}
-              style={[s.closeBtn, addPhase === 'pick' && { opacity: 0 }]}
-              disabled={addPhase === 'pick'}
-            >
+            <TouchableOpacity onPress={() => setShowAdd(false)} style={[s.closeBtn, addPhase === 'pick' && { opacity: 0 }]} disabled={addPhase === 'pick'}>
               <Ionicons name="close" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.modalScroll}>
-
-            {/* ── PICK PHASE: Category chips + Exercise grid ── */}
             {addPhase === 'pick' && (
               <>
-                {/* Category pill chips — 3 per row */}
                 <Text style={s.formLabel}>KATEGORİ</Text>
                 <View style={s.categoryPills}>
                   {groups.map((g) => {
                     const info = EXERCISE_GROUP_LABELS[g];
                     const active = selectedGroup === g;
                     return (
-                      <TouchableOpacity
-                        key={g}
-                        style={[s.categoryPill, active && s.categoryPillActive]}
-                        onPress={() => selectGroup(g)}
-                        activeOpacity={0.75}
-                      >
+                      <TouchableOpacity key={g} style={[s.categoryPill, active && s.categoryPillActive]} onPress={() => selectGroup(g)} activeOpacity={0.75}>
                         <ExGlyph kind={GROUP_GLYPHS[g] ?? 'pulse'} size={14} color={active ? Colors.background : Colors.textSecondary} />
-                        <Text style={[s.categoryPillLabel, active && s.categoryPillLabelActive]} numberOfLines={1}>
-                          {info.nameTr}
-                        </Text>
+                        <Text style={[s.categoryPillLabel, active && s.categoryPillLabelActive]} numberOfLines={1}>{info.nameTr}</Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
-
-                {/* Exercise grid */}
                 {selectedGroup && (
                   <>
                     <View style={s.exGridHeader}>
@@ -1137,12 +860,7 @@ export default function ExerciseTab() {
                     </View>
                     <View style={s.exerciseGrid}>
                       {filteredEntries.map((e) => (
-                        <TouchableOpacity
-                          key={e.id}
-                          style={s.exerciseTile}
-                          onPress={() => selectEntry(e)}
-                          activeOpacity={0.75}
-                        >
+                        <TouchableOpacity key={e.id} style={s.exerciseTile} onPress={() => selectEntry(e)} activeOpacity={0.75}>
                           <View style={[s.exerciseTileIcon, { backgroundColor: e.color + '1A' }]}>
                             <ExGlyph kind={EXERCISE_GLYPHS[e.id] ?? 'medal'} size={20} color={e.color} />
                           </View>
@@ -1155,19 +873,12 @@ export default function ExerciseTab() {
                     </View>
                   </>
                 )}
-
-                {/* Recents */}
                 {recentEntries.length > 0 && (
                   <>
                     <Text style={[s.formLabel, { marginTop: Spacing.lg }]}>SON KULLANILANLAR</Text>
                     <View style={s.recentRow}>
                       {recentEntries.map((e) => (
-                        <TouchableOpacity
-                          key={e.id}
-                          style={s.recentChip}
-                          onPress={() => selectEntry(e)}
-                          activeOpacity={0.75}
-                        >
+                        <TouchableOpacity key={e.id} style={s.recentChip} onPress={() => selectEntry(e)} activeOpacity={0.75}>
                           <ExGlyph kind={EXERCISE_GLYPHS[e.id] ?? 'medal'} size={14} color={Colors.textSecondary} />
                           <Text style={s.recentChipText}>{e.nameTr}</Text>
                         </TouchableOpacity>
@@ -1178,21 +889,15 @@ export default function ExerciseTab() {
               </>
             )}
 
-            {/* ── DETAIL PHASE: Duration dial + intensity ── */}
             {addPhase === 'detail' && selectedEntry && (
               <>
-                {/* Entry icon hero */}
                 <View style={s.detailHero}>
                   <View style={[s.detailEmojiWrap, { backgroundColor: selectedEntry.color + '1A', borderColor: selectedEntry.color + '40' }]}>
                     <ExGlyph kind={EXERCISE_GLYPHS[selectedEntry.id] ?? 'medal'} size={36} color={selectedEntry.color} />
                   </View>
                 </View>
-
-                {/* Circular duration dial */}
                 <Text style={[s.formLabel, { textAlign: 'center' }]}>SÜRE</Text>
                 <DurationDial value={duration} onChange={setDuration} />
-
-                {/* Intensity */}
                 <Text style={[s.formLabel, { marginTop: Spacing.lg }]}>YOĞUNLUK</Text>
                 <View style={s.intensityRow}>
                   {(['low', 'moderate', 'high'] as ExerciseIntensity[]).map((key) => {
@@ -1201,38 +906,28 @@ export default function ExerciseTab() {
                     return (
                       <TouchableOpacity
                         key={key}
-                        style={[s.intensityOption, active && {
-                          backgroundColor: info.color + '18',
-                          borderColor: info.color,
-                        }]}
+                        style={[s.intensityOption, active && { backgroundColor: info.color + '18', borderColor: info.color }]}
                         onPress={() => setIntensity(key)}
                         activeOpacity={0.7}
                       >
                         <ExGlyph kind={key === 'low' ? 'lotus' : key === 'moderate' ? 'flex' : 'fire'} size={18} color={info.color} />
-                        <Text style={[s.intensityLabel, active && { color: info.color, fontWeight: '700' }]}>
-                          {info.label}
-                        </Text>
+                        <Text style={[s.intensityLabel, active && { color: info.color, fontWeight: '700' }]}>{info.label}</Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
-
                 <View style={{ height: engineOutput ? 200 : Spacing.xl }} />
               </>
             )}
-
             <View style={{ height: Spacing.xl }} />
           </ScrollView>
 
-          {/* ── STICKY SUMMARY (detail phase) ── */}
           {addPhase === 'detail' && engineOutput && selectedEntry && (
             <View style={s.stickyBottom}>
               {engineOutput.chronoWarning && (
                 <View style={s.chronoWarn}>
                   <Ionicons name="moon-outline" size={13} color="#F59E0B" />
-                  <Text style={s.chronoWarnText}>
-                    Geç saatte egzersiz — insülin duyarlılığı riski
-                  </Text>
+                  <Text style={s.chronoWarnText}>Geç saatte egzersiz — insülin duyarlılığı riski</Text>
                 </View>
               )}
               <View style={s.summaryRow}>
@@ -1250,28 +945,15 @@ export default function ExerciseTab() {
                   </React.Fragment>
                 ))}
               </View>
-              {engineOutput.sourceNote ? (
-                <Text style={s.sourceNote}>{engineOutput.sourceNote}</Text>
-              ) : null}
+              {engineOutput.sourceNote ? <Text style={s.sourceNote}>{engineOutput.sourceNote}</Text> : null}
               <View style={s.saveBtnRow}>
-                <TouchableOpacity
-                  style={s.breakdownBtn}
-                  onPress={() => setShowBreakdown(true)}
-                  activeOpacity={0.75}
-                >
+                <TouchableOpacity style={s.breakdownBtn} onPress={() => setShowBreakdown(true)} activeOpacity={0.75}>
                   <Ionicons name="analytics-outline" size={16} color={Colors.primary} />
                   <Text style={s.breakdownBtnText}>Nasıl hesaplandı?</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[s.saveBtn, saving && { opacity: 0.6 }]}
-                  onPress={handleSave}
-                  disabled={saving}
-                  activeOpacity={0.85}
-                >
+                <TouchableOpacity style={[s.saveBtn, saving && { opacity: 0.6 }]} onPress={handleSave} disabled={saving} activeOpacity={0.85}>
                   <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={s.saveBtnText}>
-                    {saving ? 'Kaydediliyor…' : 'Günlüğe Ekle'}
-                  </Text>
+                  <Text style={s.saveBtnText}>{saving ? 'Kaydediliyor…' : 'Günlüğe Ekle'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1295,12 +977,7 @@ export default function ExerciseTab() {
       </Modal>
 
       {/* ── HISTORY MODAL ── */}
-      <Modal
-        visible={showHistory}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowHistory(false)}
-      >
+      <Modal visible={showHistory} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowHistory(false)}>
         <SafeAreaView style={s.modalContainer} edges={['top', 'bottom']}>
           <View style={s.modalHeader}>
             <View style={{ width: 36 }} />
@@ -1314,9 +991,7 @@ export default function ExerciseTab() {
           </View>
           <ScrollView contentContainerStyle={s.modalScroll}>
             {historyLoading && <Text style={s.emptyTitle}>Yükleniyor…</Text>}
-            {!historyLoading && historyLogs.length === 0 && (
-              <Text style={s.emptyTitle}>Henüz egzersiz kaydı yok</Text>
-            )}
+            {!historyLoading && historyLogs.length === 0 && <Text style={s.emptyTitle}>Henüz egzersiz kaydı yok</Text>}
             {historyLogs.map((log) => (
               <ExerciseCard key={log.id} log={log} onDelete={() => confirmDelete(log.id)} />
             ))}
@@ -1335,324 +1010,147 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: Spacing.lg },
 
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  headerOverline: {
-    fontFamily: MONO,
-    fontSize: 10,
-    color: Colors.textMuted,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-  },
-  headerTitle: {
-    fontFamily: SERIF,
-    fontSize: 32,
-    color: Colors.textPrimary,
-    lineHeight: 38,
-    marginTop: 2,
-  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', paddingTop: Spacing.sm, marginBottom: Spacing.sm },
+  headerOverline: { fontFamily: MONO, fontSize: 10, color: Colors.textMuted, letterSpacing: 1.4 },
+  headerTitle: { fontFamily: SERIF, fontSize: 32, color: Colors.textPrimary, lineHeight: 38, marginTop: 2 },
   historyBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight,
+    alignItems: 'center', justifyContent: 'center',
   },
 
-  // Pulse trace
-  pulseWrap: {
-    marginBottom: Spacing.md,
-    paddingVertical: 4,
-    borderTopWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: Colors.borderLight,
-  },
+  // Hero row
+  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
+  heroStats: { flex: 1, gap: 6 },
 
-  // Effort orbit + stats
-  heroRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.lg,
-    marginBottom: Spacing.md,
-    paddingHorizontal: 4,
-  },
-  heroStats: { flex: 1, gap: 10 },
-  heroStatRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  heroStatDot: { width: 8, height: 8, borderRadius: 4 },
-  heroStatNum: { fontFamily: SERIF, fontSize: 20, color: Colors.textPrimary, lineHeight: 22 },
-  heroStatLabel: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted, letterSpacing: 0.8 },
-  epocBadge: {
-    marginTop: 4,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    borderWidth: 0.5,
-    borderColor: Colors.primary + '60',
-    backgroundColor: Colors.primary + '0D',
-  },
-  epocText: { fontFamily: MONO, fontSize: 9, color: Colors.primary, letterSpacing: 0.5 },
+  // EPOC row
+  epocRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.md },
+  epocDot: { width: 7, height: 7, borderRadius: 99, backgroundColor: Colors.accent },
+  epocText: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted, letterSpacing: 0.5, flex: 1 },
+  epocBold: { fontFamily: MONO, fontSize: 9, color: Colors.textPrimary, fontWeight: '700', letterSpacing: 0.5 },
+  epocRef: { fontFamily: MONO, fontSize: 9, color: Colors.textFaint, letterSpacing: 0.3 },
 
   // Add button
   addBtn: {
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.ink,
-    marginBottom: Spacing.xl,
-    overflow: 'hidden',
-  },
-  addBtnInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    gap: 8,
+    backgroundColor: Colors.ink,
+    borderRadius: BorderRadius.full,
+    paddingVertical: 10,
+    paddingLeft: 10,
+    paddingRight: 16,
+    marginBottom: Spacing.xl,
+    gap: 10,
   },
-  addBtnText: { color: Colors.background, fontWeight: '700', fontSize: FontSize.md, letterSpacing: 0.3 },
+  addBtnCircle: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: Colors.accent,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  addBtnLabel: {
+    flex: 1, fontFamily: SERIF, fontSize: 18, color: Colors.background, letterSpacing: 0.2,
+  },
+  addBtnRight: {
+    fontFamily: MONO, fontSize: 9, color: Colors.background + 'AA', letterSpacing: 1.2,
+  },
 
   section: { marginBottom: Spacing.xl },
-  overline: {
-    fontFamily: MONO,
-    fontSize: 10,
-    color: Colors.textMuted,
-    letterSpacing: 1.6,
-    textTransform: 'uppercase',
-    marginBottom: Spacing.sm,
+
+  // Section header
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  sectionTitle: { fontFamily: SERIF, fontSize: 22, color: Colors.textPrimary, lineHeight: 26 },
+  kayitBadge: {
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+    backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight,
   },
+  kayitText: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted, letterSpacing: 0.8 },
 
   // Bu Hafta section header
-  weekHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  weekTitle: {
-    fontFamily: SERIF,
-    fontSize: 20,
-    color: Colors.textPrimary,
-    lineHeight: 24,
-  },
-  weekSub: {
-    fontFamily: MONO,
-    fontSize: 9,
-    color: Colors.textMuted,
-    letterSpacing: 1.2,
-    marginTop: 2,
-  },
-  weekLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
+  weekHeaderRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 10 },
+  weekTitle: { fontFamily: SERIF, fontSize: 22, color: Colors.textPrimary, lineHeight: 26 },
+  weekSub: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted, letterSpacing: 1.2, marginTop: 2 },
+  weekLegend: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   legendDot: { width: 7, height: 7, borderRadius: 99 },
-  legendLabel: {
-    fontFamily: MONO,
-    fontSize: 8,
-    color: Colors.textMuted,
-    letterSpacing: 0.8,
-  },
+  legendLabel: { fontFamily: MONO, fontSize: 8, color: Colors.textMuted, letterSpacing: 0.8 },
 
-  emptyWrap: { alignItems: 'center', paddingTop: Spacing.xl },
+  emptyWrap: { alignItems: 'center', paddingVertical: Spacing.lg },
   emptyTitle: { fontFamily: SERIF, fontSize: 18, color: Colors.textSecondary, marginBottom: 6 },
   emptySub: { fontSize: FontSize.sm, color: Colors.textMuted, textAlign: 'center' },
 
   // Modal
   modalContainer: { flex: 1, backgroundColor: Colors.background },
   modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 0.5,
-    borderColor: Colors.borderLight,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm,
+    borderBottomWidth: 0.5, borderColor: Colors.borderLight,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight,
+    alignItems: 'center', justifyContent: 'center',
   },
-  modalOverline: {
-    fontFamily: MONO,
-    fontSize: 9,
-    color: Colors.textMuted,
-    letterSpacing: 1.6,
-    textAlign: 'center',
-  },
+  modalOverline: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted, letterSpacing: 1.6, textAlign: 'center' },
   modalTitle: { fontFamily: SERIF, fontSize: 22, color: Colors.textPrimary, textAlign: 'center', lineHeight: 26 },
   closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight,
+    alignItems: 'center', justifyContent: 'center',
   },
   modalScroll: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
   formLabel: {
-    fontFamily: MONO,
-    fontSize: 10,
-    color: Colors.textMuted,
-    letterSpacing: 1.4,
-    textTransform: 'uppercase',
-    marginTop: Spacing.md,
-    marginBottom: Spacing.sm,
+    fontFamily: MONO, fontSize: 10, color: Colors.textMuted, letterSpacing: 1.4,
+    textTransform: 'uppercase', marginTop: Spacing.md, marginBottom: Spacing.sm,
   },
 
-  // Recent
   recentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   recentChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+    backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight,
   },
   recentChipText: { fontSize: FontSize.sm, color: Colors.textPrimary, fontWeight: '600' },
 
-  // Category pill chips — 3 per row
-  categoryPills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 4,
-  },
+  categoryPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   categoryPill: {
-    width: (SW - 48 - 16) / 3,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 9,
-    borderRadius: 999,
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
+    width: (SW - 48 - 16) / 3, flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 9,
+    borderRadius: 999, backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight,
   },
-  categoryPillActive: {
-    backgroundColor: Colors.ink,
-    borderColor: Colors.ink,
-  },
-  categoryPillLabel: {
-    fontFamily: SERIF,
-    fontSize: 12,
-    color: Colors.textPrimary,
-    fontStyle: 'normal',
-  },
-  categoryPillLabelActive: {
-    color: Colors.background,
-    fontStyle: 'italic',
-  },
+  categoryPillActive: { backgroundColor: Colors.ink, borderColor: Colors.ink },
+  categoryPillLabel: { fontFamily: SERIF, fontSize: 12, color: Colors.textPrimary },
+  categoryPillLabelActive: { color: Colors.background, fontStyle: 'italic' },
 
-  // Exercise grid header
-  exGridHeader: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
-  },
-  exGridCount: {
-    fontFamily: MONO,
-    fontSize: 9,
-    color: Colors.textFaint,
-    letterSpacing: 0.8,
-    marginTop: Spacing.md,
-  },
+  exGridHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  exGridCount: { fontFamily: MONO, fontSize: 9, color: Colors.textFaint, letterSpacing: 0.8, marginTop: Spacing.md },
 
-  // Exercise grid — 3 columns with circle icon
   exerciseGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   exerciseTile: {
-    width: (SW - 48 - 16) / 3,
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
-    borderRadius: BorderRadius.md,
-    paddingVertical: 14,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    gap: 8,
-    minHeight: 96,
+    width: (SW - 48 - 16) / 3, backgroundColor: Colors.surface,
+    borderWidth: 0.5, borderColor: Colors.borderLight, borderRadius: BorderRadius.md,
+    paddingVertical: 14, paddingHorizontal: 10, alignItems: 'center', gap: 8, minHeight: 96,
   },
-  exerciseTileIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  exerciseTileName: {
-    fontFamily: SERIF,
-    fontSize: 12,
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    lineHeight: 14,
-  },
+  exerciseTileIcon: { width: 38, height: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
+  exerciseTileName: { fontFamily: SERIF, fontSize: 12, color: Colors.textPrimary, textAlign: 'center', lineHeight: 14 },
   metPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   metText: { fontFamily: MONO, fontSize: 8, letterSpacing: 0.5 },
 
-  // Detail hero
   detailHero: { alignItems: 'center', paddingVertical: Spacing.md },
-  detailEmojiWrap: {
-    width: 76,
-    height: 76,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 0.5,
-  },
-  // Intensity
+  detailEmojiWrap: { width: 76, height: 76, borderRadius: 999, alignItems: 'center', justifyContent: 'center', borderWidth: 0.5 },
+
   intensityRow: { flexDirection: 'row', gap: 8 },
   intensityOption: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
+    flex: 1, alignItems: 'center', paddingVertical: 12,
+    borderRadius: BorderRadius.md, backgroundColor: Colors.surface,
+    borderWidth: 0.5, borderColor: Colors.borderLight,
   },
   intensityLabel: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '600' },
 
-  // Sticky bottom
   stickyBottom: {
-    backgroundColor: Colors.surface,
-    borderTopWidth: 0.5,
-    borderColor: Colors.borderLight,
-    padding: Spacing.md,
-    paddingBottom: Spacing.lg,
-    shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 8,
+    backgroundColor: Colors.surface, borderTopWidth: 0.5, borderColor: Colors.borderLight,
+    padding: Spacing.md, paddingBottom: Spacing.lg,
+    shadowColor: Colors.ink, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 8,
   },
-  chronoWarn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: Spacing.sm,
-    padding: 8,
-    borderRadius: BorderRadius.sm,
-    backgroundColor: '#FEF3C715',
-  },
+  chronoWarn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: Spacing.sm, padding: 8, borderRadius: BorderRadius.sm, backgroundColor: '#FEF3C715' },
   chronoWarnText: { fontSize: FontSize.xs, color: '#92400E', flex: 1 },
   summaryRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   summaryItem: { flex: 1, alignItems: 'center' },
@@ -1662,49 +1160,25 @@ const s = StyleSheet.create({
   sourceNote: { fontSize: 10, color: Colors.textFaint, textAlign: 'center', marginBottom: 10 },
   saveBtnRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   breakdownBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: BorderRadius.full,
-    borderWidth: 0.5,
-    borderColor: Colors.primary + '60',
-    backgroundColor: Colors.primary + '0D',
-    overflow: 'hidden',
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+    paddingVertical: 12, paddingHorizontal: 8, borderRadius: BorderRadius.full,
+    borderWidth: 0.5, borderColor: Colors.primary + '60', backgroundColor: Colors.primary + '0D', overflow: 'hidden',
   },
   breakdownBtnText: { fontSize: 11, color: Colors.primary, fontWeight: '600', flexShrink: 1 },
   saveBtn: {
-    flex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.ink,
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 12, borderRadius: BorderRadius.full, backgroundColor: Colors.ink,
   },
   saveBtnText: { color: Colors.background, fontSize: FontSize.md, fontWeight: '700' },
 });
 
 // Week chart styles
 const wc = StyleSheet.create({
-  card: {
-    backgroundColor: Colors.surface,
-    borderWidth: 0.5,
-    borderColor: Colors.borderLight,
-    borderRadius: BorderRadius.lg,
-    overflow: 'hidden',
-  },
+  card: { backgroundColor: Colors.surface, borderWidth: 0.5, borderColor: Colors.borderLight, borderRadius: BorderRadius.lg, overflow: 'hidden' },
   statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 0.5,
-    borderBottomColor: Colors.borderLight,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    flexDirection: 'row', alignItems: 'center',
+    borderBottomWidth: 0.5, borderBottomColor: Colors.borderLight,
+    paddingVertical: 12, paddingHorizontal: 14,
   },
   statItem: { flex: 1 },
   statDivider: { width: 0.5, height: 34, backgroundColor: Colors.borderLight, marginHorizontal: 10 },
@@ -1714,16 +1188,8 @@ const wc = StyleSheet.create({
   statLabel: { fontFamily: MONO, fontSize: 8, color: Colors.textMuted, letterSpacing: 0.8 },
 
   chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, position: 'relative', paddingHorizontal: 14, paddingTop: 18, paddingBottom: 4 },
-  avgLine: {
-    position: 'absolute',
-    left: 14,
-    right: 14,
-    height: 1,
-    borderTopWidth: 0.5,
-    borderColor: Colors.textFaint,
-    borderStyle: 'dashed',
-    zIndex: 1,
-  },
+  avgLine: { position: 'absolute', left: 14, right: 14, height: 1, borderTopWidth: 0.5, borderColor: Colors.textFaint, borderStyle: 'dashed', zIndex: 1 },
+  avgLineLabel: { position: 'absolute', right: 16, fontFamily: MONO, fontSize: 8, color: Colors.textFaint },
   dayCol: { alignItems: 'center', flex: 1, gap: 3 },
   barLabel: { fontFamily: MONO, fontSize: 8, color: Colors.textMuted },
   barBg: { width: '100%', backgroundColor: Colors.surfaceSecondary, borderRadius: 4, overflow: 'hidden', justifyContent: 'flex-end' },
@@ -1731,19 +1197,16 @@ const wc = StyleSheet.create({
   futureTick: { width: 8, height: 4, borderRadius: 2, backgroundColor: Colors.borderLight, alignSelf: 'center', marginBottom: 2 },
   dayLabel: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted },
   dayLabelToday: { color: Colors.accent, fontWeight: '700' },
+  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: Colors.accent },
 
   insight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderTopWidth: 0.5,
-    borderTopColor: Colors.borderLight,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderTopWidth: 0.5, borderTopColor: Colors.borderLight,
     backgroundColor: Colors.primary + '06',
   },
-  insightLabel: { fontFamily: MONO, fontSize: 9, color: Colors.primary, letterSpacing: 0.8 },
-  insightVal: { fontFamily: MONO, fontSize: 10, color: Colors.primary, fontWeight: '700' },
+  insightDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.accent },
+  insightText: { fontFamily: MONO, fontSize: 9, color: Colors.primary, fontWeight: '700', letterSpacing: 0.5 },
 });
 
 // Exercise card styles
@@ -1757,28 +1220,20 @@ const card = StyleSheet.create({
     borderColor: Colors.borderLight,
     marginBottom: 8,
     overflow: 'hidden',
+    paddingVertical: 12,
+    paddingRight: 12,
   },
-  colorBar: { width: 3, alignSelf: 'stretch' },
-  iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    margin: 12,
-  },
-  body: { flex: 1, paddingVertical: 12, gap: 3 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  name: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  kcal: { fontSize: FontSize.lg, fontWeight: '800', fontFamily: SERIF },
-  metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  time: { fontSize: FontSize.xs, color: Colors.textMuted },
-  dot: { fontSize: FontSize.xs, color: Colors.textFaint },
-  meta: { fontSize: FontSize.xs, color: Colors.textMuted },
-  intensityPill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  intensityText: { fontSize: FontSize.xs, fontWeight: '600' },
-  epoc: { fontSize: 10, color: Colors.primary, fontFamily: MONO },
-  rightCol: { paddingRight: 12, alignItems: 'center', gap: 8 },
-  kcalUnit: { fontSize: FontSize.xs, color: Colors.textMuted },
-  deleteBtn: { padding: 4 },
+  timeCol: { width: 44, alignItems: 'flex-end', paddingLeft: 12, paddingRight: 8 },
+  timeHour: { fontFamily: SERIF, fontSize: 20, color: Colors.textPrimary, lineHeight: 22 },
+  timeMin: { fontFamily: MONO, fontSize: 11, color: Colors.textMuted, lineHeight: 14 },
+  sep: { width: 0.5, height: 42, backgroundColor: Colors.borderLight, marginRight: 10 },
+  iconWrap: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  body: { flex: 1, gap: 2 },
+  name: { fontFamily: SERIF, fontSize: 15, color: Colors.textPrimary, fontWeight: '600' },
+  meta: { fontFamily: MONO, fontSize: 9, color: Colors.textMuted, letterSpacing: 0.5 },
+  epoc: { fontFamily: MONO, fontSize: 9, color: Colors.primary, letterSpacing: 0.4 },
+  rightCol: { alignItems: 'center', gap: 2, minWidth: 44 },
+  kcal: { fontFamily: SERIF, fontSize: 22, fontWeight: '800', lineHeight: 26 },
+  kcalUnit: { fontFamily: MONO, fontSize: 8, color: Colors.textMuted, letterSpacing: 0.5 },
+  deleteBtn: { marginTop: 4, padding: 3 },
 });

@@ -9,6 +9,7 @@ import {
   Platform,
   Dimensions,
   Alert,
+  PanResponder,
 } from 'react-native';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { QuickActionSheet } from '../../components/ui/QuickActionSheet';
@@ -20,6 +21,9 @@ const { width: SW } = Dimensions.get('window');
 // Shared callback refs for camera/gallery (set by the food-log page)
 let _onCameraCallback: ((base64: string) => void) | null = null;
 let _onGalleryCallback: ((base64: string) => void) | null = null;
+
+// Module-level ref for programmatic tab navigation (used by swipe gesture)
+let _swipeNavigateToTab: ((tabName: string) => void) | null = null;
 
 export function setQuickActionCallbacks(
   onCamera: (base64: string) => void,
@@ -79,11 +83,27 @@ const TAB_DEFS = [
 ];
 
 // ────────────────────────────────────────────────────────────────────────────
+// Shared indicator animation — pixel space, driven by both tap and swipe drag.
+// TAB_W = (SW - pillPaddingH×2 - barSide×2) / nTabs = (SW - 16 - 28) / 5
+// ────────────────────────────────────────────────────────────────────────────
+const TAB_W = (SW - 44) / TAB_DEFS.length;
+const _indicatorPos = new Animated.Value(8); // tab 0 = paddingHorizontal offset
+
+function springIndicatorTo(idx: number) {
+  Animated.spring(_indicatorPos, {
+    toValue: 8 + idx * TAB_W,
+    useNativeDriver: false,
+    damping: 22,
+    stiffness: 260,
+    mass: 0.8,
+  }).start();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Custom tab bar
 // ────────────────────────────────────────────────────────────────────────────
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const [showQuickAction, setShowQuickAction] = useState(false);
-  const indicatorAnim = useRef(new Animated.Value(0)).current;
   const discRotate = useRef(new Animated.Value(0)).current;
   const discScale = useRef(new Animated.Value(1)).current;
 
@@ -95,18 +115,17 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
   const activeRouteName = state.routes[state.index]?.name ?? '';
   const activeTabIdx = Math.max(0, routeToTabIdx(activeRouteName));
-  const isOnFoodLog = (state.routes[state.index]?.name ?? '').includes('food-log');
 
-  // Animate sliding pill indicator
+  // Expose navigate fn for swipe gesture (updated on every render so navigation/state are fresh)
   useEffect(() => {
-    Animated.spring(indicatorAnim, {
-      toValue: activeTabIdx,
-      useNativeDriver: false,
-      damping: 20,
-      stiffness: 260,
-      mass: 0.8,
-    }).start();
-  }, [activeTabIdx]);
+    _swipeNavigateToTab = (tabName: string) => {
+      const route = state.routes.find((r) => {
+        const clean = r.name.replace(/^.*\//, '').replace(/\?.*$/, '');
+        return clean === tabName;
+      });
+      if (route) navigation.navigate(route.name, route.params);
+    };
+  });
 
   function toggleDisc() {
     const toValue = showQuickAction ? 0 : 1;
@@ -166,13 +185,6 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const BAR_SIDE = 14;
   const DISC_BOTTOM = BAR_BOTTOM + BAR_H + 10;
 
-  const tabW = (SW - BAR_SIDE * 2 - 16) / TAB_DEFS.length;
-
-  const indicatorLeft = indicatorAnim.interpolate({
-    inputRange: TAB_DEFS.map((_, i) => i),
-    outputRange: TAB_DEFS.map((_, i) => 8 + i * tabW),
-  });
-
   const rotate = discRotate.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '135deg'],
@@ -180,31 +192,24 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <>
-      {/* Floating "+" disc — hidden on food-log tab (food-log has its own + button) */}
-      {!isOnFoodLog && (
-        <Animated.View
-          style={[
-            styles.discWrapper,
-            { bottom: DISC_BOTTOM, transform: [{ scale: discScale }, { rotate }] },
-          ]}
+      {/* Floating "+" disc */}
+      <Animated.View
+        style={[
+          styles.discWrapper,
+          { bottom: DISC_BOTTOM, transform: [{ scale: discScale }, { rotate }] },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={toggleDisc}
+          activeOpacity={0.88}
+          style={styles.discBtn}
         >
-          <TouchableOpacity
-            onPress={toggleDisc}
-            activeOpacity={0.88}
-            style={styles.discBtn}
-          >
-            {/* Plus icon */}
-            <Svg width={20} height={20} viewBox="0 0 24 24">
-              <Line x1={12} y1={5} x2={12} y2={19} stroke={Colors.background} strokeWidth={2} strokeLinecap="round" />
-              <Line x1={5} y1={12} x2={19} y2={12} stroke={Colors.background} strokeWidth={2} strokeLinecap="round" />
-            </Svg>
-            {/* Terracotta accent dot */}
-            {!showQuickAction && (
-              <View style={styles.discAccentDot} />
-            )}
-          </TouchableOpacity>
-        </Animated.View>
-      )}
+          <Svg width={20} height={20} viewBox="0 0 24 24">
+            <Line x1={12} y1={5} x2={12} y2={19} stroke={Colors.background} strokeWidth={2} strokeLinecap="round" />
+            <Line x1={5} y1={12} x2={19} y2={12} stroke={Colors.background} strokeWidth={2} strokeLinecap="round" />
+          </Svg>
+        </TouchableOpacity>
+      </Animated.View>
 
       {/* Floating pill tab bar */}
       <View
@@ -217,7 +222,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         <Animated.View
           style={[
             styles.indicator,
-            { left: indicatorLeft, width: tabW },
+            { left: _indicatorPos, width: TAB_W },
           ]}
         />
 
@@ -237,6 +242,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               activeOpacity={0.75}
               onPress={() => {
                 if (route) {
+                  springIndicatorTo(i);
                   const event = navigation.emit({
                     type: 'tabPress',
                     target: route.key,
@@ -274,23 +280,60 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Tab order (matches TAB_DEFS, ai-chat excluded)
+// ────────────────────────────────────────────────────────────────────────────
+const SWIPE_TAB_ROUTES = ['index', 'food-log', 'progress', 'exercise', 'profile'] as const;
+
+// ────────────────────────────────────────────────────────────────────────────
 // Layout
 // ────────────────────────────────────────────────────────────────────────────
 export default function TabLayout() {
+  const segments = useSegments();
+
+  // Always-fresh ref so the gesture (created once) reads the latest tab index
+  const currentIdxRef = useRef(0);
+  useEffect(() => {
+    const last = (segments[segments.length - 1] ?? 'index') as string;
+    const idx = SWIPE_TAB_ROUTES.indexOf(last as typeof SWIPE_TAB_ROUTES[number]);
+    currentIdxRef.current = idx >= 0 ? idx : 0;
+  }, [segments]);
+
+  // PanResponder capture: fires top-down before native ScrollViews can claim the gesture.
+  // Captures horizontal swipes (dx/dy ratio > 2x AND dx > 10px); lets vertical scrolls pass.
+  const swipePan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, gs) =>
+        Math.abs(gs.dx) > Math.abs(gs.dy) * 2.0 && Math.abs(gs.dx) > 10,
+      onPanResponderGrant: () => {},
+      onPanResponderRelease: (_, gs) => {
+        const isHorizontal = Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5;
+        const sufficient = Math.abs(gs.dx) > 55 || Math.abs(gs.vx) > 0.3;
+        if (!isHorizontal || !sufficient) return;
+        const idx = currentIdxRef.current;
+        if (gs.dx < 0 && idx < SWIPE_TAB_ROUTES.length - 1) {
+          _swipeNavigateToTab?.(SWIPE_TAB_ROUTES[idx + 1]);
+        } else if (gs.dx > 0 && idx > 0) {
+          _swipeNavigateToTab?.(SWIPE_TAB_ROUTES[idx - 1]);
+        }
+      },
+      onPanResponderTerminate: () => {},
+    }),
+  ).current;
+
   return (
-    <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Tabs.Screen name="index" />
-      <Tabs.Screen name="food-log" />
-      <Tabs.Screen name="ai-chat" options={{ href: null }} />
-      <Tabs.Screen name="progress" />
-      <Tabs.Screen name="exercise" />
-      <Tabs.Screen name="profile" />
-    </Tabs>
+    <View style={{ flex: 1 }} {...swipePan.panHandlers}>
+      <Tabs
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{ headerShown: false }}
+      >
+        <Tabs.Screen name="index" />
+        <Tabs.Screen name="food-log" />
+        <Tabs.Screen name="ai-chat" options={{ href: null }} />
+        <Tabs.Screen name="progress" />
+        <Tabs.Screen name="exercise" />
+        <Tabs.Screen name="profile" />
+      </Tabs>
+    </View>
   );
 }
 
@@ -355,14 +398,5 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.ink ?? '#17201A',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  discAccentDot: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 7,
-    height: 7,
-    borderRadius: 99,
-    backgroundColor: Colors.accent,
   },
 });

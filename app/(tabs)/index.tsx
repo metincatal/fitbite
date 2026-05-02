@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient, Stop, G, Rect, Line as SvgLine, Text as SvgText } from 'react-native-svg';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
 import { Colors, Spacing, BorderRadius, getMealTypes } from '../../lib/constants';
@@ -22,6 +22,7 @@ import { useActivityStore } from '../../store/activityStore';
 import { useExerciseStore } from '../../store/exerciseStore';
 import { usePedometer } from '../../hooks/usePedometer';
 import { EXERCISE_CATALOG, INTENSITY_LABELS, ExerciseIntensity } from '../../lib/constants';
+import { ExGlyph, EXERCISE_GLYPHS } from '../../components/exercise/ExGlyph';
 import { isChronoWindow } from '../../lib/exerciseEngine';
 import { Ionicons } from '@expo/vector-icons';
 import { ExerciseLog } from '../../types';
@@ -45,7 +46,7 @@ function MiniPulse({ exercises }: { exercises: ExerciseLog[] }) {
     const maxKcal = Math.max(...exercises.map((e) => e.calories_burned), 1);
     exercises.forEach((ex, i) => {
       const cx = (i + 0.5) * (W / exercises.length);
-      const spikeH = 5 + (ex.calories_burned / maxKcal) * (H * 0.65);
+      const spikeH = Math.min(mid - 3, 5 + (ex.calories_burned / maxKcal) * (mid - 8));
       d += ` L ${cx - 12} ${mid}`;
       d += ` L ${cx - 5} ${mid}`;
       d += ` L ${cx - 3} ${mid - spikeH}`;
@@ -70,10 +71,84 @@ function MiniPulse({ exercises }: { exercises: ExerciseLog[] }) {
   );
 }
 
+// Typical daily activity distribution across hours 0-23
+const HOUR_WEIGHTS = [
+  0, 0, 0, 0, 0, 0.01, 0.03, 0.07, 0.08, 0.07, 0.06, 0.07,
+  0.08, 0.07, 0.06, 0.07, 0.08, 0.09, 0.08, 0.06, 0.04, 0.02, 0.01, 0,
+];
+const SHOW_FROM = 5;
+const SHOW_TO   = 20;
+const BAR_HOURS = Array.from({ length: SHOW_TO - SHOW_FROM + 1 }, (_, i) => i + SHOW_FROM);
+
+function StepHorizonChart({ totalSteps }: { totalSteps: number }) {
+  const currentHour    = new Date().getHours();
+  const pastWeightSum  = HOUR_WEIGHTS.slice(0, Math.min(currentHour + 1, 24)).reduce((s, w) => s + w, 0);
+
+  const hourlySteps = HOUR_WEIGHTS.map((w, h) => {
+    if (h > currentHour || pastWeightSum === 0) return 0;
+    return Math.round(totalSteps * w / pastWeightSum);
+  });
+
+  const maxBar  = Math.max(...BAR_HOURS.map((h) => hourlySteps[h]), 1);
+  const BAR_H   = 52;
+  const chartW  = SW - 44 - 108;
+  const n       = BAR_HOURS.length;
+  const gap     = 2;
+  const barW    = Math.max(4, (chartW - (n - 1) * gap) / n);
+
+  return (
+    <Svg width={chartW} height={BAR_H + 14}>
+      {BAR_HOURS.map((hour, i) => {
+        const steps   = hourlySteps[hour];
+        const filled  = steps > 0;
+        const barH    = filled ? Math.max(3, (steps / maxBar) * BAR_H) : 2;
+        const x       = i * (barW + gap);
+        const isNow   = hour === currentHour;
+        const showLbl = hour === 6 || hour === 13 || hour === 20;
+
+        return (
+          <G key={hour}>
+            <Rect
+              x={x}
+              y={BAR_H - barH}
+              width={barW}
+              height={barH}
+              fill={filled ? Colors.ink : Colors.line}
+              rx={1.5}
+              opacity={filled ? 1 : 0.45}
+            />
+            {isNow && (
+              <SvgLine
+                x1={x + barW / 2} y1={0}
+                x2={x + barW / 2} y2={BAR_H + 5}
+                stroke={Colors.accent}
+                strokeWidth={1}
+                strokeDasharray="2 2"
+              />
+            )}
+            {showLbl && (
+              <SvgText
+                x={x + barW / 2}
+                y={BAR_H + 13}
+                textAnchor="middle"
+                fontSize={8}
+                fill={Colors.ink4}
+                fontFamily="Menlo, Courier, monospace"
+              >
+                {String(hour).padStart(2, '0')}
+              </SvgText>
+            )}
+          </G>
+        );
+      })}
+    </Svg>
+  );
+}
+
 export default function DashboardScreen() {
   const router = useRouter();
   const { profile } = useAuthStore();
-  const { foodLogs, fetchDayLogs, getDailyTotals, getWaterTotal, addWaterLog, selectedDate } =
+  const { foodLogs, waterLogs, fetchDayLogs, getDailyTotals, getWaterTotal, addWaterLog, selectedDate } =
     useNutritionStore();
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -85,6 +160,7 @@ export default function DashboardScreen() {
     getTotalCaloriesBurned, getEpocRange, getWaterBonus, getEatBackBudget,
   } = useExerciseStore();
   usePedometer(userId, profile?.weight_kg, profile?.height_cm);
+
 
   useEffect(() => {
     if (userId) {
@@ -109,8 +185,6 @@ export default function DashboardScreen() {
   const carbsGoal = profile?.daily_carbs_goal ?? 240;
   const fatGoal = profile?.daily_fat_goal ?? 70;
   const waterGoal = profile?.daily_water_goal_ml ?? 2000;
-  const waterGlasses = Math.floor(waterTotal / 250);
-  const waterGoalGlasses = Math.round(waterGoal / 250);
 
   const todayFormatted = new Date().toLocaleDateString('tr-TR', {
     weekday: 'long',
@@ -183,7 +257,9 @@ export default function DashboardScreen() {
         {/* ── THE DAY PLATE + MACRO ORBIT ── */}
         <View style={styles.plateRow}>
           <DayPlate
-            meals={mealTotals}
+            protein={totals.protein}
+            carbs={totals.carbs}
+            fat={totals.fat}
             goal={calorieGoal}
             size={270}
           />
@@ -225,15 +301,36 @@ export default function DashboardScreen() {
         <View style={styles.tideWrap}>
           <TouchableOpacity
             onPress={() => {
-              if (userId && waterGlasses < waterGoalGlasses) addWaterLog(userId, 250);
+              if (userId && waterTotal < waterGoal + exerciseWaterBonus) {
+                addWaterLog(userId, 250);
+              }
             }}
             activeOpacity={0.8}
           >
-            <Tide glasses={waterGlasses} goal={waterGoalGlasses} width={340} height={86} />
+            <Tide
+              waterMl={waterTotal}
+              goalMl={waterGoal}
+              bonusMl={exerciseWaterBonus}
+              waterLogs={waterLogs}
+              width={340}
+              height={86}
+            />
           </TouchableOpacity>
+          {/* Recent log chips */}
+          {waterLogs.length > 0 && (
+            <View style={styles.tideLogRow}>
+              {waterLogs.slice(-4).map((log, i) => (
+                <View key={log.id ?? i} style={styles.tideLogChip}>
+                  <Text style={styles.tideLogChipText}>
+                    {log.logged_at?.substring(11, 16) ?? ''} · {log.amount_ml}ml
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
           <Text style={styles.tideHint}>
-            {waterGlasses < waterGoalGlasses
-              ? `Dokun → +1 bardak (${waterGoalGlasses - waterGlasses} kaldı)`
+            {waterTotal < waterGoal + exerciseWaterBonus
+              ? `Dokun → +250 ml · ${waterGoal + exerciseWaterBonus - waterTotal} ml kaldı`
               : 'Su hedefine ulaştın!'}
           </Text>
         </View>
@@ -246,14 +343,12 @@ export default function DashboardScreen() {
               <Text style={styles.overline}>HEDEF {stepGoal.toLocaleString('tr-TR')}</Text>
             </View>
             <View style={styles.stepsRow}>
-              <View>
+              <View style={styles.stepsNumCol}>
                 <Text style={styles.stepsCount}>{todaySteps.toLocaleString('tr-TR')}</Text>
                 <Text style={styles.stepsMeta}>ADIM · %{Math.round(stepPct * 100)}</Text>
               </View>
-              <View style={styles.stepsBarWrap}>
-                <View style={styles.stepsBarBg}>
-                  <View style={[styles.stepsBarFill, { width: `${Math.round(stepPct * 100)}%` }]} />
-                </View>
+              <View style={styles.stepsChartCol}>
+                <StepHorizonChart totalSteps={todaySteps} />
               </View>
             </View>
             <Text style={styles.stepsFootnote}>
@@ -364,7 +459,14 @@ export default function DashboardScreen() {
             const cat = EXERCISE_CATALOG.find((c) => c.id === last.exercise_type);
             return (
               <View style={styles.exDashBadge}>
-                <Text style={styles.exDashBadgeEmoji}>{cat?.emoji ?? '🏅'}</Text>
+                <View style={styles.exDashBadgeIcon}>
+                  <ExGlyph
+                    kind={EXERCISE_GLYPHS[last.exercise_type] ?? 'medal'}
+                    size={18}
+                    color={cat?.color ?? Colors.primary}
+                    strokeWidth={1.5}
+                  />
+                </View>
                 <Text style={styles.exDashBadgeName}>{last.exercise_name}</Text>
                 <Text style={styles.exDashBadgeMeta}>{last.duration_minutes} dk</Text>
               </View>
@@ -497,10 +599,31 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     alignItems: 'center',
   },
+  tideLogRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  tideLogChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 99,
+    backgroundColor: Colors.sky + '28',
+    borderWidth: 0.5,
+    borderColor: Colors.sky + '60',
+  },
+  tideLogChipText: {
+    fontSize: 10,
+    color: Colors.ink3,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' }),
+    letterSpacing: 0.3,
+  },
   tideHint: {
     fontSize: 11,
     color: Colors.ink3,
-    marginTop: 6,
+    marginTop: 5,
     textAlign: 'center',
   },
 
@@ -541,20 +664,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontFamily: 'Menlo, Courier, monospace',
   },
-  stepsBarWrap: {
+  stepsNumCol: {
+    width: 100,
+    paddingBottom: 2,
+  },
+  stepsChartCol: {
     flex: 1,
-    paddingBottom: 4,
-  },
-  stepsBarBg: {
-    height: 4,
-    backgroundColor: Colors.line,
-    borderRadius: BorderRadius.full,
-    overflow: 'hidden',
-  },
-  stepsBarFill: {
-    height: 4,
-    backgroundColor: Colors.ink,
-    borderRadius: BorderRadius.full,
+    alignItems: 'flex-end',
   },
   stepsFootnote: {
     fontSize: 11,
@@ -717,7 +833,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: Colors.borderLight,
   },
-  exDashBadgeEmoji: { fontSize: 18 },
+  exDashBadgeIcon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   exDashBadgeName: { flex: 1, fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
   exDashBadgeMeta: { fontFamily: MONO, fontSize: 10, color: Colors.textMuted },
   exDashBuffer: {

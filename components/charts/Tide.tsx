@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import Svg, { Line, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
-import Animated, {
+import { Animated, View, Platform } from 'react-native';
+import Svg, { Line as SvgLine, Text as SvgText, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
+import Reanimated, {
   useSharedValue,
   useAnimatedProps,
   withRepeat,
@@ -12,10 +13,11 @@ import Animated, {
 import { Path } from 'react-native-svg';
 import { Accelerometer } from 'expo-sensors';
 import { Colors } from '../../lib/constants';
+import { WaterLog } from '../../types';
 
-const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedPath = Reanimated.createAnimatedComponent(Path);
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
 
-// Runs on UI thread. All inputs passed as arguments — no captured closure state.
 function buildWavePath(
   surfaceY: number,
   phase: number,
@@ -24,14 +26,13 @@ function buildWavePath(
   splashFront: number,
   width: number,
   height: number,
+  overflowExtra: number,
 ): string {
   'worklet';
-  const ambientAmp = 2.5;
-  // tiltOffset > 0 → phone tilts left → water accumulates on LEFT (lower SVG y on left side)
+  const ambientAmp = 2.5 + overflowExtra * 6;
   let d = 'M 0 ' + (surfaceY - tiltOffset);
   for (let x = 6; x <= width; x += 6) {
     const norm = x / width;
-    // tiltOffset > 0: left side lower SVG y (more water), right side higher SVG y (less water)
     const tiltY = tiltOffset * (2 * norm - 1);
     let y =
       surfaceY +
@@ -39,18 +40,12 @@ function buildWavePath(
       Math.sin(x * 0.07 + phase) * ambientAmp +
       Math.sin(x * 0.13 - phase * 0.8 + 1.0) * (ambientAmp * 0.35);
 
-    // Traveling wave from the left: Gaussian crest at the front + decaying ripple wake
     if (splashAmp > 0.1) {
-      const d2f = x - splashFront; // negative = behind front, positive = ahead
-
-      // Leading Gaussian crest (~±20px wide) that sweeps right with the front
+      const d2f = x - splashFront;
       const crest = splashAmp * 1.5 * Math.exp(-(d2f * d2f) / 800);
-
-      // Oscillating wake behind the front, decays spatially with distance
       const wakeAmp = d2f < 0 ? splashAmp * 0.55 * Math.exp(d2f * 0.018) : 0;
       const wake = wakeAmp * Math.sin(-d2f * 0.18 + phase * 2.5);
-
-      y -= crest + wake; // subtract → raises water surface (lower SVG y = higher water)
+      y -= crest + wake;
     }
 
     d += ' L ' + x + ' ' + y;
@@ -58,73 +53,145 @@ function buildWavePath(
   return d + ' L ' + width + ' ' + height + ' L 0 ' + height + ' Z';
 }
 
+// ── Drip particle for overflow animation ──────────────────────────────────────
+function AnimDrip({
+  left,
+  poolHeight,
+  color,
+  delay,
+  isActive,
+  duration,
+}: {
+  left: number;
+  poolHeight: number;
+  color: string;
+  delay: number;
+  isActive: boolean;
+  duration: number;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    if (isActive) {
+      animRef.current = Animated.sequence([
+        Animated.delay(delay),
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(anim, { toValue: 1, duration, useNativeDriver: true }),
+            Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+          ]),
+        ),
+      ]);
+      animRef.current.start();
+    } else {
+      animRef.current?.stop();
+      anim.setValue(0);
+    }
+    return () => animRef.current?.stop();
+  }, [isActive]);
+
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [0, poolHeight + 28] });
+  const opacity = anim.interpolate({ inputRange: [0, 0.12, 0.72, 1], outputRange: [0, 0.92, 0.55, 0] });
+  const scaleY = anim.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0.6, 1.5, 1.0] });
+
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        left: left - 3,
+        top: 0,
+        width: 6,
+        height: 11,
+        borderRadius: 3,
+        backgroundColor: color,
+        transform: [{ translateY }, { scaleY }],
+        opacity,
+      }}
+    />
+  );
+}
+
+// ── Public interface ──────────────────────────────────────────────────────────
 interface TideProps {
-  glasses: number;
-  goal?: number;
+  waterMl: number;
+  goalMl: number;
+  bonusMl?: number;
+  waterLogs?: WaterLog[];
   width?: number;
   height?: number;
 }
 
-export function Tide({ glasses, goal = 8, width = 340, height = 86 }: TideProps) {
-  const pct = Math.min(1, glasses / goal);
+export function Tide({
+  waterMl,
+  goalMl,
+  bonusMl = 0,
+  waterLogs = [],
+  width = 340,
+  height = 86,
+}: TideProps) {
+  const effectiveGoal = goalMl + bonusMl;
+  const pct = Math.min(1, waterMl / Math.max(1, effectiveGoal));
+  const isOverflow = waterMl > effectiveGoal;
+  // overflowExtra: 0–1 scale of how far past the goal we are
+  const overflowExtra = isOverflow
+    ? Math.min(1, (waterMl - effectiveGoal) / Math.max(1, effectiveGoal * 0.25))
+    : 0;
+
   const targetSurfaceY = height - pct * (height - 8);
 
   const phase = useSharedValue(0);
   const tilt = useSharedValue(0);
   const splashAmp = useSharedValue(0);
-  // splashFront starts off-screen left so no accidental wave on mount
   const splashFront = useSharedValue(-200);
   const level = useSharedValue(targetSurfaceY);
-  const prevGlasses = useRef(glasses);
+  const overflow = useSharedValue(overflowExtra);
+  const prevWaterMl = useRef(waterMl);
 
-  // Continuous gentle wave — 0→2π cycles seamlessly (sin is 2π-periodic)
+  // Continuous wave — faster when overflowing
   useEffect(() => {
     phase.value = withRepeat(
-      withTiming(Math.PI * 2, { duration: 3000, easing: Easing.linear }),
+      withTiming(Math.PI * 2, {
+        duration: isOverflow ? 1800 : 3000,
+        easing: Easing.linear,
+      }),
       -1,
       false,
     );
     return () => cancelAnimation(phase);
-  }, []);
+  }, [isOverflow]);
 
   // Smooth water-level change
   useEffect(() => {
     level.value = withSpring(targetSurfaceY, { damping: 20, stiffness: 120 });
-  }, [targetSurfaceY]);
+    overflow.value = withSpring(overflowExtra, { damping: 14, stiffness: 90 });
+  }, [targetSurfaceY, overflowExtra]);
 
-  // Big wave sweeping from left when a glass is added
+  // Splash wave when water is added
   useEffect(() => {
-    if (glasses > prevGlasses.current) {
+    if (waterMl > prevWaterMl.current) {
       cancelAnimation(splashFront);
       cancelAnimation(splashAmp);
-      // Reset front to left edge, set full amplitude
       splashFront.value = 0;
       splashAmp.value = 9;
-      // Front sweeps across in 680ms with ease-out (fast start, decelerates)
-      splashFront.value = withTiming(width + 80, {
-        duration: 680,
-        easing: Easing.out(Easing.quad),
-      });
-      // Amplitude decays over 1600ms — physics continues after the wave passes
-      splashAmp.value = withTiming(0, {
-        duration: 1600,
-        easing: Easing.out(Easing.quad),
-      });
+      splashFront.value = withTiming(width + 80, { duration: 680, easing: Easing.out(Easing.quad) });
+      splashAmp.value = withTiming(0, { duration: 1600, easing: Easing.out(Easing.quad) });
     }
-    prevGlasses.current = glasses;
-  }, [glasses]);
+    prevWaterMl.current = waterMl;
+  }, [waterMl]);
 
-  // Accelerometer → underdamped spring gives realistic liquid inertia / sloshing
+  // Accelerometer tilt → realistic liquid inertia
   useEffect(() => {
     let sub: ReturnType<typeof Accelerometer.addListener> | undefined;
     Accelerometer.isAvailableAsync().then((ok) => {
       if (!ok) return;
-      Accelerometer.setUpdateInterval(50); // 20 Hz
+      Accelerometer.setUpdateInterval(50);
       sub = Accelerometer.addListener(({ x }) => {
-        tilt.value = withSpring(
-          Math.max(-1, Math.min(1, x)) * 22,
-          { damping: 9, stiffness: 65, mass: 1.2 },
-        );
+        tilt.value = withSpring(Math.max(-1, Math.min(1, x)) * 22, {
+          damping: 9,
+          stiffness: 65,
+          mass: 1.2,
+        });
       });
     });
     return () => sub?.remove();
@@ -139,53 +206,189 @@ export function Tide({ glasses, goal = 8, width = 340, height = 86 }: TideProps)
       splashFront.value,
       width,
       height,
+      overflow.value,
     ),
   }));
 
+  // ── Log divider lines ────────────────────────────────────────────────────
+  // Calculate cumulative positions for each log entry to show as layers
+  const logDividers: { y: number }[] = [];
+  if (waterLogs.length > 1 && waterMl > 0) {
+    const waterFillH = Math.max(0, height - targetSurfaceY);
+    let cumMl = 0;
+    let lastY = height;
+    const MIN_GAP = 12; // px — skip lines that are too close
+
+    for (let i = 0; i < waterLogs.length - 1; i++) {
+      cumMl += waterLogs[i].amount_ml;
+      if (cumMl >= waterMl) break;
+      const lineY = height - (cumMl / waterMl) * waterFillH;
+      if (
+        lineY > targetSurfaceY + 7 &&
+        lineY < height - 6 &&
+        lastY - lineY >= MIN_GAP
+      ) {
+        logDividers.push({ y: lineY });
+        lastY = lineY;
+      }
+    }
+  }
+
+  // Dashed line at original goalMl level when exercise bonus raises the bar
+  const baseLevelY =
+    bonusMl > 0 ? height - (goalMl / Math.max(1, effectiveGoal)) * (height - 8) : null;
+
+  // ── Text formatting ──────────────────────────────────────────────────────
+  const fmt = (ml: number) => (ml >= 1000 ? `${(ml / 1000).toFixed(1)}L` : `${ml}`);
+  const mlText = fmt(waterMl);
+  const goalText = fmt(effectiveGoal);
+  // Approximate x offset for goal text (Georgia at fontSize 20 ≈ 12px/char)
+  const goalTextX = 14 + mlText.length * 12 + 5;
+
+  const dripExtension = isOverflow ? 30 : 0;
+
   return (
-    <Svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      style={{ borderRadius: 18, overflow: 'hidden' }}
-    >
-      <Defs>
-        <LinearGradient id="tideGrad" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor={Colors.sky} stopOpacity={0.4} />
-          <Stop offset="1" stopColor={Colors.sky} stopOpacity={0.85} />
-        </LinearGradient>
-      </Defs>
-      <Rect x={0} y={0} width={width} height={height} fill={Colors.surfaceSecondary} />
+    <View style={{ position: 'relative', width, height: height + dripExtension }}>
+      <Svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        style={{ borderRadius: 18, overflow: 'hidden' }}
+      >
+        <Defs>
+          <LinearGradient id="tideGrad2" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={Colors.sky} stopOpacity={isOverflow ? 0.65 : 0.38} />
+            <Stop offset="1" stopColor={Colors.sky} stopOpacity={isOverflow ? 1.0 : 0.82} />
+          </LinearGradient>
+        </Defs>
 
-      {Array.from({ length: goal - 1 }).map((_, i) => {
-        const x = ((i + 1) / goal) * width;
-        return (
-          <Line
-            key={i}
-            x1={x} y1={6} x2={x} y2={height - 6}
-            stroke={Colors.line} strokeWidth={0.8} strokeDasharray="2 3"
+        {/* Background */}
+        <Rect x={0} y={0} width={width} height={height} fill={Colors.surfaceSecondary} />
+
+        {/* Base goal level indicator (when exercise bonus applies) */}
+        {baseLevelY !== null && baseLevelY > 5 && baseLevelY < height - 5 && (
+          <SvgLine
+            x1={0}
+            y1={baseLevelY}
+            x2={width}
+            y2={baseLevelY}
+            stroke={Colors.primary}
+            strokeWidth={1}
+            strokeDasharray="5 4"
+            strokeOpacity={0.3}
           />
-        );
-      })}
+        )}
 
-      <AnimatedPath animatedProps={animatedProps} fill="url(#tideGrad)" />
+        {/* Wave fill */}
+        <AnimatedPath animatedProps={animatedProps} fill="url(#tideGrad2)" />
 
-      <SvgText
-        x={14} y={20}
-        fontSize={10} fill={Colors.ink3}
-        fontFamily="Menlo, Courier, monospace" letterSpacing={1.2}
-      >
-        SU · GELGİT
-      </SvgText>
-      <SvgText x={14} y={height - 14} fontSize={22} fill={Colors.ink} fontFamily="Georgia, serif">
-        {glasses}
-      </SvgText>
-      <SvgText
-        x={14 + 22 * 0.6 + 4} y={height - 14}
-        fontSize={13} fill={Colors.ink3} fontFamily="Georgia, serif"
-      >
-        {` / ${goal} bardak`}
-      </SvgText>
-    </Svg>
+        {/* Log layer dividers — rendered above wave for visibility */}
+        {logDividers.map((d, i) => (
+          <SvgLine
+            key={i}
+            x1={0}
+            y1={d.y}
+            x2={width}
+            y2={d.y}
+            stroke="white"
+            strokeWidth={1}
+            strokeDasharray="4 6"
+            strokeOpacity={0.28}
+          />
+        ))}
+
+        {/* Status label — top left */}
+        <SvgText
+          x={14}
+          y={20}
+          fontSize={9}
+          fill={isOverflow ? Colors.terracotta : Colors.ink3}
+          fontFamily={MONO}
+          letterSpacing={1.2}
+          fontWeight={isOverflow ? '700' : '400'}
+        >
+          {isOverflow ? 'DOLU · TAŞIYOR' : 'SU · GELGİT'}
+        </SvgText>
+
+        {/* Exercise bonus badge — top right */}
+        {bonusMl > 0 && (
+          <SvgText
+            x={width - 12}
+            y={20}
+            fontSize={9}
+            fill={Colors.primary}
+            fontFamily={MONO}
+            letterSpacing={0.7}
+            textAnchor="end"
+            fontWeight="600"
+          >
+            {`EGZ.+${bonusMl}ml`}
+          </SvgText>
+        )}
+
+        {/* Amount — bottom left */}
+        <SvgText
+          x={14}
+          y={height - 10}
+          fontSize={20}
+          fill={Colors.ink}
+          fontFamily="Georgia, serif"
+        >
+          {mlText}
+        </SvgText>
+        <SvgText
+          x={goalTextX}
+          y={height - 10}
+          fontSize={11}
+          fill={Colors.ink3}
+          fontFamily="Georgia, serif"
+        >
+          {`/ ${goalText}`}
+        </SvgText>
+
+        {/* Unit — bottom right */}
+        <SvgText
+          x={width - 12}
+          y={height - 10}
+          fontSize={9}
+          fill={Colors.ink3}
+          fontFamily={MONO}
+          textAnchor="end"
+          letterSpacing={0.8}
+        >
+          ML
+        </SvgText>
+      </Svg>
+
+      {/* Overflow drip particles */}
+      {isOverflow && (
+        <>
+          <AnimDrip
+            left={12}
+            poolHeight={height}
+            color={Colors.sky + 'CC'}
+            delay={0}
+            isActive={isOverflow}
+            duration={880}
+          />
+          <AnimDrip
+            left={width - 12}
+            poolHeight={height}
+            color={Colors.sky + 'BB'}
+            delay={370}
+            isActive={isOverflow}
+            duration={1060}
+          />
+          <AnimDrip
+            left={Math.round(width * 0.38)}
+            poolHeight={height}
+            color={Colors.sky + 'AA'}
+            delay={650}
+            isActive={isOverflow}
+            duration={940}
+          />
+        </>
+      )}
+    </View>
   );
 }

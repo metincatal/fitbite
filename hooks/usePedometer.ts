@@ -1,14 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState } from 'react-native';
 import { Pedometer } from 'expo-sensors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useActivityStore } from '../store/activityStore';
 import { supabase } from '../lib/supabase';
-import {
-  isHealthConnectAvailable,
-  requestHealthConnectPermission,
-  getTodayStepsFromHealthConnect,
-} from '../lib/healthConnect';
 
 const STEPS_CACHE_KEY = 'fitbite_steps_cache';
 
@@ -22,7 +17,7 @@ function getToday(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-async function loadCachedSteps(): Promise<number> {
+export async function loadCachedSteps(): Promise<number> {
   try {
     const raw = await AsyncStorage.getItem(STEPS_CACHE_KEY);
     if (!raw) return 0;
@@ -33,7 +28,7 @@ async function loadCachedSteps(): Promise<number> {
   }
 }
 
-async function saveCachedSteps(steps: number): Promise<void> {
+export async function saveCachedSteps(steps: number): Promise<void> {
   try {
     await AsyncStorage.setItem(STEPS_CACHE_KEY, JSON.stringify({ date: getToday(), steps }));
   } catch {}
@@ -65,7 +60,6 @@ export function usePedometer(
     useActivityStore();
   const liveOffset = useRef(0);
   const baseSteps = useRef(0);
-  const useHealthConnect = useRef(false);
 
   function applySteps(total: number) {
     setTodaySteps(total);
@@ -79,23 +73,20 @@ export function usePedometer(
   async function persistNow() {
     const total = currentTotal();
     if (total <= 0) return;
-    saveCachedSteps(total);
+    await saveCachedSteps(total);
     if (userId) saveStepLog(userId, total);
   }
 
-  async function fetchSteps(floor = 0): Promise<number> {
-    // Health Connect varsa oradan oku (uygulama kapali iken de sayar)
-    if (useHealthConnect.current) {
-      const hcSteps = await getTodayStepsFromHealthConnect();
-      if (hcSteps !== null) return Math.max(hcSteps, floor);
-    }
-
-    // Fallback: expo-sensors Pedometer
+  async function fetchTodaySteps(floor = 0) {
     try {
       const result = await Pedometer.getStepCountAsync(getStartOfDay(), new Date());
-      return Math.max(result.steps, floor);
+      const steps = Math.max(result.steps, floor);
+      baseSteps.current = steps;
+      liveOffset.current = 0;
+      applySteps(steps);
+      saveCachedSteps(steps);
     } catch {
-      return floor;
+      // mevcut deger korunur
     }
   }
 
@@ -114,15 +105,6 @@ export function usePedometer(
       setAvailability(true, granted);
       if (!granted) return;
 
-      // Android'de Health Connect'i dene
-      if (Platform.OS === 'android') {
-        const hcAvailable = await isHealthConnectAvailable();
-        if (hcAvailable) {
-          const hcGranted = await requestHealthConnectPermission();
-          useHealthConnect.current = hcGranted;
-        }
-      }
-
       // Bilinen en iyi degeri hemen goster
       const [cached, supabaseSteps] = await Promise.all([
         loadCachedSteps(),
@@ -134,23 +116,14 @@ export function usePedometer(
         applySteps(knownFloor);
       }
 
-      // Gercek adim verisini getir
-      const steps = await fetchSteps(knownFloor);
-      baseSteps.current = steps;
-      liveOffset.current = 0;
-      applySteps(steps);
-      saveCachedSteps(steps);
+      await fetchTodaySteps(knownFloor);
 
-      // Health Connect kullaniyorsa canli sayim gerekmez (zaten OS sayiyor)
-      // Expo-sensors ile canli sayim
-      if (!useHealthConnect.current) {
-        subscription = Pedometer.watchStepCount((result) => {
-          liveOffset.current = result.steps;
-          const total = currentTotal();
-          applySteps(total);
-          saveCachedSteps(total);
-        });
-      }
+      subscription = Pedometer.watchStepCount((result) => {
+        liveOffset.current = result.steps;
+        const total = currentTotal();
+        applySteps(total);
+        saveCachedSteps(total);
+      });
 
       if (userId) {
         saveInterval = setInterval(persistNow, 5 * 60 * 1000);
@@ -159,12 +132,7 @@ export function usePedometer(
 
     const appStateSub = AppState.addEventListener('change', async (state) => {
       if (state === 'active') {
-        const floor = currentTotal();
-        const steps = await fetchSteps(floor);
-        baseSteps.current = steps;
-        liveOffset.current = 0;
-        applySteps(steps);
-        saveCachedSteps(steps);
+        await fetchTodaySteps(currentTotal());
       } else if (state === 'background' || state === 'inactive') {
         await persistNow();
       }

@@ -22,7 +22,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle, G, Line, Path } from 'react-native-svg';
+import Svg, { Circle, G, Line, Path, Ellipse } from 'react-native-svg';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
@@ -60,7 +60,7 @@ const MEAL_DOT: Record<string, string> = {
 export default function FoodLogScreen() {
   const router = useRouter();
   const { user, profile } = useAuthStore();
-  const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, selectedDate } = useNutritionStore();
+  const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, addWaterLog, selectedDate } = useNutritionStore();
 
   const [yesterdayLogs, setYesterdayLogs] = useState<FoodLogWithFood[]>([]);
   const [mealNames, setMealNames] = useState<Record<string, string>>({});
@@ -270,6 +270,11 @@ export default function FoodLogScreen() {
           engine_confidence: engine.confidence,
           engine_factors: engine.factors,
         });
+        // Liquid items (texture=liquid) → also add to water log for hydration tracking
+        if (detection.texture === 'liquid' && grams > 0) {
+          await addWaterLog(userId, Math.round(grams));
+        }
+
         bump(i < items.length - 1 ? `${items[i + 1].detection.name} kaydediliyor...` : 'Tamamlandı');
       }
 
@@ -530,7 +535,7 @@ export default function FoodLogScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.hintCardTitle}>Sağ üstteki Ekle'ye bas.</Text>
-              <Text style={styles.hintCardSub}>Fotoğraf çek, AI tabağını okusun. Veya ortadaki ⊕ ile de ekleyebilirsin.</Text>
+              <Text style={styles.hintCardSub}>Fotoğraf çek, AI tabağını okusun. Veya sağ alttaki + butonu ile de ekleyebilirsin.</Text>
             </View>
           </View>
         )}
@@ -755,15 +760,24 @@ function EmptyDay() {
     <View style={styles.emptyDay}>
       <Svg width={56} height={56} viewBox="0 0 56 56" fill="none">
         <Circle cx={28} cy={28} r={27} stroke={Colors.line} strokeWidth={0.6} />
-        <G stroke={Colors.ink3} strokeWidth={1.4} strokeLinecap="round" transform="translate(28, 28)">
-          <G transform="rotate(-22)">
-            <Line x1={-10} y1={-13} x2={-10} y2={13} />
-            <Line x1={-13} y1={-13} x2={-13} y2={-7} />
-            <Line x1={-7} y1={-13} x2={-7} y2={-7} />
+        <G stroke={Colors.ink3} strokeLinecap="round" strokeLinejoin="round">
+          {/* Fork — left, tilted -12° around (19, 28) */}
+          <G transform="translate(19, 28) rotate(-12)">
+            {/* 3 tines */}
+            <Line x1={-4} y1={-13} x2={-4} y2={-6} strokeWidth={1.2} />
+            <Line x1={0} y1={-13} x2={0} y2={-6} strokeWidth={1.2} />
+            <Line x1={4} y1={-13} x2={4} y2={-6} strokeWidth={1.2} />
+            {/* Tine base connector */}
+            <Line x1={-4} y1={-6} x2={4} y2={-6} strokeWidth={1.2} />
+            {/* Handle */}
+            <Line x1={0} y1={-6} x2={0} y2={13} strokeWidth={1.4} />
           </G>
-          <G transform="rotate(22)">
-            <Line x1={10} y1={-13} x2={10} y2={13} />
-            <Path d="M 8 -13 Q 13 -10 13 -3 L 10 -3" fill={Colors.ink3} stroke="none" opacity={0.85} />
+          {/* Spoon — right, tilted +12° around (37, 28) */}
+          <G transform="translate(37, 28) rotate(12)">
+            {/* Bowl */}
+            <Ellipse cx={0} cy={-9} rx={4.5} ry={5.5} strokeWidth={1.3} />
+            {/* Handle stem from bottom of bowl */}
+            <Line x1={0} y1={-3.5} x2={0} y2={13} strokeWidth={1.4} />
           </G>
         </G>
       </Svg>

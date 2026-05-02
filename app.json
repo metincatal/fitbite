@@ -37,7 +37,6 @@
     },
     "plugins": [
       "expo-router",
-      "react-native-health-connect",
       "expo-secure-store",
       [
         "expo-camera",
@@ -57,7 +56,8 @@
           "icon": "./assets/icon.png",
           "color": "#2D6A4F"
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "extra": {
       "router": {},

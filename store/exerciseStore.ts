@@ -4,9 +4,11 @@ import { ExerciseLog, ExerciseLogInsert } from '../types';
 
 interface ExerciseState {
   todayExercises: ExerciseLog[];
+  weekExercises: ExerciseLog[];
   isLoading: boolean;
 
   fetchTodayExercises: (userId: string, date: string) => Promise<void>;
+  fetchWeekExercises: (userId: string) => Promise<void>;
   addExerciseLog: (log: ExerciseLogInsert) => Promise<void>;
   removeExerciseLog: (id: string) => Promise<void>;
 
@@ -22,6 +24,7 @@ interface ExerciseState {
 
 export const useExerciseStore = create<ExerciseState>((set, get) => ({
   todayExercises: [],
+  weekExercises: [],
   isLoading: false,
 
   fetchTodayExercises: async (userId, date) => {
@@ -43,6 +46,26 @@ export const useExerciseStore = create<ExerciseState>((set, get) => ({
     });
   },
 
+  fetchWeekExercises: async (userId) => {
+    const today = new Date();
+    const dow = today.getDay();
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - ((dow + 6) % 7));
+    weekStart.setHours(0, 0, 0, 0);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+
+    const { data } = await supabase
+      .from('exercise_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('logged_at', weekStart.toISOString())
+      .lt('logged_at', weekEnd.toISOString())
+      .order('logged_at', { ascending: true });
+
+    set({ weekExercises: (data as ExerciseLog[]) ?? [] });
+  },
+
   addExerciseLog: async (log) => {
     const { data } = await supabase
       .from('exercise_logs')
@@ -53,6 +76,7 @@ export const useExerciseStore = create<ExerciseState>((set, get) => ({
     if (data) {
       set((state) => ({
         todayExercises: [data as ExerciseLog, ...state.todayExercises],
+        weekExercises: [...state.weekExercises, data as ExerciseLog],
       }));
     }
   },
@@ -61,6 +85,7 @@ export const useExerciseStore = create<ExerciseState>((set, get) => ({
     await supabase.from('exercise_logs').delete().eq('id', id);
     set((state) => ({
       todayExercises: state.todayExercises.filter((e) => e.id !== id),
+      weekExercises: state.weekExercises.filter((e) => e.id !== id),
     }));
   },
 
