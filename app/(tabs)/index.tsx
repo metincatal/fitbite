@@ -80,6 +80,11 @@ const SHOW_FROM = 5;
 const SHOW_TO   = 22; // günün sonuna kadar sabit aralık
 const BAR_HOURS = Array.from({ length: SHOW_TO - SHOW_FROM + 1 }, (_, i) => i + SHOW_FROM);
 
+const fmtLocalTime = (iso: string) => {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
 function StepHorizonChart({ totalSteps, stepGoal }: { totalSteps: number; stepGoal: number }) {
   const currentHour    = new Date().getHours();
   const pastWeightSum  = HOUR_WEIGHTS.slice(0, Math.min(currentHour + 1, 24)).reduce((s, w) => s + w, 0);
@@ -326,7 +331,7 @@ export default function DashboardScreen() {
               {waterLogs.slice(-4).map((log, i) => (
                 <View key={log.id ?? i} style={styles.tideLogChip}>
                   <Text style={styles.tideLogChipText}>
-                    {log.logged_at?.substring(11, 16) ?? ''} · {log.amount_ml}ml
+                    {log.logged_at ? fmtLocalTime(log.logged_at) : ''} · {log.amount_ml}ml
                   </Text>
                 </View>
               ))}
@@ -379,7 +384,7 @@ export default function DashboardScreen() {
               const logs = foodLogs.filter((l) => l.meal_type === key);
               const kcal = logs.reduce((s, l) => s + l.calories, 0);
               const hasData = logs.length > 0;
-              const timeDisplay = hasData ? logs[0]?.logged_at?.substring(11, 16) ?? '' : '—';
+              const timeDisplay = hasData && logs[0]?.logged_at ? fmtLocalTime(logs[0].logged_at) : '—';
 
               return (
                 <TouchableOpacity

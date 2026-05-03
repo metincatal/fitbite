@@ -916,7 +916,7 @@ const styles = StyleSheet.create({
 
   heroRow: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start' },
   heroOverline: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 1.6 },
-  heroTitle: { fontFamily: SERIF, fontSize: 36, lineHeight: 38, color: Colors.ink, marginTop: 4 },
+  heroTitle: { fontFamily: SERIF, fontSize: 36, lineHeight: 46, color: Colors.ink, marginTop: 4 },
   heroTitleAccent: { fontStyle: 'italic', color: Colors.terracotta },
   heroKcal: { fontFamily: SERIF, fontSize: 26, lineHeight: 28 },
   heroKcalUnit: { fontFamily: MONO, fontSize: 12, color: Colors.ink3, letterSpacing: 1 },
