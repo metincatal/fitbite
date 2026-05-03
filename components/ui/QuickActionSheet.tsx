@@ -186,7 +186,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
         break;
       case 'exercise':
         closeSheet();
-        setTimeout(() => router.push('/(tabs)/exercise'), 300);
+        setTimeout(() => router.push('/(tabs)/exercise?openAdd=1'), 300);
         break;
       case 'fitbot':
         closeSheet();

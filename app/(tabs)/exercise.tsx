@@ -12,6 +12,7 @@ import {
   PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Line, Rect, Ellipse, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { ExGlyph, EXERCISE_GLYPHS, GROUP_GLYPHS } from '../../components/exercise/ExGlyph';
@@ -534,7 +535,13 @@ export default function ExerciseTab() {
     getTotalCaloriesBurned, getEpocRange, getWaterBonus,
   } = useExerciseStore();
 
+  const { openAdd: autoOpenAdd } = useLocalSearchParams<{ openAdd?: string }>();
+
   const [showAdd, setShowAdd] = useState(false);
+
+  useEffect(() => {
+    if (autoOpenAdd === '1') setShowAdd(true);
+  }, [autoOpenAdd]);
   const [showBreakdown, setShowBreakdown] = useState(false);
   const [saving, setSaving] = useState(false);
 

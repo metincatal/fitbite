@@ -462,25 +462,52 @@ export default function DashboardScreen() {
             ))}
           </View>
 
-          {/* Latest exercise badge */}
-          {todayExercises.length > 0 && (() => {
-            const last = todayExercises[todayExercises.length - 1];
-            const cat = EXERCISE_CATALOG.find((c) => c.id === last.exercise_type);
-            return (
-              <View style={styles.exDashBadge}>
-                <View style={styles.exDashBadgeIcon}>
-                  <ExGlyph
-                    kind={EXERCISE_GLYPHS[last.exercise_type] ?? 'medal'}
-                    size={18}
-                    color={cat?.color ?? Colors.primary}
-                    strokeWidth={1.5}
-                  />
+          {/* Exercise list */}
+          {todayExercises.length > 0 && (
+            <View style={styles.exDashList}>
+              {todayExercises.slice(0, 3).map((ex, idx) => {
+                const cat = EXERCISE_CATALOG.find((c) => c.id === ex.exercise_type);
+                const intensity = INTENSITY_LABELS[ex.intensity as ExerciseIntensity] ?? INTENSITY_LABELS.moderate;
+                const iconColor = cat?.color ?? Colors.primary;
+                return (
+                  <View key={ex.id ?? idx} style={[styles.exDashRow, idx > 0 && styles.exDashRowBorder]}>
+                    <View style={[styles.exDashRowIcon, { backgroundColor: iconColor + '18' }]}>
+                      <ExGlyph
+                        kind={EXERCISE_GLYPHS[ex.exercise_type] ?? 'medal'}
+                        size={16}
+                        color={iconColor}
+                        strokeWidth={1.5}
+                      />
+                    </View>
+                    <View style={styles.exDashRowMid}>
+                      <Text style={styles.exDashRowName} numberOfLines={1}>{ex.exercise_name}</Text>
+                      <View style={styles.exDashRowTagRow}>
+                        <View style={[styles.exDashIntensityDot, { backgroundColor: intensity.color }]} />
+                        <Text style={styles.exDashRowTag}>{intensity.label}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.exDashRowRight}>
+                      <Text style={styles.exDashRowDuration}>{ex.duration_minutes} dk</Text>
+                      <Text style={styles.exDashRowKcal}>{ex.calories_burned} kcal</Text>
+                    </View>
+                  </View>
+                );
+              })}
+              {todayExercises.length > 3 && (
+                <View style={styles.exDashOverflow}>
+                  <View style={styles.exDashOverflowDots}>
+                    {[0, 1, 2].map((i) => (
+                      <View key={i} style={[styles.exDashOverflowDot, { opacity: 1 - i * 0.25 }]} />
+                    ))}
+                  </View>
+                  <Text style={styles.exDashOverflowText}>
+                    +{todayExercises.length - 3} egzersiz daha
+                  </Text>
+                  <Ionicons name="chevron-forward" size={11} color={Colors.textMuted} />
                 </View>
-                <Text style={styles.exDashBadgeName}>{last.exercise_name}</Text>
-                <Text style={styles.exDashBadgeMeta}>{last.duration_minutes} dk</Text>
-              </View>
-            );
-          })()}
+              )}
+            </View>
+          )}
 
           {/* Buffer note */}
           {exerciseEatBack > 0 && (
@@ -833,18 +860,102 @@ const styles = StyleSheet.create({
   exDashStatDiv: { width: 0.5, height: 24, backgroundColor: Colors.borderLight },
   exDashStatNum: { fontFamily: SERIF, fontSize: 18, color: Colors.textPrimary },
   exDashStatLabel: { fontFamily: MONO, fontSize: 8, color: Colors.textMuted, letterSpacing: 0.8, marginTop: 2 },
-  exDashBadge: {
+  // Exercise list rows
+  exDashList: {
+    marginTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.borderLight,
+    paddingTop: 6,
+  },
+  exDashRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
-    paddingTop: 8,
+    gap: 10,
+    paddingVertical: 7,
+  },
+  exDashRowBorder: {
     borderTopWidth: 0.5,
     borderTopColor: Colors.borderLight,
   },
-  exDashBadgeIcon: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
-  exDashBadgeName: { flex: 1, fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
-  exDashBadgeMeta: { fontFamily: MONO, fontSize: 10, color: Colors.textMuted },
+  exDashRowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  exDashRowMid: {
+    flex: 1,
+    gap: 2,
+  },
+  exDashRowName: {
+    fontSize: 13,
+    fontFamily: SERIF,
+    color: Colors.textPrimary,
+    lineHeight: 16,
+  },
+  exDashRowTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  exDashIntensityDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 99,
+  },
+  exDashRowTag: {
+    fontSize: 9,
+    fontFamily: MONO,
+    color: Colors.textMuted,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  exDashRowRight: {
+    alignItems: 'flex-end',
+    gap: 1,
+  },
+  exDashRowDuration: {
+    fontSize: 13,
+    fontFamily: MONO,
+    color: Colors.textSecondary,
+    letterSpacing: -0.2,
+  },
+  exDashRowKcal: {
+    fontSize: 9,
+    fontFamily: MONO,
+    color: Colors.textMuted,
+    letterSpacing: 0.3,
+  },
+  // Overflow pill (> 3 exercises)
+  exDashOverflow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    paddingTop: 7,
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.borderLight,
+  },
+  exDashOverflowDots: {
+    flexDirection: 'row',
+    gap: 3,
+    alignItems: 'center',
+  },
+  exDashOverflowDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 99,
+    backgroundColor: Colors.textMuted,
+  },
+  exDashOverflowText: {
+    flex: 1,
+    fontSize: 11,
+    fontFamily: MONO,
+    color: Colors.textMuted,
+    letterSpacing: 0.4,
+  },
   exDashBuffer: {
     marginTop: 8,
     paddingTop: 6,
