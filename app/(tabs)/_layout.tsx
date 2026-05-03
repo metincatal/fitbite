@@ -289,8 +289,6 @@ const SWIPE_TAB_ROUTES = ['index', 'food-log', 'progress', 'exercise', 'profile'
 // ────────────────────────────────────────────────────────────────────────────
 export default function TabLayout() {
   const segments = useSegments();
-  const isGesturingRef = useRef(false);
-  const gestureStartIdxRef = useRef(0);
 
   // Always-fresh ref so the gesture (created once) reads the latest tab index
   const currentIdxRef = useRef(0);
@@ -299,34 +297,22 @@ export default function TabLayout() {
     const idx = SWIPE_TAB_ROUTES.indexOf(last as typeof SWIPE_TAB_ROUTES[number]);
     const safeIdx = idx >= 0 ? idx : 0;
     currentIdxRef.current = safeIdx;
-    // Only spring if not currently gesturing
-    if (!isGesturingRef.current) {
-      springIndicatorTo(safeIdx);
-    }
+    springIndicatorTo(safeIdx);
   }, [segments]);
 
   // PanResponder capture: fires top-down before native ScrollViews can claim the gesture.
   // Captures horizontal swipes (dx/dy ratio > 2x AND dx > 10px); lets vertical scrolls pass.
+  // No real-time indicator tracking during drag — indicator and navigation fire together on release.
   const swipePan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponderCapture: (_, gs) =>
         Math.abs(gs.dx) > Math.abs(gs.dy) * 2.0 && Math.abs(gs.dx) > 10,
-      onPanResponderGrant: () => {
-        isGesturingRef.current = true;
-        gestureStartIdxRef.current = currentIdxRef.current;
-      },
-      onPanResponderMove: (_, gs) => {
-        // Track indicator in real-time: indicator moves in same direction as navigation.
-        // Swipe left (dx < 0) → next tab (right) → indicator offset is positive.
-        const baseX = 8 + gestureStartIdxRef.current * TAB_W;
-        const clamped = Math.max(-TAB_W, Math.min(TAB_W, -gs.dx));
-        _indicatorPos.setValue(baseX + clamped);
-      },
+      onPanResponderGrant: () => {},
       onPanResponderRelease: (_, gs) => {
         const isHorizontal = Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5;
         const sufficient = Math.abs(gs.dx) > 55 || Math.abs(gs.vx) > 0.3;
 
-        const idx = gestureStartIdxRef.current;
+        const idx = currentIdxRef.current;
         let targetIdx = idx;
 
         if (isHorizontal && sufficient) {
@@ -334,22 +320,14 @@ export default function TabLayout() {
           else if (gs.dx > 0 && idx > 0) targetIdx = idx - 1;
         }
 
-        // Spring to the target (or back to current if threshold not met)
+        // Indicator spring and navigation fire at the same instant — fully in sync
         springIndicatorTo(targetIdx);
-
-        // Navigate AFTER setting target idx and with a small delay for smooth animation
         if (targetIdx !== idx) {
-          setTimeout(() => {
-            _swipeNavigateToTab?.(SWIPE_TAB_ROUTES[targetIdx]);
-          }, 50);
+          _swipeNavigateToTab?.(SWIPE_TAB_ROUTES[targetIdx]);
         }
-
-        isGesturingRef.current = false;
       },
       onPanResponderTerminate: () => {
-        // Gesture interrupted (e.g. incoming call) — snap back to gesture start position
-        springIndicatorTo(gestureStartIdxRef.current);
-        isGesturingRef.current = false;
+        springIndicatorTo(currentIdxRef.current);
       },
     }),
   ).current;
