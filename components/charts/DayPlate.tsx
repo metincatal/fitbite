@@ -10,6 +10,7 @@ const MACRO_COLORS = {
 };
 
 interface DayPlateProps {
+  consumed: number; // gerçek depolanan kalori (totals.calories'den)
   protein: number;
   carbs: number;
   fat: number;
@@ -22,11 +23,16 @@ function polar(cx: number, cy: number, r: number, deg: number): [number, number]
   return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
 }
 
-export function DayPlate({ protein, carbs, fat, goal = 2000, size = 280 }: DayPlateProps) {
+export function DayPlate({ consumed, protein, carbs, fat, goal = 2000, size = 280 }: DayPlateProps) {
   const proteinKcal = protein * 4;
   const carbsKcal   = carbs * 4;
   const fatKcal     = fat * 9;
-  const consumed    = proteinKcal + carbsKcal + fatKcal;
+  const macroTotal  = proteinKcal + carbsKcal + fatKcal;
+
+  // Makrolar yalnızca dolgu alanını orantısal olarak böler; toplam dolgu = consumed.
+  const scaledProtein = macroTotal > 0 ? (proteinKcal / macroTotal) * consumed : 0;
+  const scaledCarbs   = macroTotal > 0 ? (carbsKcal   / macroTotal) * consumed : 0;
+  const scaledFat     = macroTotal > 0 ? (fatKcal     / macroTotal) * consumed : 0;
 
   const cx = size / 2;
   const cy = size / 2;
@@ -34,9 +40,9 @@ export function DayPlate({ protein, carbs, fat, goal = 2000, size = 280 }: DayPl
   const rInner = size * 0.22;
 
   const macros: { key: keyof typeof MACRO_COLORS; kcal: number }[] = [
-    { key: 'carbs',   kcal: carbsKcal   },
-    { key: 'protein', kcal: proteinKcal },
-    { key: 'fat',     kcal: fatKcal     },
+    { key: 'carbs',   kcal: scaledCarbs   },
+    { key: 'protein', kcal: scaledProtein },
+    { key: 'fat',     kcal: scaledFat     },
   ];
 
   const slices: { key: string; start: number; end: number; color: string }[] = [];
@@ -88,7 +94,7 @@ export function DayPlate({ protein, carbs, fat, goal = 2000, size = 280 }: DayPl
         fontWeight="400"
         fontFamily="Georgia, serif"
       >
-        {Math.round(consumed)}
+        {Math.round(consumed) || 0}
       </SvgText>
       <SvgText
         x={cx}

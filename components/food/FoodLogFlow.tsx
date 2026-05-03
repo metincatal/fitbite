@@ -208,14 +208,16 @@ export function FoodLogFlow({
     // Her item için motor üstünden ölçeklenmiş hesap üret (audit metadata'sıyla birlikte).
     const computed: ComputedFoodItem[] = items.map((it) => {
       const userGrams = Math.round(it.baseGrams * (it.pct / 100));
+      // estimatedGrams orijinal kalmalı; engine ratio = pct/100 olarak hesaplayabilsin.
       const detection: DetectedFoodItem = {
         ...it,
-        estimatedGrams: userGrams,
+        estimatedGrams: it.baseGrams,
       };
       const engine = computeNutrition({ detection, userGrams });
       return {
         detection: {
           ...detection,
+          estimatedGrams: userGrams, // kayıtta gerçek porsiyon gramajı
           calories: engine.kcal,
           protein: engine.protein,
           carbs: engine.carbs,

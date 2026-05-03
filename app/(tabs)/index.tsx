@@ -77,10 +77,10 @@ const HOUR_WEIGHTS = [
   0.08, 0.07, 0.06, 0.07, 0.08, 0.09, 0.08, 0.06, 0.04, 0.02, 0.01, 0,
 ];
 const SHOW_FROM = 5;
-const SHOW_TO   = 20;
+const SHOW_TO   = 22; // günün sonuna kadar sabit aralık
 const BAR_HOURS = Array.from({ length: SHOW_TO - SHOW_FROM + 1 }, (_, i) => i + SHOW_FROM);
 
-function StepHorizonChart({ totalSteps }: { totalSteps: number }) {
+function StepHorizonChart({ totalSteps, stepGoal }: { totalSteps: number; stepGoal: number }) {
   const currentHour    = new Date().getHours();
   const pastWeightSum  = HOUR_WEIGHTS.slice(0, Math.min(currentHour + 1, 24)).reduce((s, w) => s + w, 0);
 
@@ -90,8 +90,11 @@ function StepHorizonChart({ totalSteps }: { totalSteps: number }) {
   });
 
   const maxBar  = Math.max(...BAR_HOURS.map((h) => hourlySteps[h]), 1);
+  // Hedefin %5'ini minimum referans al → çubuklar asla tam yüksekliğe ulaşmadan "büyüme" hissi vermez
+  const maxRef  = Math.max(maxBar, stepGoal * 0.05, 1);
   const BAR_H   = 52;
-  const chartW  = SW - 44 - 108;
+  // stepsSection: pH 22*2=44 | stepsNumCol: 100 | gap: 16
+  const chartW  = SW - 44 - 100 - 16;
   const n       = BAR_HOURS.length;
   const gap     = 2;
   const barW    = Math.max(4, (chartW - (n - 1) * gap) / n);
@@ -101,10 +104,10 @@ function StepHorizonChart({ totalSteps }: { totalSteps: number }) {
       {BAR_HOURS.map((hour, i) => {
         const steps   = hourlySteps[hour];
         const filled  = steps > 0;
-        const barH    = filled ? Math.max(3, (steps / maxBar) * BAR_H) : 2;
+        const barH    = filled ? Math.max(3, (steps / maxRef) * BAR_H) : 2;
         const x       = i * (barW + gap);
         const isNow   = hour === currentHour;
-        const showLbl = hour === 6 || hour === 13 || hour === 20;
+        const showLbl = hour === 6 || hour === 12 || hour === 18 || hour === 22;
 
         return (
           <G key={hour}>
@@ -257,6 +260,7 @@ export default function DashboardScreen() {
         {/* ── THE DAY PLATE + MACRO ORBIT ── */}
         <View style={styles.plateRow}>
           <DayPlate
+            consumed={consumed}
             protein={totals.protein}
             carbs={totals.carbs}
             fat={totals.fat}
@@ -348,7 +352,7 @@ export default function DashboardScreen() {
                 <Text style={styles.stepsMeta}>ADIM · %{Math.round(stepPct * 100)}</Text>
               </View>
               <View style={styles.stepsChartCol}>
-                <StepHorizonChart totalSteps={todaySteps} />
+                <StepHorizonChart totalSteps={todaySteps} stepGoal={stepGoal} />
               </View>
             </View>
             <Text style={styles.stepsFootnote}>
