@@ -148,18 +148,19 @@ export function Tide({
   const overflow = useSharedValue(overflowExtra);
   const prevWaterMl = useRef(waterMl);
 
-  // Continuous wave — faster when overflowing
+  // Continuous wave — period = LCM(2π, 2.5π) = 10π so both sine components
+  // complete integer cycles on every repeat, eliminating the visible phase jump.
   useEffect(() => {
     phase.value = withRepeat(
-      withTiming(Math.PI * 2, {
-        duration: isOverflow ? 1800 : 3000,
+      withTiming(Math.PI * 10, {
+        duration: 15000, // 3 s per 2π-equivalent cycle × 5 cycles
         easing: Easing.linear,
       }),
       -1,
       false,
     );
     return () => cancelAnimation(phase);
-  }, [isOverflow]);
+  }, []); // no deps — never restart, amplitude already reflects overflow via overflowExtra
 
   // Smooth water-level change
   useEffect(() => {
