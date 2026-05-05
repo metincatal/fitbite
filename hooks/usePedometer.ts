@@ -4,6 +4,8 @@ import { Pedometer } from 'expo-sensors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useActivityStore } from '../store/activityStore';
 import { supabase } from '../lib/supabase';
+import { getHealthConnectStepsToday } from '../lib/healthConnect';
+import { cancelStepReminderToday } from '../lib/notifications';
 
 const STEPS_CACHE_KEY = 'fitbite_steps_cache';
 
@@ -56,14 +58,21 @@ export function usePedometer(
   weightKg: number | undefined,
   heightCm: number | undefined
 ) {
-  const { setTodaySteps, setAvailability, calculateMetrics, saveStepLog } =
+  const { setTodaySteps, setAvailability, calculateMetrics, saveStepLog, stepGoal } =
     useActivityStore();
   const liveOffset = useRef(0);
   const baseSteps = useRef(0);
+  const stepReminderCancelled = useRef(false);
 
   function applySteps(total: number) {
     setTodaySteps(total);
     if (weightKg && heightCm) calculateMetrics(weightKg, heightCm);
+
+    // Adım hedefine ulaşıldıysa 19:00 hatırlatıcısını iptal et (tek seferlik)
+    if (total >= stepGoal && !stepReminderCancelled.current) {
+      stepReminderCancelled.current = true;
+      cancelStepReminderToday();
+    }
   }
 
   function currentTotal() {
@@ -105,12 +114,18 @@ export function usePedometer(
       setAvailability(true, granted);
       if (!granted) return;
 
+      // Health Connect'ten bugünkü adım baseline'ını al (app kapalıyken sayılanlar).
+      // Permission isteği BURADA YAPILMAZ — kullanıcı manuel olarak ayarlardan
+      // izin vermeli. Otomatik requestPermission çağrısı, RNHC delegate
+      // kurulumu olmayan eski APK'larda native crash'e yol açar.
+      const hcSteps = await getHealthConnectStepsToday();
+
       // Bilinen en iyi degeri hemen goster
       const [cached, supabaseSteps] = await Promise.all([
         loadCachedSteps(),
         userId ? loadSupabaseSteps(userId) : Promise.resolve(0),
       ]);
-      const knownFloor = Math.max(cached, supabaseSteps);
+      const knownFloor = Math.max(hcSteps ?? 0, cached, supabaseSteps);
       if (knownFloor > 0) {
         baseSteps.current = knownFloor;
         applySteps(knownFloor);
@@ -132,7 +147,10 @@ export function usePedometer(
 
     const appStateSub = AppState.addEventListener('change', async (state) => {
       if (state === 'active') {
-        await fetchTodaySteps(currentTotal());
+        // App foreground'a dönünce HC ile reconcile et
+        const hcSteps = await getHealthConnectStepsToday();
+        const floor = Math.max(hcSteps ?? 0, currentTotal());
+        await fetchTodaySteps(floor);
       } else if (state === 'background' || state === 'inactive') {
         await persistNow();
       }

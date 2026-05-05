@@ -4,6 +4,7 @@ import { FoodLog, FoodLogWithFood, WaterLog } from '../types';
 import { MealType } from '../lib/constants';
 import { useExerciseStore } from './exerciseStore';
 import { isChronoWindow } from '../lib/exerciseEngine';
+import { triggerWaterGoalAchievement } from '../lib/notifications';
 
 interface NutritionState {
   foodLogs: FoodLogWithFood[];
@@ -112,7 +113,23 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
       .single();
 
     if (data) {
-      set((state) => ({ waterLogs: [...state.waterLogs, data] }));
+      set((state) => {
+        const updatedLogs = [...state.waterLogs, data];
+        const total = updatedLogs.reduce((sum, log) => sum + log.amount_ml, 0);
+
+        // Su hedefine ulaşıldıysa achievement bildirimi gönder
+        // Hedef profil store'dan okunur; döngüsel import önlemek için lazy require
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { useAuthStore } = require('./authStore');
+          const waterGoal = useAuthStore.getState().profile?.daily_water_goal_ml ?? 2000;
+          if (total >= waterGoal) {
+            triggerWaterGoalAchievement();
+          }
+        } catch {}
+
+        return { waterLogs: updatedLogs };
+      });
     }
   },
 

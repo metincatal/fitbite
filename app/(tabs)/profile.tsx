@@ -23,15 +23,39 @@ import { calculateBMI, getBMICategory, calculateMacroGoals, calculateBMR, UserMe
 import { supabase } from '../../lib/supabase';
 import {
   WaterReminderSettings,
+  MealReminderSettings,
+  StepReminderSettings,
+  MotivationSettings,
   DEFAULT_SETTINGS,
+  DEFAULT_MEAL_SETTINGS,
+  DEFAULT_STEP_SETTINGS,
+  DEFAULT_MOTIVATION_SETTINGS,
   loadReminderSettings,
   saveReminderSettings,
   scheduleWaterReminders,
   cancelWaterReminders,
   requestNotificationPermissions,
+  loadMealReminderSettings,
+  saveMealReminderSettings,
+  scheduleMealReminders,
+  cancelMealReminders,
+  loadStepReminderSettings,
+  saveStepReminderSettings,
+  scheduleStepReminder,
+  cancelStepReminder,
+  loadMotivationSettings,
+  saveMotivationSettings,
+  scheduleMotivationMessages,
+  cancelMotivationMessages,
+  scheduleWeeklyReport,
 } from '../../lib/notifications';
 import { Pedometer } from 'expo-sensors';
 import { useActivityStore } from '../../store/activityStore';
+import {
+  isHealthConnectAvailable,
+  requestHealthConnectPermissions,
+  getHealthConnectStepsToday,
+} from '../../lib/healthConnect';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -39,6 +63,22 @@ export default function ProfileScreen() {
   const [showNotifModal, setShowNotifModal] = useState(false);
   const [reminderSettings, setReminderSettings] = useState<WaterReminderSettings>(DEFAULT_SETTINGS);
   const [savingNotif, setSavingNotif] = useState(false);
+
+  // Öğün hatırlatıcıları
+  const [showMealModal, setShowMealModal] = useState(false);
+  const [mealSettings, setMealSettings] = useState<MealReminderSettings>(DEFAULT_MEAL_SETTINGS);
+  const [savingMeal, setSavingMeal] = useState(false);
+
+  // Adım hedefi hatırlatıcısı
+  const [stepSettings, setStepSettings] = useState<StepReminderSettings>(DEFAULT_STEP_SETTINGS);
+
+  // Motivasyon mesajları
+  const [showMotivationModal, setShowMotivationModal] = useState(false);
+  const [motivationSettings, setMotivationSettings] = useState<MotivationSettings>(DEFAULT_MOTIVATION_SETTINGS);
+  const [savingMotivation, setSavingMotivation] = useState(false);
+
+  // Haftalık rapor
+  const [weeklyReportEnabled, setWeeklyReportEnabled] = useState(false);
 
   // Profil düzenleme
   const [showEditModal, setShowEditModal] = useState(false);
@@ -53,9 +93,105 @@ export default function ProfileScreen() {
   const { isAvailable, permissionGranted } = useActivityStore();
   const [checkingPedometer, setCheckingPedometer] = useState(false);
 
+  // Health Connect (Android — opsiyonel arka plan adım kaynağı)
+  type HCState = 'checking' | 'unavailable' | 'available' | 'connected';
+  const [hcState, setHcState] = useState<HCState>('checking');
+  const [hcRequesting, setHcRequesting] = useState(false);
+
   useEffect(() => {
     loadReminderSettings().then(setReminderSettings);
+    loadMealReminderSettings().then(setMealSettings);
+    loadStepReminderSettings().then(setStepSettings);
+    loadMotivationSettings().then(setMotivationSettings);
+    // Haftalık rapor durumunu notifications üzerinden oku (enabled toggle)
+    // stepSettings yeterli — weeklyReport ayrı storage yok, AsyncStorage'den oku
+    import('@react-native-async-storage/async-storage').then(({ default: AS }) =>
+      AS.getItem('weekly_report_enabled').then((v) => setWeeklyReportEnabled(v === 'true'))
+    );
+
+    refreshHealthConnectState();
   }, []);
+
+  // Health Connect durumunu kontrol et: önce SDK var mı, sonra okuma yetkimiz var mı
+  async function refreshHealthConnectState() {
+    if (Platform.OS !== 'android') {
+      setHcState('unavailable');
+      return;
+    }
+    setHcState('checking');
+    try {
+      const available = await isHealthConnectAvailable();
+      if (!available) {
+        setHcState('unavailable');
+        return;
+      }
+      // İzin verilmişse readRecords değer döner; izin yoksa null gelir.
+      const steps = await getHealthConnectStepsToday();
+      setHcState(steps !== null ? 'connected' : 'available');
+    } catch {
+      setHcState('unavailable');
+    }
+  }
+
+  async function handleHealthConnectPress() {
+    if (Platform.OS !== 'android') return;
+
+    if (hcState === 'unavailable') {
+      Alert.alert(
+        'Health Connect Yok',
+        'Bu özelliği kullanmak için Play Store\'dan "Health Connect" uygulamasını yüklemen gerekiyor. Android 14 ve sonrasında genelde yüklü gelir.',
+        [
+          { text: 'İptal', style: 'cancel' },
+          {
+            text: 'Play Store',
+            onPress: () => Linking.openURL('market://details?id=com.google.android.apps.healthdata').catch(() =>
+              Linking.openURL('https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata')
+            ),
+          },
+        ]
+      );
+      return;
+    }
+
+    if (hcState === 'connected') {
+      Alert.alert(
+        'Health Connect Bağlı',
+        'Adım verilerin Health Connect üzerinden senkronize ediliyor. Bağlantıyı kesmek için Health Connect uygulamasından FitBite\'ın izinlerini kaldırabilirsin.',
+        [
+          { text: 'Tamam', style: 'default' },
+          {
+            text: 'Health Connect Aç',
+            onPress: () => Linking.openURL('package:com.google.android.apps.healthdata').catch(() =>
+              Linking.openURL('market://details?id=com.google.android.apps.healthdata').catch(() => {})
+            ),
+          },
+        ]
+      );
+      return;
+    }
+
+    // hcState === 'available' → izin diyaloğunu aç
+    setHcRequesting(true);
+    try {
+      const granted = await requestHealthConnectPermissions();
+      if (granted) {
+        setHcState('connected');
+        Alert.alert(
+          'Bağlandı',
+          'Health Connect adım verilerine erişim izni verildi. Uygulama kapalıyken sayılan adımlar artık otomatik senkronize olacak.'
+        );
+      } else {
+        Alert.alert(
+          'İzin Verilmedi',
+          'Adım verilerine erişim izni alınamadı. Health Connect uygulamasından FitBite\'a izin vererek tekrar deneyebilirsin.'
+        );
+        // Belki kullanıcı reddetti, belki delegate hata verdi. State'i tekrar oku.
+        await refreshHealthConnectState();
+      }
+    } finally {
+      setHcRequesting(false);
+    }
+  }
 
   function openEditModal() {
     if (!profile) return;
@@ -218,6 +354,50 @@ export default function ProfileScreen() {
     } finally {
       setCheckingPedometer(false);
     }
+  }
+
+  async function handleSaveMealSettings() {
+    setSavingMeal(true);
+    await saveMealReminderSettings(mealSettings);
+    if (mealSettings.enabled) {
+      await scheduleMealReminders(mealSettings);
+    } else {
+      await cancelMealReminders();
+    }
+    setSavingMeal(false);
+    setShowMealModal(false);
+    Alert.alert('Kaydedildi', mealSettings.enabled ? 'Öğün hatırlatıcıları aktif!' : 'Öğün hatırlatıcıları kapatıldı.');
+  }
+
+  async function handleStepReminderToggle(value: boolean) {
+    const updated = { ...stepSettings, enabled: value };
+    setStepSettings(updated);
+    await saveStepReminderSettings(updated);
+    if (value) {
+      await scheduleStepReminder(updated);
+    } else {
+      await cancelStepReminder();
+    }
+  }
+
+  async function handleSaveMotivationSettings() {
+    setSavingMotivation(true);
+    await saveMotivationSettings(motivationSettings);
+    if (motivationSettings.enabled) {
+      await scheduleMotivationMessages(motivationSettings);
+    } else {
+      await cancelMotivationMessages();
+    }
+    setSavingMotivation(false);
+    setShowMotivationModal(false);
+    Alert.alert('Kaydedildi', motivationSettings.enabled ? 'Motivasyon mesajları aktif!' : 'Motivasyon mesajları kapatıldı.');
+  }
+
+  async function handleWeeklyReportToggle(value: boolean) {
+    setWeeklyReportEnabled(value);
+    const AS = (await import('@react-native-async-storage/async-storage')).default;
+    await AS.setItem('weekly_report_enabled', value ? 'true' : 'false');
+    await scheduleWeeklyReport(value);
   }
 
   function handleSignOut() {
@@ -400,6 +580,56 @@ export default function ProfileScreen() {
               <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.settingRow} onPress={() => setShowMealModal(true)}>
+            <Ionicons name="restaurant-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
+            <Text style={styles.settingLabel}>Öğün Hatırlatıcıları</Text>
+            <View style={styles.settingRight}>
+              {mealSettings.enabled && (
+                <View style={styles.activeBadge}>
+                  <Text style={styles.activeBadgeText}>Açık</Text>
+                </View>
+              )}
+              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+            </View>
+          </TouchableOpacity>
+          <View style={styles.settingRow}>
+            <Ionicons name="footsteps-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
+            <View style={styles.settingLabelWrap}>
+              <Text style={styles.settingLabelInline}>Adım Hedefi Uyarısı</Text>
+              <Text style={styles.settingSubLabel}>Her gün 19:00'da hatırlatır</Text>
+            </View>
+            <Switch
+              value={stepSettings.enabled}
+              onValueChange={handleStepReminderToggle}
+              trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+              thumbColor={stepSettings.enabled ? Colors.primary : Colors.textMuted}
+            />
+          </View>
+          <TouchableOpacity style={styles.settingRow} onPress={() => setShowMotivationModal(true)}>
+            <Ionicons name="sparkles-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
+            <Text style={styles.settingLabel}>Motivasyon Mesajları</Text>
+            <View style={styles.settingRight}>
+              {motivationSettings.enabled && (
+                <View style={styles.activeBadge}>
+                  <Text style={styles.activeBadgeText}>Açık</Text>
+                </View>
+              )}
+              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+            </View>
+          </TouchableOpacity>
+          <View style={styles.settingRow}>
+            <Ionicons name="bar-chart-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
+            <View style={styles.settingLabelWrap}>
+              <Text style={styles.settingLabelInline}>Haftalık Rapor</Text>
+              <Text style={styles.settingSubLabel}>Her Pazartesi sabah 09:00</Text>
+            </View>
+            <Switch
+              value={weeklyReportEnabled}
+              onValueChange={handleWeeklyReportToggle}
+              trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+              thumbColor={weeklyReportEnabled ? Colors.primary : Colors.textMuted}
+            />
+          </View>
           <TouchableOpacity
             style={styles.settingRow}
             onPress={handleRequestPedometerPermission}
@@ -427,6 +657,38 @@ export default function ProfileScreen() {
               <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
+          {Platform.OS === 'android' && (
+            <TouchableOpacity
+              style={styles.settingRow}
+              onPress={handleHealthConnectPress}
+              disabled={hcRequesting || hcState === 'checking'}
+            >
+              <Ionicons name="heart-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
+              <View style={styles.settingLabelWrap}>
+                <Text style={styles.settingLabelInline}>Health Connect</Text>
+                <Text style={styles.settingSubLabel}>
+                  {hcState === 'checking' && 'Kontrol ediliyor…'}
+                  {hcState === 'unavailable' && 'Cihazda yüklü değil'}
+                  {hcState === 'available' && 'Bağlamak için izin ver'}
+                  {hcState === 'connected' && 'Arka plan adımları senkron'}
+                </Text>
+              </View>
+              <View style={styles.settingRight}>
+                {hcRequesting ? (
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                ) : hcState === 'connected' ? (
+                  <View style={styles.activeBadge}>
+                    <Text style={styles.activeBadgeText}>Bağlı</Text>
+                  </View>
+                ) : hcState === 'available' ? (
+                  <View style={styles.warningBadge}>
+                    <Text style={styles.warningBadgeText}>Bağlan</Text>
+                  </View>
+                ) : null}
+                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+              </View>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={styles.settingRow} onPress={() => setShowPrivacyModal(true)}>
             <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
             <Text style={styles.settingLabel}>Gizlilik & Güvenlik</Text>
@@ -575,6 +837,185 @@ export default function ProfileScreen() {
               <Text style={styles.saveBtnText}>
                 {savingNotif ? 'Kaydediliyor...' : 'Kaydet'}
               </Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Öğün Hatırlatıcıları Modal */}
+      <Modal visible={showMealModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.notifModal}>
+          <View style={styles.notifHeader}>
+            <Text style={styles.notifTitle}>Öğün Hatırlatıcıları</Text>
+            <TouchableOpacity onPress={() => setShowMealModal(false)}>
+              <Text style={styles.notifClose}>Kapat</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.notifContent}>
+            <Card style={styles.notifCard}>
+              <View style={styles.notifRow}>
+                <View style={styles.notifRowInfo}>
+                  <Text style={styles.notifRowTitle}>Öğün Hatırlatıcılarını Etkinleştir</Text>
+                  <Text style={styles.notifRowDesc}>Seçtiğin saatlerde öğün bildirimi al</Text>
+                </View>
+                <Switch
+                  value={mealSettings.enabled}
+                  onValueChange={(v) => setMealSettings((s) => ({ ...s, enabled: v }))}
+                  trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+                  thumbColor={mealSettings.enabled ? Colors.primary : Colors.textMuted}
+                />
+              </View>
+            </Card>
+            {mealSettings.enabled && (
+              <>
+                {/* Kahvaltı */}
+                <Card style={styles.notifCard}>
+                  <View style={styles.mealRow}>
+                    <Text style={styles.mealLabel}>🌅 Kahvaltı</Text>
+                    <Switch
+                      value={mealSettings.breakfast.enabled}
+                      onValueChange={(v) => setMealSettings((s) => ({ ...s, breakfast: { ...s.breakfast, enabled: v } }))}
+                      trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+                      thumbColor={mealSettings.breakfast.enabled ? Colors.primary : Colors.textMuted}
+                    />
+                  </View>
+                  {mealSettings.breakfast.enabled && (
+                    <View style={[styles.optionRow, { marginTop: Spacing.sm }]}>
+                      {[7, 8, 9, 10].map((h) => (
+                        <TouchableOpacity
+                          key={h}
+                          style={[styles.optionBtn, mealSettings.breakfast.hour === h && styles.optionBtnActive]}
+                          onPress={() => setMealSettings((s) => ({ ...s, breakfast: { ...s.breakfast, hour: h } }))}
+                        >
+                          <Text style={[styles.optionBtnText, mealSettings.breakfast.hour === h && styles.optionBtnTextActive]}>
+                            {h}:00
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </Card>
+                {/* Öğle */}
+                <Card style={styles.notifCard}>
+                  <View style={styles.mealRow}>
+                    <Text style={styles.mealLabel}>☀️ Öğle Yemeği</Text>
+                    <Switch
+                      value={mealSettings.lunch.enabled}
+                      onValueChange={(v) => setMealSettings((s) => ({ ...s, lunch: { ...s.lunch, enabled: v } }))}
+                      trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+                      thumbColor={mealSettings.lunch.enabled ? Colors.primary : Colors.textMuted}
+                    />
+                  </View>
+                  {mealSettings.lunch.enabled && (
+                    <View style={[styles.optionRow, { marginTop: Spacing.sm }]}>
+                      {[11, 12, 13, 14].map((h) => (
+                        <TouchableOpacity
+                          key={h}
+                          style={[styles.optionBtn, mealSettings.lunch.hour === h && styles.optionBtnActive]}
+                          onPress={() => setMealSettings((s) => ({ ...s, lunch: { ...s.lunch, hour: h } }))}
+                        >
+                          <Text style={[styles.optionBtnText, mealSettings.lunch.hour === h && styles.optionBtnTextActive]}>
+                            {h}:00
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </Card>
+                {/* Akşam */}
+                <Card style={styles.notifCard}>
+                  <View style={styles.mealRow}>
+                    <Text style={styles.mealLabel}>🌙 Akşam Yemeği</Text>
+                    <Switch
+                      value={mealSettings.dinner.enabled}
+                      onValueChange={(v) => setMealSettings((s) => ({ ...s, dinner: { ...s.dinner, enabled: v } }))}
+                      trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+                      thumbColor={mealSettings.dinner.enabled ? Colors.primary : Colors.textMuted}
+                    />
+                  </View>
+                  {mealSettings.dinner.enabled && (
+                    <View style={[styles.optionRow, { marginTop: Spacing.sm }]}>
+                      {[17, 18, 19, 20, 21].map((h) => (
+                        <TouchableOpacity
+                          key={h}
+                          style={[styles.optionBtn, mealSettings.dinner.hour === h && styles.optionBtnActive]}
+                          onPress={() => setMealSettings((s) => ({ ...s, dinner: { ...s.dinner, hour: h } }))}
+                        >
+                          <Text style={[styles.optionBtnText, mealSettings.dinner.hour === h && styles.optionBtnTextActive]}>
+                            {h}:00
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </Card>
+              </>
+            )}
+            <View style={{ height: Spacing.xl }} />
+          </ScrollView>
+          <View style={styles.notifFooter}>
+            <TouchableOpacity
+              style={[styles.saveBtn, savingMeal && styles.saveBtnDisabled]}
+              onPress={handleSaveMealSettings}
+              disabled={savingMeal}
+            >
+              <Text style={styles.saveBtnText}>{savingMeal ? 'Kaydediliyor...' : 'Kaydet'}</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Motivasyon Mesajları Modal */}
+      <Modal visible={showMotivationModal} animationType="slide" presentationStyle="pageSheet">
+        <SafeAreaView style={styles.notifModal}>
+          <View style={styles.notifHeader}>
+            <Text style={styles.notifTitle}>Motivasyon Mesajları</Text>
+            <TouchableOpacity onPress={() => setShowMotivationModal(false)}>
+              <Text style={styles.notifClose}>Kapat</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.notifContent}>
+            <Card style={styles.notifCard}>
+              <View style={styles.notifRow}>
+                <View style={styles.notifRowInfo}>
+                  <Text style={styles.notifRowTitle}>Sabah Motivasyonu</Text>
+                  <Text style={styles.notifRowDesc}>Her sabah güne ilham veren bir mesajla başla</Text>
+                </View>
+                <Switch
+                  value={motivationSettings.enabled}
+                  onValueChange={(v) => setMotivationSettings((s) => ({ ...s, enabled: v }))}
+                  trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+                  thumbColor={motivationSettings.enabled ? Colors.primary : Colors.textMuted}
+                />
+              </View>
+            </Card>
+            {motivationSettings.enabled && (
+              <Card style={styles.notifCard}>
+                <Text style={styles.notifSectionLabel}>Bildirim Saati</Text>
+                <View style={styles.optionRow}>
+                  {[6, 7, 8, 9].map((h) => (
+                    <TouchableOpacity
+                      key={h}
+                      style={[styles.optionBtn, motivationSettings.hour === h && styles.optionBtnActive]}
+                      onPress={() => setMotivationSettings((s) => ({ ...s, hour: h, minute: 30 }))}
+                    >
+                      <Text style={[styles.optionBtnText, motivationSettings.hour === h && styles.optionBtnTextActive]}>
+                        {h}:30
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </Card>
+            )}
+            <View style={{ height: Spacing.xl }} />
+          </ScrollView>
+          <View style={styles.notifFooter}>
+            <TouchableOpacity
+              style={[styles.saveBtn, savingMotivation && styles.saveBtnDisabled]}
+              onPress={handleSaveMotivationSettings}
+              disabled={savingMotivation}
+            >
+              <Text style={styles.saveBtnText}>{savingMotivation ? 'Kaydediliyor...' : 'Kaydet'}</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -871,6 +1312,9 @@ const styles = StyleSheet.create({
   },
   saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.lg },
+  // Öğün modal
+  mealRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.xs },
+  mealLabel: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
   // Edit modal
   editFieldLabel: {
     fontSize: FontSize.sm,

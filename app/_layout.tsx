@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
+import { checkAndRequestNotificationPermission } from '../lib/notifications';
 
 export default function RootLayout() {
   const { setSession, fetchProfile, session, profile, isLoading, profileFetched } = useAuthStore();
@@ -60,6 +61,8 @@ export default function RootLayout() {
       if (inAuthGroup || inOnboarding) {
         router.replace('/(tabs)');
       }
+      // Bildirim izni kontrolü (sessiz — zaten varsa geçer, yoksa sistem diyaloğu gösterir)
+      checkAndRequestNotificationPermission();
     } else if (session && !profile && profileFetched) {
       // fetchProfile tamamlandı ama profil DB'de yok: onboarding'e gönder
       if (!inOnboarding && !inAuthGroup) {
