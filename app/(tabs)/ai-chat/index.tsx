@@ -88,7 +88,7 @@ export default function ConversationListScreen() {
         activeOpacity={0.7}
       >
         <View style={styles.conversationIcon}>
-          <Ionicons name="chatbubble-outline" size={18} color={Colors.primary} />
+          <Ionicons name="chatbubble-outline" size={18} color={Colors.accent} />
         </View>
         <View style={styles.conversationInfo}>
           <Text style={styles.conversationTitle} numberOfLines={1}>
@@ -109,7 +109,7 @@ export default function ConversationListScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.botAvatar}>
-            <Ionicons name="sparkles" size={20} color={Colors.primary} />
+            <Ionicons name="sparkles" size={20} color={Colors.accent} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.overline}>YAPAY ZEKA DİYETİSYENİN</Text>
@@ -144,7 +144,7 @@ export default function ConversationListScreen() {
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <View style={styles.emptyIconWrap}>
-              <Ionicons name="chatbubbles-outline" size={48} color={Colors.primary} />
+              <Ionicons name="chatbubbles-outline" size={48} color={Colors.accent} />
             </View>
             <Text style={styles.emptyTitle}>
               Henüz <Text style={styles.emptyTitleAccent}>sohbet</Text> yok
@@ -187,7 +187,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 999,
-    backgroundColor: Colors.primaryPale,
+    backgroundColor: Colors.surfaceSecondary,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -275,7 +277,9 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 999,
-    backgroundColor: Colors.primaryPale,
+    backgroundColor: Colors.surfaceSecondary,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: Spacing.sm,

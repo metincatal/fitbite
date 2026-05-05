@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
 
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -76,6 +77,11 @@ export default function ProgressScreen() {
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
 
   useEffect(() => { fetchAll(); }, [user]);
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchAll();
+    }, [user?.id])
+  );
 
   async function fetchAll() {
     if (!user) return;
@@ -134,13 +140,18 @@ export default function ProgressScreen() {
   }
 
   async function addWeightLog() {
-    const weight = parseFloat(newWeight);
+    const normalizedWeight = newWeight.trim().replace(',', '.');
+    const weight = parseFloat(normalizedWeight);
     if (isNaN(weight) || weight < 20 || weight > 300) {
       Alert.alert('Hata', 'Geçerli bir kilo değeri girin (20-300 kg)');
       return;
     }
     if (!user) return;
     await supabase.from('weight_logs').insert({ user_id: user.id, weight_kg: weight, logged_at: new Date().toISOString() });
+    await supabase
+      .from('profiles')
+      .update({ weight_kg: weight, updated_at: new Date().toISOString() })
+      .eq('user_id', user.id);
     setNewWeight('');
     await fetchWeightLogs();
   }
@@ -350,7 +361,7 @@ export default function ProgressScreen() {
               style={styles.weightInput}
               value={newWeight}
               onChangeText={setNewWeight}
-              placeholder="kg"
+              placeholder="örn: 79,8"
               keyboardType="numeric"
               placeholderTextColor={Colors.ink4}
             />
@@ -363,7 +374,7 @@ export default function ProgressScreen() {
               <Text style={styles.logDate}>
                 {new Date(log.logged_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })}
               </Text>
-              <Text style={styles.logWeight}>{log.weight_kg} kg</Text>
+              <Text style={styles.logWeight}>{log.weight_kg.toFixed(1)} kg</Text>
             </View>
           ))}
           {weightLogs.length === 0 && (

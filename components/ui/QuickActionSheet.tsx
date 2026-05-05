@@ -19,6 +19,7 @@ import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
 import { useWaterDropSound } from '../../lib/sound';
+import { supabase } from '../../lib/supabase';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
@@ -108,7 +109,7 @@ function QAIcon({ kind, color }: { kind: string; color: string }) {
 
 export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery }: QuickActionSheetProps) {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, profile, setProfile } = useAuthStore();
   const { addWaterLog, getWaterTotal } = useNutritionStore();
   const playWaterDrop = useWaterDropSound();
 
@@ -208,19 +209,36 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
   }
 
   async function saveWeight() {
-    const weight = parseFloat(weightValue);
+    const normalizedWeight = weightValue.trim().replace(',', '.');
+    const weight = parseFloat(normalizedWeight);
     if (isNaN(weight) || weight < 20 || weight > 300) {
       Alert.alert('Hata', 'Geçerli bir kilo değeri girin (20-300 kg)');
       return;
     }
     if (!user) return;
-    const { supabase } = require('../../lib/supabase');
     await supabase.from('weight_logs').insert({
       user_id: user.id,
       weight_kg: weight,
       logged_at: new Date().toISOString(),
     });
-    showToast(`⚖️ ${weight} kg kaydedildi`);
+    const { data: updatedProfile } = await supabase
+      .from('profiles')
+      .update({
+        weight_kg: weight,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', user.id)
+      .select()
+      .single();
+
+    if (updatedProfile) {
+      setProfile(updatedProfile);
+    } else if (profile) {
+      // Ensure UI reflects latest weight immediately even if select returns empty
+      setProfile({ ...profile, weight_kg: weight, updated_at: new Date().toISOString() });
+    }
+
+    showToast(`⚖️ ${weight.toFixed(1)} kg kaydedildi`);
     setShowWeightInput(false);
     setWeightValue('');
     setTimeout(() => closeSheet(), 600);
@@ -351,7 +369,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
                 style={styles.weightInput}
                 value={weightValue}
                 onChangeText={setWeightValue}
-                placeholder="78.5"
+                placeholder="78,5"
                 keyboardType="numeric"
                 placeholderTextColor={Colors.textMuted}
                 autoFocus

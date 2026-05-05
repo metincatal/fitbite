@@ -24,6 +24,7 @@ let _onGalleryCallback: ((base64: string) => void) | null = null;
 
 // Module-level ref for programmatic tab navigation (used by swipe gesture)
 let _swipeNavigateToTab: ((tabName: string) => void) | null = null;
+let _isQuickActionOpen = false;
 
 export function setQuickActionCallbacks(
   onCamera: (base64: string) => void,
@@ -117,6 +118,10 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const activeTabIdx = Math.max(0, routeToTabIdx(activeRouteName));
 
   // Expose navigate fn for swipe gesture (updated on every render so navigation/state are fresh)
+  useEffect(() => {
+    _isQuickActionOpen = showQuickAction;
+  }, [showQuickAction]);
+
   useEffect(() => {
     _swipeNavigateToTab = (tabName: string) => {
       const route = state.routes.find((r) => {
@@ -306,7 +311,7 @@ export default function TabLayout() {
   const swipePan = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponderCapture: (_, gs) =>
-        Math.abs(gs.dx) > Math.abs(gs.dy) * 2.0 && Math.abs(gs.dx) > 10,
+        !_isQuickActionOpen && Math.abs(gs.dx) > Math.abs(gs.dy) * 2.0 && Math.abs(gs.dx) > 10,
       onPanResponderGrant: () => {},
       onPanResponderRelease: (_, gs) => {
         const isHorizontal = Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5;

@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -55,6 +56,8 @@ import {
   requestHealthConnectPermissions,
   getHealthConnectStepsToday,
 } from '../../lib/healthConnect';
+import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
@@ -102,6 +105,7 @@ export default function ProfileScreen() {
   type HCState = 'checking' | 'unavailable' | 'available' | 'connected';
   const [hcState, setHcState] = useState<HCState>('checking');
   const [hcRequesting, setHcRequesting] = useState(false);
+  const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
 
   useEffect(() => {
     loadReminderSettings().then(setReminderSettings);
@@ -114,6 +118,65 @@ export default function ProfileScreen() {
 
     refreshHealthConnectState();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    loadProfilePhoto(user.id);
+  }, [user?.id]);
+
+  async function loadProfilePhoto(userId: string) {
+    const stored = await AsyncStorage.getItem(`fitbite_profile_avatar_uri_${userId}`);
+    setProfileImageUri(stored);
+  }
+
+  async function saveProfilePhoto(uri: string) {
+    if (!user) return;
+    await AsyncStorage.setItem(`fitbite_profile_avatar_uri_${user.id}`, uri);
+    setProfileImageUri(uri);
+  }
+
+  async function pickProfilePhoto(source: 'camera' | 'gallery') {
+    const permission = source === 'camera'
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permission.status !== 'granted') {
+      Alert.alert('İzin Gerekli', source === 'camera'
+        ? 'Kamera ile fotoğraf çekmek için izin vermen gerekiyor.'
+        : 'Galeriden fotoğraf seçmek için izin vermen gerekiyor.');
+      return;
+    }
+
+    const result = source === 'camera'
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.85,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.85,
+        });
+
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    await saveProfilePhoto(result.assets[0].uri);
+  }
+
+  function handleProfilePhotoPress() {
+    Alert.alert('Profil Görseli', 'Görsel kaynağını seç', [
+      { text: 'İptal', style: 'cancel' },
+      { text: 'Kamera', onPress: () => pickProfilePhoto('camera') },
+      { text: 'Galeri', onPress: () => pickProfilePhoto('gallery') },
+      ...(profileImageUri ? [{ text: 'Kaldır', style: 'destructive' as const, onPress: () => {
+        if (!user) return;
+        AsyncStorage.removeItem(`fitbite_profile_avatar_uri_${user.id}`);
+        setProfileImageUri(null);
+      } }] : []),
+    ]);
+  }
 
   async function refreshHealthConnectState() {
     if (Platform.OS !== 'android') {
@@ -206,7 +269,7 @@ export default function ProfileScreen() {
 
   async function saveProfile() {
     if (!user || !profile) return;
-    const weight = parseFloat(editData.weight_kg);
+    const weight = parseFloat(editData.weight_kg.trim().replace(',', '.'));
     if (!editData.name.trim()) {
       Alert.alert('Hata', 'İsim boş bırakılamaz');
       return;
@@ -453,19 +516,24 @@ export default function ProfileScreen() {
         <View style={styles.heroBlock}>
           <Text style={styles.overline}>SENİN PROFİLİN</Text>
           <View style={styles.heroRow}>
-            <View style={styles.avatar}>
-              <Ionicons
-                name={profile.gender === 'male' ? 'person' : 'person'}
-                size={36}
-                color={Colors.primary}
-              />
-            </View>
+            <TouchableOpacity style={styles.avatar} activeOpacity={0.85} onPress={handleProfilePhotoPress}>
+              {profileImageUri ? (
+                <Image source={{ uri: profileImageUri }} style={styles.avatarImage} />
+              ) : (
+                <Ionicons
+                  name={profile.gender === 'male' ? 'person' : 'person'}
+                  size={34}
+                  color={Colors.accent}
+                />
+              )}
+            </TouchableOpacity>
             <View style={styles.heroText}>
               <Text style={styles.profileName}>
                 {firstName}
                 <Text style={styles.profileNameAccent}>.</Text>
               </Text>
               <Text style={styles.profileEmail}>{user?.email}</Text>
+              <Text style={styles.profilePhotoHint}>Fotoğrafı değiştirmek için daireye dokun</Text>
             </View>
           </View>
           <View style={styles.profileBadges}>
@@ -492,7 +560,7 @@ export default function ProfileScreen() {
           <Text style={styles.overline}>VÜCUT BİLGİLERİ</Text>
           <View style={styles.statsGrid}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{profile.weight_kg}</Text>
+              <Text style={styles.statValue}>{profile.weight_kg.toFixed(1)}</Text>
               <Text style={styles.statUnit}>kg</Text>
               <Text style={styles.statLabel}>KİLO</Text>
             </View>
@@ -700,8 +768,8 @@ export default function ProfileScreen() {
                 <Switch
                   value={reminderSettings.enabled}
                   onValueChange={handleNotifToggle}
-                  trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                  thumbColor={reminderSettings.enabled ? Colors.primary : Colors.textMuted}
+                  trackColor={{ false: Colors.border, true: Colors.accentLight }}
+                  thumbColor={reminderSettings.enabled ? Colors.accent : Colors.textMuted}
                 />
               </View>
             </View>
@@ -782,8 +850,8 @@ export default function ProfileScreen() {
                 <Switch
                   value={mealSettings.enabled}
                   onValueChange={(v) => setMealSettings((s) => ({ ...s, enabled: v }))}
-                  trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                  thumbColor={mealSettings.enabled ? Colors.primary : Colors.textMuted}
+                  trackColor={{ false: Colors.border, true: Colors.accentLight }}
+                  thumbColor={mealSettings.enabled ? Colors.accent : Colors.textMuted}
                 />
               </View>
             </View>
@@ -795,8 +863,8 @@ export default function ProfileScreen() {
                     <Switch
                       value={mealSettings.breakfast.enabled}
                       onValueChange={(v) => setMealSettings((s) => ({ ...s, breakfast: { ...s.breakfast, enabled: v } }))}
-                      trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                      thumbColor={mealSettings.breakfast.enabled ? Colors.primary : Colors.textMuted}
+                      trackColor={{ false: Colors.border, true: Colors.accentLight }}
+                      thumbColor={mealSettings.breakfast.enabled ? Colors.accent : Colors.textMuted}
                     />
                   </View>
                   {mealSettings.breakfast.enabled && (
@@ -821,8 +889,8 @@ export default function ProfileScreen() {
                     <Switch
                       value={mealSettings.lunch.enabled}
                       onValueChange={(v) => setMealSettings((s) => ({ ...s, lunch: { ...s.lunch, enabled: v } }))}
-                      trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                      thumbColor={mealSettings.lunch.enabled ? Colors.primary : Colors.textMuted}
+                      trackColor={{ false: Colors.border, true: Colors.accentLight }}
+                      thumbColor={mealSettings.lunch.enabled ? Colors.accent : Colors.textMuted}
                     />
                   </View>
                   {mealSettings.lunch.enabled && (
@@ -847,8 +915,8 @@ export default function ProfileScreen() {
                     <Switch
                       value={mealSettings.dinner.enabled}
                       onValueChange={(v) => setMealSettings((s) => ({ ...s, dinner: { ...s.dinner, enabled: v } }))}
-                      trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                      thumbColor={mealSettings.dinner.enabled ? Colors.primary : Colors.textMuted}
+                      trackColor={{ false: Colors.border, true: Colors.accentLight }}
+                      thumbColor={mealSettings.dinner.enabled ? Colors.accent : Colors.textMuted}
                     />
                   </View>
                   {mealSettings.dinner.enabled && (
@@ -890,8 +958,8 @@ export default function ProfileScreen() {
                 <Switch
                   value={motivationSettings.enabled}
                   onValueChange={(v) => setMotivationSettings((s) => ({ ...s, enabled: v }))}
-                  trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-                  thumbColor={motivationSettings.enabled ? Colors.primary : Colors.textMuted}
+                  trackColor={{ false: Colors.border, true: Colors.accentLight }}
+                  thumbColor={motivationSettings.enabled ? Colors.accent : Colors.textMuted}
                 />
               </View>
             </View>
@@ -939,7 +1007,7 @@ export default function ProfileScreen() {
               style={styles.editInput}
               value={editData.weight_kg}
               onChangeText={(v) => setEditData((p) => ({ ...p, weight_kg: v }))}
-              placeholder="örn: 72"
+              placeholder="örn: 79,8"
               keyboardType="numeric"
               placeholderTextColor={Colors.textMuted}
             />
@@ -1093,8 +1161,8 @@ function SettingRow({
           <Switch
             value={switchProps.value}
             onValueChange={switchProps.onValueChange}
-            trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-            thumbColor={switchProps.value ? Colors.primary : Colors.textMuted}
+            trackColor={{ false: Colors.border, true: Colors.accentLight }}
+            thumbColor={switchProps.value ? Colors.accent : Colors.textMuted}
           />
         )}
         {!switchProps && onPress && (
@@ -1193,9 +1261,16 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 999,
-    backgroundColor: Colors.primaryPale,
+    backgroundColor: Colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   heroText: {
     flex: 1,
@@ -1217,6 +1292,13 @@ const styles = StyleSheet.create({
     color: Colors.ink3,
     letterSpacing: 0.3,
     marginTop: 4,
+  },
+  profilePhotoHint: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink4,
+    letterSpacing: 0.2,
+    marginTop: 6,
   },
   profileBadges: {
     flexDirection: 'row',
@@ -1346,7 +1428,7 @@ const styles = StyleSheet.create({
   activityValue: {
     fontFamily: SERIF,
     fontSize: 22,
-    color: Colors.primary,
+    color: Colors.terracotta,
     fontStyle: 'italic',
   },
   activityDesc: {
@@ -1406,7 +1488,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   settingBadge: {
-    backgroundColor: Colors.primaryPale,
+    backgroundColor: Colors.accentLight + '33',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
@@ -1414,7 +1496,7 @@ const styles = StyleSheet.create({
   settingBadgeText: {
     fontFamily: MONO,
     fontSize: 9,
-    color: Colors.primary,
+    color: Colors.accent,
     fontWeight: '700',
     letterSpacing: 0.6,
   },
@@ -1456,7 +1538,7 @@ const styles = StyleSheet.create({
   modalCloseText: {
     fontFamily: MONO,
     fontSize: 12,
-    color: Colors.primary,
+    color: Colors.accent,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -1521,15 +1603,15 @@ const styles = StyleSheet.create({
   modalSummary: {
     marginTop: Spacing.md,
     padding: Spacing.md,
-    backgroundColor: Colors.primaryPale + '60',
+    backgroundColor: Colors.accentLight + '26',
     borderRadius: BorderRadius.md,
     borderLeftWidth: 3,
-    borderLeftColor: Colors.primary,
+    borderLeftColor: Colors.accent,
   },
   modalSummaryText: {
     fontFamily: SERIF,
     fontSize: 13,
-    color: Colors.primary,
+    color: Colors.accent,
     lineHeight: 19,
   },
   modalFooter: {
@@ -1594,7 +1676,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   privacyBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.ink,
     borderRadius: BorderRadius.md,
     paddingVertical: 12,
     alignItems: 'center',
