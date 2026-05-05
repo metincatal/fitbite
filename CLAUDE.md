@@ -5,13 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Geliştirme sunucusu başlat
+# Geliştirme sunucusu başlat (development build üzerinden — Expo Go DEĞİL)
 npx expo start
 
-# Platform bazlı başlatma
-npx expo start --ios
-npx expo start --android
-npx expo start --web
+# Telefon farklı ağdaysa tunnel ile bağlan
+npx expo start --tunnel
 ```
 
 Test komutu yok; TypeScript kontrolü için:
@@ -25,6 +23,31 @@ npx tsx lib/__demo/engineDemo.ts     # Besin motoru (8 senaryo)
 npx tsx lib/__demo/exerciseDemo.ts   # Egzersiz motoru (5 senaryo, 19 kontrol)
 ```
 
+## Build Politikası — KRİTİK
+
+**Asla otomatik EAS build alma.** Free tier kotası ve queue süresi yüzünden build pahalı bir işlem. Kullanıcı açıkça **"build al"** demeden `eas build` komutu ÇALIŞTIRILMAZ.
+
+Bunun yerine her değişiklik sonrası kullanıcıya net şekilde bildirilir:
+
+- **🟢 BUILD GEREKMEZ** → `npx expo start` ile Metro üzerinden anında test edilebilir
+- **🔴 BUILD GEREKİR** → değişiklik native katmana dokunuyor, yeni APK olmadan etki etmez
+
+### Hangi değişiklik ne gerektirir?
+
+| Değişiklik tipi | Build? |
+|---|---|
+| `app/`, `components/`, `lib/`, `hooks/`, `store/` altındaki .ts/.tsx | 🟢 Hayır |
+| Saf-JS npm paketi eklemek (lodash, date-fns vb.) | 🟢 Hayır |
+| `assets/sounds/` veya runtime require edilen küçük asset | 🟢 Hayır |
+| `react-native-*` native modül eklemek | 🔴 Evet |
+| Expo plugin gerektiren paket (`expo-camera` vb.) eklemek | 🔴 Evet |
+| `app.json` `plugins` / `permissions` / `android.*` / `ios.*` | 🔴 Evet |
+| `plugins/` altındaki custom config plugin değişimi | 🔴 Evet |
+| `assets/icon.png`, `assets/splash-icon.png`, `assets/adaptive-icon.png` | 🔴 Evet |
+| `package.json` `expo`/`react-native`/`react` versiyon değişikliği | 🔴 Evet |
+
+Kullanıcı "build al" dediğinde profili açıkça onaylanmadıysa **`eas build -p android --profile preview`** kullanılır (APK çıktı, internal distribution).
+
 ## Environment Variables
 
 `.env` dosyasında üç değişken gereklidir (`.env.example`'a bakın):
@@ -34,24 +57,31 @@ npx tsx lib/__demo/exerciseDemo.ts   # Egzersiz motoru (5 senaryo, 19 kontrol)
 
 ## Architecture
 
-### Routing (Expo Router — file-based)
+### Project Layout
 
 ```
-app/
-  _layout.tsx          # Root layout: auth guard + session yönetimi
-  (auth)/              # Login / Register — oturum yoksa buraya yönlendirilir
+app/                   # Expo Router (file-based)
+  _layout.tsx          # Root layout: auth guard + session + bildirim izni
+  (auth)/              # Login / Register
   (tabs)/              # Ana tab navigasyonu (6 tab)
     index.tsx          # Ana sayfa — günlük özet + egzersiz tamponu banner
     food-log.tsx       # Yemek günlüğü
     ai-chat/           # FitBot AI chat (FAB center button placeholder)
     exercise.tsx       # Egzersiz tab — bilimsel motor, Ainsworth katalog
     progress.tsx       # İlerleme grafikleri + vücut ölçüleri
-    profile.tsx        # Profil & ayarlar
+    profile.tsx        # Profil & ayarlar (Health Connect dahil)
   exercise.tsx         # Redirect → (tabs)/exercise (geriye uyumluluk)
   onboarding/          # İlk kurulum sihirbazı
   food/[id].tsx        # Yemek detay sayfası
   recipe.tsx           # AI tarif sayfası
   shopping-list.tsx    # AI alışveriş listesi
+
+plugins/
+  withHealthConnectSetup.js  # Custom Expo config plugin — HC için MainActivity ve manifest mod'ları
+
+android/               # gitignored — EAS build prebuild ile sıfırdan üretir
+                       # Lokal expo run:android için tutulur, manuel düzenleme yapılırsa
+                       # plugins/ tarafına da yansıtılmalı
 ```
 
 Auth guard `app/_layout.tsx` içinde: oturum yoksa `(auth)/login`'e, oturum varsa `(tabs)`'a yönlendirir.
@@ -149,8 +179,28 @@ Bileşenler: `FoodPhotoModal` (eski tekil), `PhotoMealReviewModal` (çoklu revie
 - `lib/nutrition.ts` — günlük düzey: dual BMR, TDEE, AMDR, `calculateScoffScore`, safety flags. Kadın min 1200, erkek min 1500 kcal. Safety copy'leri `lib/safetyCopy.ts`'te.
 - `lib/openfoodfacts.ts` — barkod sorgulama
 - `lib/storage.ts` — `uploadFoodPhoto(userId, base64)`: Supabase Storage `food-photos` bucket'ı
-- `lib/healthConnect.ts` — Android Health Connect adım entegrasyonu
-- `hooks/usePedometer.ts` — expo-sensors + Health Connect, 5dk'da bir Supabase'e yazar
+- `lib/healthConnect.ts` — Android Health Connect entegrasyonu (defansif lazy require, withTimeout sarmalayıcılar — aşağıda detayı)
+- `lib/notifications.ts` — Su / öğün / adım / motivasyon / haftalık rapor bildirim zamanlayıcıları. expo-notifications lazy require ile yüklenir (Expo Go'da çakışmasın diye).
+- `hooks/usePedometer.ts` — expo-sensors + Health Connect baseline okuma. `requestPermission` ARTIK BURADAN ÇAĞRILMIYOR (crash önlemi); sadece `getHealthConnectStepsToday()` kullanılır. 5dk'da bir Supabase'e yazar.
+
+### Health Connect Entegrasyonu (kritik, dokunurken oku)
+
+`react-native-health-connect` v3 native tarafta `MainActivity.onCreate`'de **`HealthConnectPermissionDelegate.setPermissionDelegate(this)`** çağrısını ZORUNLU kılar. Bu çağrı yoksa `requestPermission` Kotlin coroutine içinden `UninitializedPropertyAccessException` fırlatır ve **JS try/catch'i bypass ederek tüm uygulamayı çökertir**.
+
+Çözüm üç parçalı:
+
+1. **`plugins/withHealthConnectSetup.js`** — custom config plugin:
+   - `AndroidManifest.xml`'e `<queries><package healthdata/></queries>` ekler (Android 11+ visibility)
+   - `MainActivity.kt`'a `setPermissionDelegate(this)` çağrısı ekler
+2. **`app.json` plugins**: `"react-native-health-connect"` (intent-filter için) + `"./plugins/withHealthConnectSetup"` aynı dizide
+3. **`lib/healthConnect.ts`** defansif:
+   - Lazy `require('react-native-health-connect')` (Platform guard'lı)
+   - Tüm async çağrılar `withTimeout` ile sarılı (delegate gelmezse hang etmesin)
+   - **`requestHealthConnectPermissions()` SADECE kullanıcı manuel tetikleyince çağrılır** (Profil → Health Connect satırı). Cold-start akışında ASLA otomatik tetiklenmemeli.
+
+Profil sayfasında `hcState: 'checking' | 'unavailable' | 'available' | 'connected'` durumu gösterilir; tıklayınca duruma göre Play Store'a yönlendirir, izin diyaloğu açar veya HC uygulamasına gider.
+
+**Yeni RNHC API'si kullanırken**: önce `isHealthConnectAvailable()` kontrol et, sonra `withTimeout`'lu çağrı yap, asla cold-start akışına ekleme.
 
 ### Onboarding
 
@@ -172,3 +222,6 @@ Bileşenler: `FoodPhotoModal` (eski tekil), `PhotoMealReviewModal` (çoklu revie
 - Expo Router'da `useRouter` + `useSegments` ile programatik yönlendirme. `expo-notifications` su hatırlatıcıları için (`lib/notifications.ts`).
 - `MealType` = `'breakfast' | 'lunch' | 'dinner' | 'snack'` (`lib/constants.ts`).
 - Yeni egzersiz bileşenlerinde `EXERCISE_CATALOG` kullan (eski `EXERCISE_CATEGORIES` değil).
+- **Native paket eklerken**: önce `app.plugin.js`'i kontrol et; yetersizse `plugins/` altında custom plugin yaz. `withHealthConnectSetup.js`'i pattern olarak kullan (`withMainActivity` + `withAndroidManifest`).
+- **Asset boyutları**: `assets/icon.png`, `assets/splash-icon.png`, `assets/adaptive-icon.png` 1024×1024'ten büyük olmamalı, `assets/favicon.png` 256×256. Daha büyük PNG'ler splash screen decoding'inde OOM riskine yol açar (canlı örneği: 2048² 5MB icon'lar uygulamayı çökertmişti).
+- **Cold-start akışına yeni native paket çağrısı eklerken**: `_layout.tsx`, `(tabs)/index.tsx`, `usePedometer` gibi giriş noktalarına permission istemi koymadan önce paketin native exception handling'ini incele. Coroutine içinde unwrap edilmeyen exception'lar JS try/catch ile yakalanmaz; defansif lazy require + `withTimeout` pattern'i kullan (örnek: `lib/healthConnect.ts`).
