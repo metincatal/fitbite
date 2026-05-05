@@ -24,6 +24,9 @@ const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY!);
 import { Colors, Spacing, FontSize, BorderRadius } from '../../../lib/constants';
 import { ChatMessage } from '../../../types';
 
+const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
+
 function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*([^*]+)\*\*/g, '$1')   // **bold** → bold
@@ -38,10 +41,10 @@ function stripMarkdown(text: string): string {
 }
 
 const QUICK_QUESTIONS = [
-  'Bugun ne yesem?',
-  'Kalori hedefime yakin miyim?',
-  'Protein alimimi nasil artiririm?',
-  'Turk mutfagindan saglikli oneriler',
+  'Bugün ne yesem?',
+  'Kalori hedefime yakın mıyım?',
+  'Protein alımımı nasıl artırırım?',
+  'Türk mutfağından sağlıklı öneriler',
 ];
 
 export default function ChatScreen() {
@@ -178,19 +181,19 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
+      {/* Editorial Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={24} color={Colors.textPrimary} />
+          <Ionicons name="chevron-back" size={22} color={Colors.ink} />
         </TouchableOpacity>
         <View style={styles.botAvatar}>
           <Ionicons name="sparkles" size={18} color={Colors.primary} />
         </View>
         <View style={styles.headerInfo}>
+          <Text style={styles.headerOverline}>FİTBOT · DİYETİSYEN</Text>
           <Text style={styles.botName} numberOfLines={1}>
             {currentConversation?.title ?? 'FitBot'}
           </Text>
-          <Text style={styles.botStatus}>Yapay Zeka Diyetisyeniniz</Text>
         </View>
       </View>
 
@@ -243,17 +246,17 @@ export default function ChatScreen() {
                 </View>
                 <View style={[styles.messageBubble, styles.botBubble, styles.typingBubble]}>
                   <ActivityIndicator size="small" color={Colors.primary} />
-                  <Text style={styles.typingText}>FitBot yaziyor...</Text>
+                  <Text style={styles.typingText}>FitBot yazıyor…</Text>
                 </View>
               </View>
             ) : null
           }
         />
 
-        {/* Hizli Sorular */}
+        {/* Hızlı Sorular */}
         {displayMessages.length <= 1 && (
           <View>
-            <Text style={styles.quickQuestionsLabel}>Hizli sorular:</Text>
+            <Text style={styles.quickQuestionsLabel}>HIZLI SORULAR</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -283,13 +286,13 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {/* Giris Alani */}
+        {/* Giriş Alanı */}
         <View style={[styles.inputRow, { paddingBottom: Math.max(Spacing.sm, insets.bottom) + 4 }]}>
           <TextInput
             style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder="Bir sey sor..."
+            placeholder="Bir şey sor…"
             placeholderTextColor={Colors.textMuted}
             multiline
             maxLength={500}
@@ -299,7 +302,7 @@ export default function ChatScreen() {
             onPress={() => sendMessage()}
             disabled={!input.trim() || isTyping}
           >
-            <Ionicons name="send" size={18} color={Colors.textLight} />
+            <Ionicons name="send" size={18} color={Colors.background} />
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -312,12 +315,11 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.sm,
+    paddingHorizontal: 14,
     paddingVertical: Spacing.md,
     gap: Spacing.sm,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.5,
     borderBottomColor: Colors.borderLight,
-    backgroundColor: Colors.surface,
   },
   backButton: {
     width: 36,
@@ -328,7 +330,7 @@ const styles = StyleSheet.create({
   botAvatar: {
     width: 36,
     height: 36,
-    borderRadius: BorderRadius.full,
+    borderRadius: 999,
     backgroundColor: Colors.primaryPale,
     alignItems: 'center',
     justifyContent: 'center',
@@ -336,8 +338,19 @@ const styles = StyleSheet.create({
   headerInfo: {
     flex: 1,
   },
-  botName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  botStatus: { fontSize: FontSize.xs, color: Colors.primaryLight },
+  headerOverline: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink3,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+  },
+  botName: {
+    fontFamily: SERIF,
+    fontSize: 18,
+    color: Colors.ink,
+    marginTop: 2,
+  },
   keyboardView: { flex: 1 },
   messageList: { padding: Spacing.md, paddingBottom: Spacing.sm },
   message: { flexDirection: 'row', marginBottom: Spacing.md, alignItems: 'flex-end' },
@@ -346,7 +359,7 @@ const styles = StyleSheet.create({
   botMessageAvatar: {
     width: 28,
     height: 28,
-    borderRadius: BorderRadius.full,
+    borderRadius: 999,
     backgroundColor: Colors.primaryPale,
     alignItems: 'center',
     justifyContent: 'center',
@@ -355,46 +368,63 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '80%',
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: 18,
   },
   userBubble: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.ink,
     borderBottomRightRadius: 4,
   },
   botBubble: {
     backgroundColor: Colors.surface,
     borderBottomLeftRadius: 4,
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderColor: Colors.borderLight,
   },
-  messageText: { fontSize: FontSize.md, color: Colors.textPrimary, lineHeight: 22 },
-  userMessageText: { color: Colors.textLight },
+  messageText: {
+    fontFamily: SERIF,
+    fontSize: 15,
+    color: Colors.ink,
+    lineHeight: 22,
+  },
+  userMessageText: { color: Colors.background },
   typingBubble: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  typingText: { fontSize: FontSize.sm, color: Colors.textMuted },
+  typingText: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: Colors.ink3,
+    letterSpacing: 0.3,
+  },
   quickQuestionsLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.textMuted,
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.xs,
-    fontWeight: '600',
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink3,
+    paddingHorizontal: 22,
+    marginBottom: 8,
+    letterSpacing: 1.4,
   },
   quickQuestionsContainer: { marginBottom: Spacing.sm },
-  quickQuestionsScroll: { paddingHorizontal: Spacing.lg, gap: Spacing.sm },
+  quickQuestionsScroll: { paddingHorizontal: 22, gap: 8 },
   quickQuestion: {
     backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.full,
+    borderRadius: 999,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    paddingVertical: 8,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
   },
-  quickQuestionText: { fontSize: FontSize.sm, color: Colors.textSecondary, fontWeight: '500' },
+  quickQuestionText: {
+    fontFamily: SERIF,
+    fontSize: 13,
+    color: Colors.ink2,
+  },
   recipeQuickBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    borderColor: Colors.accentLight,
+    borderColor: Colors.accent + '60',
+    backgroundColor: Colors.accent + '12',
   },
   inputRow: {
     flexDirection: 'row',
@@ -402,27 +432,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     gap: Spacing.sm,
-    borderTopWidth: 1,
+    borderTopWidth: 0.5,
     borderTopColor: Colors.borderLight,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.background,
   },
   input: {
     flex: 1,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.lg,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
+    borderRadius: 18,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
+    paddingVertical: 10,
+    fontFamily: SERIF,
+    fontSize: 15,
+    color: Colors.ink,
     maxHeight: 100,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surface,
   },
   sendButton: {
     width: 44,
     height: 44,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.primary,
+    borderRadius: 999,
+    backgroundColor: Colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },

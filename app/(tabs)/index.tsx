@@ -26,6 +26,7 @@ import { ExGlyph, EXERCISE_GLYPHS } from '../../components/exercise/ExGlyph';
 import { isChronoWindow } from '../../lib/exerciseEngine';
 import { Ionicons } from '@expo/vector-icons';
 import { ExerciseLog } from '../../types';
+import { useWaterDropSound } from '../../lib/sound';
 
 const { width: SW } = Dimensions.get('window');
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
@@ -168,6 +169,7 @@ export default function DashboardScreen() {
     getTotalCaloriesBurned, getEpocRange, getWaterBonus, getEatBackBudget,
   } = useExerciseStore();
   usePedometer(userId, profile?.weight_kg, profile?.height_cm);
+  const playWaterDrop = useWaterDropSound();
 
 
   useEffect(() => {
@@ -311,6 +313,7 @@ export default function DashboardScreen() {
           <TouchableOpacity
             onPress={() => {
               if (userId && waterTotal < waterGoal + exerciseWaterBonus) {
+                playWaterDrop();
                 addWaterLog(userId, 250);
               }
             }}

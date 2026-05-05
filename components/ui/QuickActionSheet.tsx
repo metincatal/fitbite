@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
 import { useAuthStore } from '../../store/authStore';
 import { useNutritionStore } from '../../store/nutritionStore';
+import { useWaterDropSound } from '../../lib/sound';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
@@ -109,6 +110,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
   const router = useRouter();
   const { user } = useAuthStore();
   const { addWaterLog, getWaterTotal } = useNutritionStore();
+  const playWaterDrop = useWaterDropSound();
 
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
@@ -197,6 +199,7 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
 
   async function addWater(amountMl: number) {
     if (!user) return;
+    playWaterDrop();
     await addWaterLog(user.id, amountMl);
     const total = getWaterTotal() + amountMl;
     showToast(`💧 ${amountMl}ml su eklendi (toplam: ${(total / 1000).toFixed(1)}L)`);
@@ -357,8 +360,8 @@ export function QuickActionSheet({ visible, onClose, onOpenCamera, onOpenGallery
               <Text style={styles.weightUnit}>kg</Text>
             </View>
             <TouchableOpacity style={styles.saveBtn} onPress={saveWeight}>
-              <Ionicons name="checkmark" size={18} color="#fff" />
-              <Text style={styles.saveBtnText}>Kaydet</Text>
+              <Ionicons name="checkmark" size={16} color={Colors.background} />
+              <Text style={styles.saveBtnText}>KAYDET</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -548,38 +551,43 @@ const styles = StyleSheet.create({
   },
   weightRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'center',
     gap: Spacing.sm,
     marginBottom: Spacing.lg,
   },
   weightInput: {
-    width: 140,
-    fontSize: FontSize.xxxl,
-    fontWeight: '800',
+    width: 160,
+    fontFamily: SERIF,
+    fontSize: 44,
     color: Colors.textPrimary,
     textAlign: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: Colors.primary,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.ink + '60',
     paddingVertical: Spacing.sm,
+    letterSpacing: -1,
   },
   weightUnit: {
-    fontSize: FontSize.xl,
-    fontWeight: '700',
+    fontFamily: MONO,
+    fontSize: 14,
     color: Colors.textMuted,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.xs,
-    backgroundColor: Colors.primary,
-    paddingVertical: Spacing.sm + 2,
+    backgroundColor: Colors.ink,
+    paddingVertical: 14,
     borderRadius: BorderRadius.md,
   },
   saveBtnText: {
-    color: '#fff',
-    fontSize: FontSize.md,
+    color: Colors.background,
+    fontFamily: MONO,
+    fontSize: 12,
     fontWeight: '700',
+    letterSpacing: 1.0,
   },
 });

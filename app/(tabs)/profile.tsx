@@ -18,7 +18,6 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../store/authStore';
 import { Colors, Spacing, FontSize, BorderRadius, ACTIVITY_LEVELS, GOALS, DIET_TYPES, TTM_STAGES, ActivityLevel, Goal, DietType, OccupationalActivity, ExerciseFrequency, BodyFatBand } from '../../lib/constants';
-import { Card } from '../../components/ui/Card';
 import { calculateBMI, getBMICategory, calculateMacroGoals, calculateBMR, UserMetrics } from '../../lib/nutrition';
 import { supabase } from '../../lib/supabase';
 import {
@@ -56,6 +55,12 @@ import {
   requestHealthConnectPermissions,
   getHealthConnectStepsToday,
 } from '../../lib/healthConnect';
+
+const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
+
+// Tab bar yüksekliği (BAR_H 58 + bottom 14/26 + boşluk) — ScrollView altı için.
+const TAB_BAR_CLEARANCE = Platform.OS === 'ios' ? 120 : 110;
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -103,8 +108,6 @@ export default function ProfileScreen() {
     loadMealReminderSettings().then(setMealSettings);
     loadStepReminderSettings().then(setStepSettings);
     loadMotivationSettings().then(setMotivationSettings);
-    // Haftalık rapor durumunu notifications üzerinden oku (enabled toggle)
-    // stepSettings yeterli — weeklyReport ayrı storage yok, AsyncStorage'den oku
     import('@react-native-async-storage/async-storage').then(({ default: AS }) =>
       AS.getItem('weekly_report_enabled').then((v) => setWeeklyReportEnabled(v === 'true'))
     );
@@ -112,7 +115,6 @@ export default function ProfileScreen() {
     refreshHealthConnectState();
   }, []);
 
-  // Health Connect durumunu kontrol et: önce SDK var mı, sonra okuma yetkimiz var mı
   async function refreshHealthConnectState() {
     if (Platform.OS !== 'android') {
       setHcState('unavailable');
@@ -125,7 +127,6 @@ export default function ProfileScreen() {
         setHcState('unavailable');
         return;
       }
-      // İzin verilmişse readRecords değer döner; izin yoksa null gelir.
       const steps = await getHealthConnectStepsToday();
       setHcState(steps !== null ? 'connected' : 'available');
     } catch {
@@ -170,7 +171,6 @@ export default function ProfileScreen() {
       return;
     }
 
-    // hcState === 'available' → izin diyaloğunu aç
     setHcRequesting(true);
     try {
       const granted = await requestHealthConnectPermissions();
@@ -185,7 +185,6 @@ export default function ProfileScreen() {
           'İzin Verilmedi',
           'Adım verilerine erişim izni alınamadı. Health Connect uygulamasından FitBite\'a izin vererek tekrar deneyebilirsin.'
         );
-        // Belki kullanıcı reddetti, belki delegate hata verdi. State'i tekrar oku.
         await refreshHealthConnectState();
       }
     } finally {
@@ -277,7 +276,6 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             if (!user) return;
-            // Kullanıcı verilerini sil
             await supabase.from('food_logs').delete().eq('user_id', user.id);
             await supabase.from('water_logs').delete().eq('user_id', user.id);
             await supabase.from('weight_logs').delete().eq('user_id', user.id);
@@ -416,7 +414,7 @@ export default function ProfileScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyState}>
           <Ionicons name="person-circle-outline" size={56} color={Colors.textMuted} />
-          <Text style={styles.emptyText}>Profil bilgileri yükleniyor...</Text>
+          <Text style={styles.emptyText}>Profil bilgileri yükleniyor…</Text>
           <TouchableOpacity style={styles.emergencySignOut} onPress={signOut}>
             <Ionicons name="log-out-outline" size={18} color={Colors.error} />
             <Text style={styles.emergencySignOutText}>Oturumu Kapat</Text>
@@ -443,21 +441,33 @@ export default function ProfileScreen() {
   };
   const { value: bmrValue, formula: bmrFormula } = calculateBMR(bmrMetrics);
   const ttmEntry = TTM_STAGES.find(s => s.key === profile.ttm_stage);
+  const firstName = profile.name?.split(' ')[0] ?? profile.name ?? '';
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Profil Başlığı */}
-        <View style={styles.profileHeader}>
-          <View style={styles.avatar}>
-            <Ionicons
-              name={profile.gender === 'male' ? 'person' : 'person'}
-              size={44}
-              color={Colors.primary}
-            />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: TAB_BAR_CLEARANCE }}
+      >
+        {/* ── Editorial Hero ── */}
+        <View style={styles.heroBlock}>
+          <Text style={styles.overline}>SENİN PROFİLİN</Text>
+          <View style={styles.heroRow}>
+            <View style={styles.avatar}>
+              <Ionicons
+                name={profile.gender === 'male' ? 'person' : 'person'}
+                size={36}
+                color={Colors.primary}
+              />
+            </View>
+            <View style={styles.heroText}>
+              <Text style={styles.profileName}>
+                {firstName}
+                <Text style={styles.profileNameAccent}>.</Text>
+              </Text>
+              <Text style={styles.profileEmail}>{user?.email}</Text>
+            </View>
           </View>
-          <Text style={styles.profileName}>{profile.name}</Text>
-          <Text style={styles.profileEmail}>{user?.email}</Text>
           <View style={styles.profileBadges}>
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
@@ -465,7 +475,7 @@ export default function ProfileScreen() {
               </Text>
             </View>
             <View style={[styles.badge, styles.badgeSecondary]}>
-              <Text style={styles.badgeText}>
+              <Text style={styles.badgeTextSecondary}>
                 {DIET_TYPES[profile.diet_type]?.label ?? profile.diet_type}
               </Text>
             </View>
@@ -477,75 +487,86 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Vücut İstatistikleri */}
-        <Card style={styles.statsCard}>
-          <Text style={styles.sectionTitle}>Vücut Bilgileri</Text>
+        {/* ── Vücut Bilgileri ── */}
+        <View style={styles.section}>
+          <Text style={styles.overline}>VÜCUT BİLGİLERİ</Text>
           <View style={styles.statsGrid}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{profile.weight_kg} kg</Text>
-              <Text style={styles.statLabel}>Kilo</Text>
+              <Text style={styles.statValue}>{profile.weight_kg}</Text>
+              <Text style={styles.statUnit}>kg</Text>
+              <Text style={styles.statLabel}>KİLO</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{profile.height_cm} cm</Text>
-              <Text style={styles.statLabel}>Boy</Text>
+              <Text style={styles.statValue}>{profile.height_cm}</Text>
+              <Text style={styles.statUnit}>cm</Text>
+              <Text style={styles.statLabel}>BOY</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>{age}</Text>
-              <Text style={styles.statLabel}>Yaş</Text>
+              <Text style={styles.statUnit}>yaş</Text>
+              <Text style={styles.statLabel}>YAŞ</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={[styles.statValue, { color: getBMIColor(bmi) }]}>{bmi}</Text>
-              <Text style={styles.statLabel}>BMI ({getBMICategory(bmi)})</Text>
+              <Text style={styles.statUnit}>{getBMICategory(bmi).toLowerCase()}</Text>
+              <Text style={styles.statLabel}>BMI</Text>
             </View>
           </View>
-        </Card>
+        </View>
 
-        {/* Günlük Hedefler */}
-        <Card style={styles.goalsCard}>
-          <Text style={styles.sectionTitle}>Günlük Hedefler</Text>
-          <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>Kalori</Text>
-            <Text style={styles.goalValue}>{profile.daily_calorie_goal} kcal</Text>
-          </View>
-          <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>Protein</Text>
-            <Text style={styles.goalValue}>{profile.daily_protein_goal} g</Text>
-          </View>
-          <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>Karbonhidrat</Text>
-            <Text style={styles.goalValue}>{profile.daily_carbs_goal} g</Text>
-          </View>
-          <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>Yağ</Text>
-            <Text style={styles.goalValue}>{profile.daily_fat_goal} g</Text>
-          </View>
-          <View style={styles.goalRow}>
-            <Text style={styles.goalLabel}>Su</Text>
-            <Text style={styles.goalValue}>{(profile.daily_water_goal_ml / 1000).toFixed(1)} L</Text>
-          </View>
-          <View style={[styles.goalRow, { borderBottomWidth: 0 }]}>
-            <Text style={styles.goalLabel}>BMR</Text>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.goalValue}>{bmrValue} kcal</Text>
-              <Text style={styles.bmrFormula}>
-                {bmrFormula === 'katch_mcardle' ? 'Katch-McArdle' : 'Mifflin-St Jeor'}
-              </Text>
+        {/* ── Günlük Hedefler ── */}
+        <View style={styles.section}>
+          <Text style={styles.overline}>GÜNLÜK HEDEFLER</Text>
+          <View style={styles.editorialCard}>
+            <View style={styles.goalRow}>
+              <Text style={styles.goalLabel}>Kalori</Text>
+              <Text style={styles.goalValue}>{profile.daily_calorie_goal} <Text style={styles.goalUnit}>kcal</Text></Text>
+            </View>
+            <View style={styles.goalRow}>
+              <Text style={styles.goalLabel}>Protein</Text>
+              <Text style={styles.goalValue}>{profile.daily_protein_goal} <Text style={styles.goalUnit}>g</Text></Text>
+            </View>
+            <View style={styles.goalRow}>
+              <Text style={styles.goalLabel}>Karbonhidrat</Text>
+              <Text style={styles.goalValue}>{profile.daily_carbs_goal} <Text style={styles.goalUnit}>g</Text></Text>
+            </View>
+            <View style={styles.goalRow}>
+              <Text style={styles.goalLabel}>Yağ</Text>
+              <Text style={styles.goalValue}>{profile.daily_fat_goal} <Text style={styles.goalUnit}>g</Text></Text>
+            </View>
+            <View style={styles.goalRow}>
+              <Text style={styles.goalLabel}>Su</Text>
+              <Text style={styles.goalValue}>{(profile.daily_water_goal_ml / 1000).toFixed(1)} <Text style={styles.goalUnit}>L</Text></Text>
+            </View>
+            <View style={[styles.goalRow, styles.goalRowLast]}>
+              <View>
+                <Text style={styles.goalLabel}>BMR</Text>
+                <Text style={styles.bmrFormula}>
+                  {bmrFormula === 'katch_mcardle' ? 'Katch-McArdle' : 'Mifflin-St Jeor'}
+                </Text>
+              </View>
+              <Text style={styles.goalValue}>{bmrValue} <Text style={styles.goalUnit}>kcal</Text></Text>
             </View>
           </View>
-        </Card>
+        </View>
 
-        {/* Aktivite Seviyesi */}
-        <Card style={styles.activityCard}>
-          <Text style={styles.sectionTitle}>Aktivite Seviyesi</Text>
-          <Text style={styles.activityValue}>
-            {ACTIVITY_LEVELS[profile.activity_level]?.label ?? profile.activity_level}
-          </Text>
-        </Card>
+        {/* ── Aktivite ── */}
+        <View style={styles.section}>
+          <Text style={styles.overline}>AKTİVİTE SEVİYESİ</Text>
+          <View style={styles.editorialCard}>
+            <Text style={styles.activityValue}>
+              {ACTIVITY_LEVELS[profile.activity_level]?.label ?? profile.activity_level}
+            </Text>
+            <Text style={styles.activityDesc}>
+              {ACTIVITY_LEVELS[profile.activity_level]?.description ?? ''}
+            </Text>
+          </View>
+        </View>
 
-        {/* Alerjiler */}
+        {/* ── Alerjiler ── */}
         {profile.allergies && profile.allergies.length > 0 && (
-          <Card style={styles.allergiesCard}>
-            <Text style={styles.sectionTitle}>Alerjiler & Kısıtlamalar</Text>
+          <View style={styles.section}>
+            <Text style={styles.overline}>ALERJİLER & KISITLAMALAR</Text>
             <View style={styles.tagsRow}>
               {profile.allergies.map((allergy) => (
                 <View key={allergy} style={styles.tag}>
@@ -553,174 +574,128 @@ export default function ProfileScreen() {
                 </View>
               ))}
             </View>
-          </Card>
+          </View>
         )}
 
-        {/* Ayarlar Bölümü */}
-        <Card style={styles.settingsCard}>
-          <TouchableOpacity style={styles.settingRow} onPress={openEditModal}>
-            <Ionicons name="create-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <Text style={styles.settingLabel}>Profili Düzenle</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => router.push('/shopping-list')}>
-            <Ionicons name="cart-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <Text style={styles.settingLabel}>Alışveriş Listesi</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => setShowNotifModal(true)}>
-            <Ionicons name="notifications-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <Text style={styles.settingLabel}>Su Hatırlatıcıları</Text>
-            <View style={styles.settingRight}>
-              {reminderSettings.enabled && (
-                <View style={styles.activeBadge}>
-                  <Text style={styles.activeBadgeText}>Açık</Text>
-                </View>
-              )}
-              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-            </View>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={() => setShowMealModal(true)}>
-            <Ionicons name="restaurant-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <Text style={styles.settingLabel}>Öğün Hatırlatıcıları</Text>
-            <View style={styles.settingRight}>
-              {mealSettings.enabled && (
-                <View style={styles.activeBadge}>
-                  <Text style={styles.activeBadgeText}>Açık</Text>
-                </View>
-              )}
-              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-            </View>
-          </TouchableOpacity>
-          <View style={styles.settingRow}>
-            <Ionicons name="footsteps-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <View style={styles.settingLabelWrap}>
-              <Text style={styles.settingLabelInline}>Adım Hedefi Uyarısı</Text>
-              <Text style={styles.settingSubLabel}>Her gün 19:00'da hatırlatır</Text>
-            </View>
-            <Switch
-              value={stepSettings.enabled}
-              onValueChange={handleStepReminderToggle}
-              trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-              thumbColor={stepSettings.enabled ? Colors.primary : Colors.textMuted}
+        {/* ── Ayarlar ── */}
+        <View style={styles.section}>
+          <Text style={styles.overline}>AYARLAR</Text>
+          <View style={styles.editorialCard}>
+            <SettingRow
+              icon="create-outline"
+              label="Profili Düzenle"
+              onPress={openEditModal}
+            />
+            <SettingRow
+              icon="cart-outline"
+              label="Alışveriş Listesi"
+              onPress={() => router.push('/shopping-list')}
+            />
+            <SettingRow
+              icon="notifications-outline"
+              label="Su Hatırlatıcıları"
+              rightBadge={reminderSettings.enabled ? 'AÇIK' : null}
+              onPress={() => setShowNotifModal(true)}
+            />
+            <SettingRow
+              icon="restaurant-outline"
+              label="Öğün Hatırlatıcıları"
+              rightBadge={mealSettings.enabled ? 'AÇIK' : null}
+              onPress={() => setShowMealModal(true)}
+            />
+            <SettingRow
+              icon="footsteps-outline"
+              label="Adım Hedefi Uyarısı"
+              sublabel="Her gün 19:00'da hatırlatır"
+              switchProps={{
+                value: stepSettings.enabled,
+                onValueChange: handleStepReminderToggle,
+              }}
+            />
+            <SettingRow
+              icon="sparkles-outline"
+              label="Motivasyon Mesajları"
+              rightBadge={motivationSettings.enabled ? 'AÇIK' : null}
+              onPress={() => setShowMotivationModal(true)}
+            />
+            <SettingRow
+              icon="bar-chart-outline"
+              label="Haftalık Rapor"
+              sublabel="Her Pazartesi sabah 09:00"
+              switchProps={{
+                value: weeklyReportEnabled,
+                onValueChange: handleWeeklyReportToggle,
+              }}
+            />
+            <SettingRow
+              icon="footsteps-outline"
+              label="Fiziksel Aktivite"
+              sublabel={
+                isAvailable
+                  ? (permissionGranted ? 'Adım takibi aktif' : 'İzin gerekiyor')
+                  : 'Cihaz desteklemiyor'
+              }
+              rightBadge={
+                isAvailable && permissionGranted
+                  ? 'AÇIK'
+                  : isAvailable && !permissionGranted
+                  ? 'İZİN VER'
+                  : null
+              }
+              rightBadgeWarn={isAvailable && !permissionGranted}
+              onPress={handleRequestPedometerPermission}
+              disabled={checkingPedometer}
+            />
+            {Platform.OS === 'android' && (
+              <SettingRow
+                icon="heart-outline"
+                label="Health Connect"
+                sublabel={
+                  hcState === 'checking' ? 'Kontrol ediliyor…' :
+                  hcState === 'unavailable' ? 'Cihazda yüklü değil' :
+                  hcState === 'available' ? 'Bağlamak için izin ver' :
+                  'Arka plan adımları senkron'
+                }
+                rightBadge={
+                  hcRequesting ? null :
+                  hcState === 'connected' ? 'BAĞLI' :
+                  hcState === 'available' ? 'BAĞLAN' :
+                  null
+                }
+                rightBadgeWarn={hcState === 'available'}
+                rightSpinner={hcRequesting}
+                onPress={handleHealthConnectPress}
+                disabled={hcRequesting || hcState === 'checking'}
+              />
+            )}
+            <SettingRow
+              icon="shield-checkmark-outline"
+              label="Gizlilik & Güvenlik"
+              onPress={() => setShowPrivacyModal(true)}
+            />
+            <SettingRow
+              icon="log-out-outline"
+              label="Çıkış Yap"
+              destructive
+              onPress={handleSignOut}
+              isLast
             />
           </View>
-          <TouchableOpacity style={styles.settingRow} onPress={() => setShowMotivationModal(true)}>
-            <Ionicons name="sparkles-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <Text style={styles.settingLabel}>Motivasyon Mesajları</Text>
-            <View style={styles.settingRight}>
-              {motivationSettings.enabled && (
-                <View style={styles.activeBadge}>
-                  <Text style={styles.activeBadgeText}>Açık</Text>
-                </View>
-              )}
-              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-            </View>
-          </TouchableOpacity>
-          <View style={styles.settingRow}>
-            <Ionicons name="bar-chart-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <View style={styles.settingLabelWrap}>
-              <Text style={styles.settingLabelInline}>Haftalık Rapor</Text>
-              <Text style={styles.settingSubLabel}>Her Pazartesi sabah 09:00</Text>
-            </View>
-            <Switch
-              value={weeklyReportEnabled}
-              onValueChange={handleWeeklyReportToggle}
-              trackColor={{ false: Colors.border, true: Colors.primaryLight }}
-              thumbColor={weeklyReportEnabled ? Colors.primary : Colors.textMuted}
-            />
-          </View>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={handleRequestPedometerPermission}
-            disabled={checkingPedometer}
-          >
-            <Ionicons name="footsteps-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <View style={styles.settingLabelWrap}>
-              <Text style={styles.settingLabelInline}>Fiziksel Aktivite</Text>
-              {isAvailable && (
-                <Text style={styles.settingSubLabel}>
-                  {permissionGranted ? 'Adım takibi aktif' : 'İzin gerekiyor'}
-                </Text>
-              )}
-            </View>
-            <View style={styles.settingRight}>
-              {isAvailable && permissionGranted ? (
-                <View style={styles.activeBadge}>
-                  <Text style={styles.activeBadgeText}>Açık</Text>
-                </View>
-              ) : isAvailable && !permissionGranted ? (
-                <View style={styles.warningBadge}>
-                  <Text style={styles.warningBadgeText}>İzin Ver</Text>
-                </View>
-              ) : null}
-              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-            </View>
-          </TouchableOpacity>
-          {Platform.OS === 'android' && (
-            <TouchableOpacity
-              style={styles.settingRow}
-              onPress={handleHealthConnectPress}
-              disabled={hcRequesting || hcState === 'checking'}
-            >
-              <Ionicons name="heart-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-              <View style={styles.settingLabelWrap}>
-                <Text style={styles.settingLabelInline}>Health Connect</Text>
-                <Text style={styles.settingSubLabel}>
-                  {hcState === 'checking' && 'Kontrol ediliyor…'}
-                  {hcState === 'unavailable' && 'Cihazda yüklü değil'}
-                  {hcState === 'available' && 'Bağlamak için izin ver'}
-                  {hcState === 'connected' && 'Arka plan adımları senkron'}
-                </Text>
-              </View>
-              <View style={styles.settingRight}>
-                {hcRequesting ? (
-                  <ActivityIndicator size="small" color={Colors.primary} />
-                ) : hcState === 'connected' ? (
-                  <View style={styles.activeBadge}>
-                    <Text style={styles.activeBadgeText}>Bağlı</Text>
-                  </View>
-                ) : hcState === 'available' ? (
-                  <View style={styles.warningBadge}>
-                    <Text style={styles.warningBadgeText}>Bağlan</Text>
-                  </View>
-                ) : null}
-                <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-              </View>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.settingRow} onPress={() => setShowPrivacyModal(true)}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textSecondary} style={styles.settingIconView} />
-            <Text style={styles.settingLabel}>Gizlilik & Güvenlik</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.settingRow} onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={20} color={Colors.error} style={styles.settingIconView} />
-            <Text style={[styles.settingLabel, { color: Colors.error }]}>Çıkış Yap</Text>
-            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-          </TouchableOpacity>
-        </Card>
-
-        <View style={{ height: Spacing.xl }} />
+        </View>
       </ScrollView>
 
-      {/* Su Hatırlatıcıları Modal */}
+      {/* ────────────────────────────────────────────────────────────────────
+          Su Hatırlatıcıları Modal
+          ──────────────────────────────────────────────────────────────────── */}
       <Modal visible={showNotifModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.notifModal}>
-          <View style={styles.notifHeader}>
-            <Text style={styles.notifTitle}>Su Hatırlatıcıları</Text>
-            <TouchableOpacity onPress={() => setShowNotifModal(false)}>
-              <Text style={styles.notifClose}>Kapat</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.notifContent}>
-            {/* Ana aç/kapat */}
-            <Card style={styles.notifCard}>
-              <View style={styles.notifRow}>
-                <View style={styles.notifRowInfo}>
-                  <Text style={styles.notifRowTitle}>Su Hatırlatıcılarını Etkinleştir</Text>
-                  <Text style={styles.notifRowDesc}>Belirli aralıklarla su içmen için bildirim gönderilir</Text>
+        <SafeAreaView style={styles.modalContainer} edges={['top']}>
+          <ModalHeader title="Su Hatırlatıcıları" overline="HATIRLATMA" onClose={() => setShowNotifModal(false)} />
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+            <View style={styles.editorialCard}>
+              <View style={styles.modalRow}>
+                <View style={styles.modalRowInfo}>
+                  <Text style={styles.modalRowTitle}>Hatırlatıcıları Etkinleştir</Text>
+                  <Text style={styles.modalRowDesc}>Belirli aralıklarla su içmen için bildirim gönderilir</Text>
                 </View>
                 <Switch
                   value={reminderSettings.enabled}
@@ -729,134 +704,80 @@ export default function ProfileScreen() {
                   thumbColor={reminderSettings.enabled ? Colors.primary : Colors.textMuted}
                 />
               </View>
-            </Card>
+            </View>
 
             {reminderSettings.enabled && (
               <>
-                {/* Hatırlatma aralığı */}
-                <Card style={styles.notifCard}>
-                  <Text style={styles.notifSectionLabel}>Hatırlatma Aralığı</Text>
-                  <View style={styles.optionRow}>
-                    {[1, 2, 3].map((h) => (
-                      <TouchableOpacity
-                        key={h}
-                        style={[
-                          styles.optionBtn,
-                          reminderSettings.intervalHours === h && styles.optionBtnActive,
-                        ]}
-                        onPress={() =>
-                          setReminderSettings((s) => ({ ...s, intervalHours: h }))
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.optionBtnText,
-                            reminderSettings.intervalHours === h && styles.optionBtnTextActive,
-                          ]}
-                        >
-                          {h} saatte bir
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </Card>
+                <Text style={styles.modalSectionLabel}>HATIRLATMA ARALIĞI</Text>
+                <View style={styles.optionRow}>
+                  {[1, 2, 3].map((h) => (
+                    <TouchableOpacity
+                      key={h}
+                      style={[styles.optionBtn, reminderSettings.intervalHours === h && styles.optionBtnActive]}
+                      onPress={() => setReminderSettings((s) => ({ ...s, intervalHours: h }))}
+                    >
+                      <Text style={[styles.optionBtnText, reminderSettings.intervalHours === h && styles.optionBtnTextActive]}>
+                        {h} saatte bir
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-                {/* Başlangıç saati */}
-                <Card style={styles.notifCard}>
-                  <Text style={styles.notifSectionLabel}>Başlangıç Saati</Text>
-                  <View style={styles.optionRow}>
-                    {[7, 8, 9, 10].map((h) => (
-                      <TouchableOpacity
-                        key={h}
-                        style={[
-                          styles.optionBtn,
-                          reminderSettings.startHour === h && styles.optionBtnActive,
-                        ]}
-                        onPress={() =>
-                          setReminderSettings((s) => ({ ...s, startHour: h }))
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.optionBtnText,
-                            reminderSettings.startHour === h && styles.optionBtnTextActive,
-                          ]}
-                        >
-                          {h}:00
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </Card>
+                <Text style={styles.modalSectionLabel}>BAŞLANGIÇ SAATİ</Text>
+                <View style={styles.optionRow}>
+                  {[7, 8, 9, 10].map((h) => (
+                    <TouchableOpacity
+                      key={h}
+                      style={[styles.optionBtn, reminderSettings.startHour === h && styles.optionBtnActive]}
+                      onPress={() => setReminderSettings((s) => ({ ...s, startHour: h }))}
+                    >
+                      <Text style={[styles.optionBtnText, reminderSettings.startHour === h && styles.optionBtnTextActive]}>
+                        {h}:00
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-                {/* Bitiş saati */}
-                <Card style={styles.notifCard}>
-                  <Text style={styles.notifSectionLabel}>Bitiş Saati</Text>
-                  <View style={styles.optionRow}>
-                    {[20, 21, 22, 23].map((h) => (
-                      <TouchableOpacity
-                        key={h}
-                        style={[
-                          styles.optionBtn,
-                          reminderSettings.endHour === h && styles.optionBtnActive,
-                        ]}
-                        onPress={() =>
-                          setReminderSettings((s) => ({ ...s, endHour: h }))
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.optionBtnText,
-                            reminderSettings.endHour === h && styles.optionBtnTextActive,
-                          ]}
-                        >
-                          {h}:00
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </Card>
+                <Text style={styles.modalSectionLabel}>BİTİŞ SAATİ</Text>
+                <View style={styles.optionRow}>
+                  {[20, 21, 22, 23].map((h) => (
+                    <TouchableOpacity
+                      key={h}
+                      style={[styles.optionBtn, reminderSettings.endHour === h && styles.optionBtnActive]}
+                      onPress={() => setReminderSettings((s) => ({ ...s, endHour: h }))}
+                    >
+                      <Text style={[styles.optionBtnText, reminderSettings.endHour === h && styles.optionBtnTextActive]}>
+                        {h}:00
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-                {/* Özet */}
-                <View style={styles.notifSummary}>
-                  <Text style={styles.notifSummaryText}>
-                    Saat {reminderSettings.startHour}:00 ile {reminderSettings.endHour}:00 arasında{' '}
-                    her {reminderSettings.intervalHours} saatte bir hatırlatılacaksın.
+                <View style={styles.modalSummary}>
+                  <Text style={styles.modalSummaryText}>
+                    Saat {reminderSettings.startHour}:00 ile {reminderSettings.endHour}:00 arasında her {reminderSettings.intervalHours} saatte bir hatırlatılacaksın.
                   </Text>
                 </View>
               </>
             )}
           </ScrollView>
 
-          <View style={styles.notifFooter}>
-            <TouchableOpacity
-              style={[styles.saveBtn, savingNotif && styles.saveBtnDisabled]}
-              onPress={handleSaveNotifSettings}
-              disabled={savingNotif}
-            >
-              <Text style={styles.saveBtnText}>
-                {savingNotif ? 'Kaydediliyor...' : 'Kaydet'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <ModalFooter saving={savingNotif} onSave={handleSaveNotifSettings} />
         </SafeAreaView>
       </Modal>
 
-      {/* Öğün Hatırlatıcıları Modal */}
+      {/* ────────────────────────────────────────────────────────────────────
+          Öğün Hatırlatıcıları Modal
+          ──────────────────────────────────────────────────────────────────── */}
       <Modal visible={showMealModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.notifModal}>
-          <View style={styles.notifHeader}>
-            <Text style={styles.notifTitle}>Öğün Hatırlatıcıları</Text>
-            <TouchableOpacity onPress={() => setShowMealModal(false)}>
-              <Text style={styles.notifClose}>Kapat</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.notifContent}>
-            <Card style={styles.notifCard}>
-              <View style={styles.notifRow}>
-                <View style={styles.notifRowInfo}>
-                  <Text style={styles.notifRowTitle}>Öğün Hatırlatıcılarını Etkinleştir</Text>
-                  <Text style={styles.notifRowDesc}>Seçtiğin saatlerde öğün bildirimi al</Text>
+        <SafeAreaView style={styles.modalContainer} edges={['top']}>
+          <ModalHeader title="Öğün Hatırlatıcıları" overline="HATIRLATMA" onClose={() => setShowMealModal(false)} />
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+            <View style={styles.editorialCard}>
+              <View style={styles.modalRow}>
+                <View style={styles.modalRowInfo}>
+                  <Text style={styles.modalRowTitle}>Öğün Hatırlatıcılarını Etkinleştir</Text>
+                  <Text style={styles.modalRowDesc}>Seçtiğin saatlerde öğün bildirimi al</Text>
                 </View>
                 <Switch
                   value={mealSettings.enabled}
@@ -865,11 +786,10 @@ export default function ProfileScreen() {
                   thumbColor={mealSettings.enabled ? Colors.primary : Colors.textMuted}
                 />
               </View>
-            </Card>
+            </View>
             {mealSettings.enabled && (
               <>
-                {/* Kahvaltı */}
-                <Card style={styles.notifCard}>
+                <View style={styles.editorialCard}>
                   <View style={styles.mealRow}>
                     <Text style={styles.mealLabel}>🌅 Kahvaltı</Text>
                     <Switch
@@ -894,9 +814,8 @@ export default function ProfileScreen() {
                       ))}
                     </View>
                   )}
-                </Card>
-                {/* Öğle */}
-                <Card style={styles.notifCard}>
+                </View>
+                <View style={styles.editorialCard}>
                   <View style={styles.mealRow}>
                     <Text style={styles.mealLabel}>☀️ Öğle Yemeği</Text>
                     <Switch
@@ -921,9 +840,8 @@ export default function ProfileScreen() {
                       ))}
                     </View>
                   )}
-                </Card>
-                {/* Akşam */}
-                <Card style={styles.notifCard}>
+                </View>
+                <View style={styles.editorialCard}>
                   <View style={styles.mealRow}>
                     <Text style={styles.mealLabel}>🌙 Akşam Yemeği</Text>
                     <Switch
@@ -948,38 +866,26 @@ export default function ProfileScreen() {
                       ))}
                     </View>
                   )}
-                </Card>
+                </View>
               </>
             )}
-            <View style={{ height: Spacing.xl }} />
           </ScrollView>
-          <View style={styles.notifFooter}>
-            <TouchableOpacity
-              style={[styles.saveBtn, savingMeal && styles.saveBtnDisabled]}
-              onPress={handleSaveMealSettings}
-              disabled={savingMeal}
-            >
-              <Text style={styles.saveBtnText}>{savingMeal ? 'Kaydediliyor...' : 'Kaydet'}</Text>
-            </TouchableOpacity>
-          </View>
+          <ModalFooter saving={savingMeal} onSave={handleSaveMealSettings} />
         </SafeAreaView>
       </Modal>
 
-      {/* Motivasyon Mesajları Modal */}
+      {/* ────────────────────────────────────────────────────────────────────
+          Motivasyon Mesajları Modal
+          ──────────────────────────────────────────────────────────────────── */}
       <Modal visible={showMotivationModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.notifModal}>
-          <View style={styles.notifHeader}>
-            <Text style={styles.notifTitle}>Motivasyon Mesajları</Text>
-            <TouchableOpacity onPress={() => setShowMotivationModal(false)}>
-              <Text style={styles.notifClose}>Kapat</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.notifContent}>
-            <Card style={styles.notifCard}>
-              <View style={styles.notifRow}>
-                <View style={styles.notifRowInfo}>
-                  <Text style={styles.notifRowTitle}>Sabah Motivasyonu</Text>
-                  <Text style={styles.notifRowDesc}>Her sabah güne ilham veren bir mesajla başla</Text>
+        <SafeAreaView style={styles.modalContainer} edges={['top']}>
+          <ModalHeader title="Motivasyon Mesajları" overline="GÜNLÜK İLHAM" onClose={() => setShowMotivationModal(false)} />
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+            <View style={styles.editorialCard}>
+              <View style={styles.modalRow}>
+                <View style={styles.modalRowInfo}>
+                  <Text style={styles.modalRowTitle}>Sabah Motivasyonu</Text>
+                  <Text style={styles.modalRowDesc}>Her sabah güne ilham veren bir mesajla başla</Text>
                 </View>
                 <Switch
                   value={motivationSettings.enabled}
@@ -988,10 +894,10 @@ export default function ProfileScreen() {
                   thumbColor={motivationSettings.enabled ? Colors.primary : Colors.textMuted}
                 />
               </View>
-            </Card>
+            </View>
             {motivationSettings.enabled && (
-              <Card style={styles.notifCard}>
-                <Text style={styles.notifSectionLabel}>Bildirim Saati</Text>
+              <>
+                <Text style={styles.modalSectionLabel}>BİLDİRİM SAATİ</Text>
                 <View style={styles.optionRow}>
                   {[6, 7, 8, 9].map((h) => (
                     <TouchableOpacity
@@ -1005,141 +911,108 @@ export default function ProfileScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-              </Card>
+              </>
             )}
-            <View style={{ height: Spacing.xl }} />
           </ScrollView>
-          <View style={styles.notifFooter}>
-            <TouchableOpacity
-              style={[styles.saveBtn, savingMotivation && styles.saveBtnDisabled]}
-              onPress={handleSaveMotivationSettings}
-              disabled={savingMotivation}
-            >
-              <Text style={styles.saveBtnText}>{savingMotivation ? 'Kaydediliyor...' : 'Kaydet'}</Text>
-            </TouchableOpacity>
-          </View>
+          <ModalFooter saving={savingMotivation} onSave={handleSaveMotivationSettings} />
         </SafeAreaView>
       </Modal>
 
-      {/* Profili Düzenle Modal */}
+      {/* ────────────────────────────────────────────────────────────────────
+          Profili Düzenle Modal
+          ──────────────────────────────────────────────────────────────────── */}
       <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.notifModal}>
-          <View style={styles.notifHeader}>
-            <Text style={styles.notifTitle}>Profili Düzenle</Text>
-            <TouchableOpacity onPress={() => setShowEditModal(false)}>
-              <Text style={styles.notifClose}>İptal</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.notifContent} keyboardShouldPersistTaps="handled">
-            <Card style={styles.notifCard}>
-              <Text style={styles.editFieldLabel}>İsim</Text>
-              <TextInput
-                style={styles.editInput}
-                value={editData.name}
-                onChangeText={(v) => setEditData((p) => ({ ...p, name: v }))}
-                placeholder="Adınız"
-                placeholderTextColor={Colors.textMuted}
-              />
-            </Card>
-            <Card style={styles.notifCard}>
-              <Text style={styles.editFieldLabel}>Kilo (kg)</Text>
-              <TextInput
-                style={styles.editInput}
-                value={editData.weight_kg}
-                onChangeText={(v) => setEditData((p) => ({ ...p, weight_kg: v }))}
-                placeholder="örn: 72"
-                keyboardType="numeric"
-                placeholderTextColor={Colors.textMuted}
-              />
-            </Card>
-            <Card style={styles.notifCard}>
-              <Text style={styles.editFieldLabel}>Hedef</Text>
-              <View style={styles.optionRow}>
-                {(Object.entries(GOALS) as [Goal, { label: string }][]).map(([key, val]) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[styles.optionBtn, editData.goal === key && styles.optionBtnActive]}
-                    onPress={() => setEditData((p) => ({ ...p, goal: key }))}
-                  >
-                    <Text style={[styles.optionBtnText, editData.goal === key && styles.optionBtnTextActive]}>
-                      {val.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </Card>
-            <Card style={styles.notifCard}>
-              <Text style={styles.editFieldLabel}>Diyet Tipi</Text>
-              <View style={styles.optionRow}>
-                {(Object.entries(DIET_TYPES) as [DietType, typeof DIET_TYPES[DietType]][]).map(([key, val]) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[styles.optionBtn, editData.diet_type === key && styles.optionBtnActive]}
-                    onPress={() => setEditData((p) => ({ ...p, diet_type: key }))}
-                  >
-                    <Text style={[styles.optionBtnText, editData.diet_type === key && styles.optionBtnTextActive]}>
-                      {val.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </Card>
-            <Card style={styles.notifCard}>
-              <Text style={styles.editFieldLabel}>Aktivite Seviyesi</Text>
-              <View style={styles.optionRow}>
-                {(Object.entries(ACTIVITY_LEVELS) as [ActivityLevel, { label: string }][]).map(([key, val]) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[styles.optionBtn, editData.activity_level === key && styles.optionBtnActive]}
-                    onPress={() => setEditData((p) => ({ ...p, activity_level: key }))}
-                  >
-                    <Text style={[styles.optionBtnText, editData.activity_level === key && styles.optionBtnTextActive]}>
-                      {val.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </Card>
-            <View style={{ height: Spacing.xl }} />
+        <SafeAreaView style={styles.modalContainer} edges={['top']}>
+          <ModalHeader title="Profili Düzenle" overline="DÜZENLE" closeLabel="İptal" onClose={() => setShowEditModal(false)} />
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+            <Text style={styles.modalSectionLabel}>İSİM</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editData.name}
+              onChangeText={(v) => setEditData((p) => ({ ...p, name: v }))}
+              placeholder="Adınız"
+              placeholderTextColor={Colors.textMuted}
+            />
+
+            <Text style={styles.modalSectionLabel}>KİLO (KG)</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editData.weight_kg}
+              onChangeText={(v) => setEditData((p) => ({ ...p, weight_kg: v }))}
+              placeholder="örn: 72"
+              keyboardType="numeric"
+              placeholderTextColor={Colors.textMuted}
+            />
+
+            <Text style={styles.modalSectionLabel}>HEDEF</Text>
+            <View style={styles.optionRow}>
+              {(Object.entries(GOALS) as [Goal, { label: string }][]).map(([key, val]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.optionBtn, editData.goal === key && styles.optionBtnActive]}
+                  onPress={() => setEditData((p) => ({ ...p, goal: key }))}
+                >
+                  <Text style={[styles.optionBtnText, editData.goal === key && styles.optionBtnTextActive]}>
+                    {val.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.modalSectionLabel}>DİYET TİPİ</Text>
+            <View style={styles.optionRow}>
+              {(Object.entries(DIET_TYPES) as [DietType, typeof DIET_TYPES[DietType]][]).map(([key, val]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.optionBtn, editData.diet_type === key && styles.optionBtnActive]}
+                  onPress={() => setEditData((p) => ({ ...p, diet_type: key }))}
+                >
+                  <Text style={[styles.optionBtnText, editData.diet_type === key && styles.optionBtnTextActive]}>
+                    {val.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.modalSectionLabel}>AKTİVİTE SEVİYESİ</Text>
+            <View style={styles.optionRow}>
+              {(Object.entries(ACTIVITY_LEVELS) as [ActivityLevel, { label: string }][]).map(([key, val]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.optionBtn, editData.activity_level === key && styles.optionBtnActive]}
+                  onPress={() => setEditData((p) => ({ ...p, activity_level: key }))}
+                >
+                  <Text style={[styles.optionBtnText, editData.activity_level === key && styles.optionBtnTextActive]}>
+                    {val.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </ScrollView>
-          <View style={styles.notifFooter}>
-            <TouchableOpacity
-              style={[styles.saveBtn, savingEdit && styles.saveBtnDisabled]}
-              onPress={saveProfile}
-              disabled={savingEdit}
-            >
-              {savingEdit
-                ? <ActivityIndicator color={Colors.textLight} />
-                : <Text style={styles.saveBtnText}>Kaydet</Text>
-              }
-            </TouchableOpacity>
-          </View>
+          <ModalFooter saving={savingEdit} onSave={saveProfile} />
         </SafeAreaView>
       </Modal>
 
-      {/* Gizlilik & Güvenlik Modal */}
+      {/* ────────────────────────────────────────────────────────────────────
+          Gizlilik & Güvenlik Modal
+          ──────────────────────────────────────────────────────────────────── */}
       <Modal visible={showPrivacyModal} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={styles.notifModal}>
-          <View style={styles.notifHeader}>
-            <Text style={styles.notifTitle}>Gizlilik & Güvenlik</Text>
-            <TouchableOpacity onPress={() => setShowPrivacyModal(false)}>
-              <Text style={styles.notifClose}>Kapat</Text>
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.notifContent}>
-            <Card style={styles.notifCard}>
+        <SafeAreaView style={styles.modalContainer} edges={['top']}>
+          <ModalHeader title="Gizlilik & Güvenlik" overline="GÜVENLİK" onClose={() => setShowPrivacyModal(false)} />
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
+            <View style={styles.editorialCard}>
               <Text style={styles.privacySectionTitle}>Veri Güvenliği</Text>
               <Text style={styles.privacyText}>
-                Tüm verileriniz Supabase altyapısında şifrelenmiş olarak saklanmaktadır. Üçüncü taraflarla paylaşılmaz.
+                Tüm verilerin Supabase altyapısında şifrelenmiş olarak saklanır. Üçüncü taraflarla paylaşılmaz.
               </Text>
-            </Card>
-            <Card style={styles.notifCard}>
+            </View>
+            <View style={styles.editorialCard}>
               <Text style={styles.privacySectionTitle}>Şifre Sıfırlama</Text>
               <Text style={styles.privacyText}>
-                {user?.email} adresinize şifre sıfırlama bağlantısı gönderilebilir.
+                {user?.email} adresine şifre sıfırlama bağlantısı gönderebilirsin.
               </Text>
               <TouchableOpacity
-                style={[styles.privacyBtn, sendingReset && styles.saveBtnDisabled]}
+                style={[styles.privacyBtn, sendingReset && styles.btnDisabled]}
                 onPress={handlePasswordReset}
                 disabled={sendingReset}
               >
@@ -1148,21 +1021,128 @@ export default function ProfileScreen() {
                   : <Text style={styles.privacyBtnText}>Şifre Sıfırlama E-postası Gönder</Text>
                 }
               </TouchableOpacity>
-            </Card>
-            <Card style={styles.notifCard}>
+            </View>
+            <View style={[styles.editorialCard, styles.dangerCard]}>
               <Text style={[styles.privacySectionTitle, { color: Colors.error }]}>Tehlikeli Bölge</Text>
               <Text style={styles.privacyText}>
-                Hesabınızı sildiğinizde tüm verileriniz kalıcı olarak silinir. Bu işlem geri alınamaz.
+                Hesabını sildiğinde tüm verilerin kalıcı olarak silinir. Bu işlem geri alınamaz.
               </Text>
               <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteAccount}>
                 <Text style={styles.deleteBtnText}>Hesabı Sil</Text>
               </TouchableOpacity>
-            </Card>
-            <View style={{ height: Spacing.xl }} />
+            </View>
           </ScrollView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Yardımcı bileşenler — Editorial setting row + Modal header/footer
+// ────────────────────────────────────────────────────────────────────────────
+
+interface SettingRowProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  sublabel?: string;
+  rightBadge?: string | null;
+  rightBadgeWarn?: boolean;
+  rightSpinner?: boolean;
+  switchProps?: { value: boolean; onValueChange: (v: boolean) => void };
+  onPress?: () => void;
+  destructive?: boolean;
+  disabled?: boolean;
+  isLast?: boolean;
+}
+
+function SettingRow({
+  icon, label, sublabel, rightBadge, rightBadgeWarn, rightSpinner,
+  switchProps, onPress, destructive, disabled, isLast,
+}: SettingRowProps) {
+  const Container: any = onPress ? TouchableOpacity : View;
+  return (
+    <Container
+      style={[styles.settingRow, !isLast && styles.settingRowBorder]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.65}
+    >
+      <Ionicons
+        name={icon}
+        size={18}
+        color={destructive ? Colors.error : Colors.textSecondary}
+        style={styles.settingIcon}
+      />
+      <View style={styles.settingLabelWrap}>
+        <Text style={[styles.settingLabel, destructive && { color: Colors.error }]}>
+          {label}
+        </Text>
+        {sublabel && <Text style={styles.settingSubLabel}>{sublabel}</Text>}
+      </View>
+      <View style={styles.settingRight}>
+        {rightSpinner && <ActivityIndicator size="small" color={Colors.primary} />}
+        {!rightSpinner && rightBadge && (
+          <View style={[styles.settingBadge, rightBadgeWarn && styles.settingBadgeWarn]}>
+            <Text style={[styles.settingBadgeText, rightBadgeWarn && styles.settingBadgeTextWarn]}>
+              {rightBadge}
+            </Text>
+          </View>
+        )}
+        {switchProps && (
+          <Switch
+            value={switchProps.value}
+            onValueChange={switchProps.onValueChange}
+            trackColor={{ false: Colors.border, true: Colors.primaryLight }}
+            thumbColor={switchProps.value ? Colors.primary : Colors.textMuted}
+          />
+        )}
+        {!switchProps && onPress && (
+          <Text style={styles.chevron}>›</Text>
+        )}
+      </View>
+    </Container>
+  );
+}
+
+function ModalHeader({
+  title,
+  overline,
+  closeLabel = 'Kapat',
+  onClose,
+}: {
+  title: string;
+  overline: string;
+  closeLabel?: string;
+  onClose: () => void;
+}) {
+  return (
+    <View style={styles.modalHeader}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.overline}>{overline}</Text>
+        <Text style={styles.modalTitle}>{title}</Text>
+      </View>
+      <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
+        <Text style={styles.modalCloseText}>{closeLabel}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function ModalFooter({ saving, onSave }: { saving: boolean; onSave: () => void }) {
+  return (
+    <View style={styles.modalFooter}>
+      <TouchableOpacity
+        style={[styles.saveBtn, saving && styles.btnDisabled]}
+        onPress={onSave}
+        disabled={saving}
+      >
+        {saving
+          ? <ActivityIndicator color={Colors.textLight} />
+          : <Text style={styles.saveBtnText}>Kaydet</Text>
+        }
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -1176,7 +1156,7 @@ function getBMIColor(bmi: number): string {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md },
-  emptyText: { fontSize: FontSize.md, color: Colors.textMuted },
+  emptyText: { fontSize: FontSize.md, color: Colors.textMuted, fontFamily: SERIF },
   emergencySignOut: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1189,167 +1169,455 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
   emergencySignOutText: { fontSize: FontSize.sm, color: Colors.error, fontWeight: '600' },
-  profileHeader: { alignItems: 'center', paddingVertical: Spacing.xl },
+
+  // ── Hero ──
+  heroBlock: {
+    paddingHorizontal: 22,
+    paddingTop: 16,
+    paddingBottom: 18,
+  },
+  overline: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.ink3,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginTop: 10,
+  },
   avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: BorderRadius.full,
+    width: 64,
+    height: 64,
+    borderRadius: 999,
     backgroundColor: Colors.primaryPale,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.md,
   },
-  profileName: { fontSize: FontSize.xxl, fontWeight: '800', color: Colors.textPrimary },
-  profileEmail: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 4 },
-  profileBadges: { flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.md },
+  heroText: {
+    flex: 1,
+  },
+  profileName: {
+    fontFamily: SERIF,
+    fontSize: 32,
+    color: Colors.ink,
+    lineHeight: 36,
+  },
+  profileNameAccent: {
+    fontFamily: SERIF,
+    color: Colors.terracotta,
+    fontStyle: 'italic',
+  },
+  profileEmail: {
+    fontFamily: MONO,
+    fontSize: 11,
+    color: Colors.ink3,
+    letterSpacing: 0.3,
+    marginTop: 4,
+  },
+  profileBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginTop: 14,
+  },
   badge: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.ink,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.full,
+    paddingVertical: 5,
+    borderRadius: 999,
   },
-  badgeSecondary: { backgroundColor: Colors.primaryLight },
-  badgeTTM: { backgroundColor: Colors.accent },
-  badgeText: { fontSize: FontSize.sm, color: Colors.textLight, fontWeight: '600' },
-  bmrFormula: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
-  statsCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  sectionTitle: { fontSize: FontSize.lg, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.md },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
-  statItem: { flex: 1, minWidth: '40%', alignItems: 'center', backgroundColor: Colors.surfaceSecondary, borderRadius: BorderRadius.md, padding: Spacing.md },
-  statValue: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
-  statLabel: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 4, textAlign: 'center' },
-  goalsCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  goalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  goalLabel: { fontSize: FontSize.md, color: Colors.textSecondary },
-  goalValue: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  activityCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  activityValue: { fontSize: FontSize.lg, fontWeight: '600', color: Colors.primary },
-  allergiesCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  tag: { backgroundColor: Colors.accentLight, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderRadius: BorderRadius.full },
-  tagText: { fontSize: FontSize.sm, color: Colors.accent, fontWeight: '600' },
-  settingsCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md, paddingVertical: Spacing.sm },
-  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.md, paddingHorizontal: Spacing.sm, gap: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  settingIconView: { width: 24 },
-  settingLabel: { flex: 1, fontSize: FontSize.md, fontWeight: '500', color: Colors.textPrimary },
-  settingSubLabel: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 1 },
-  settingLabelWrap: { flex: 1 },
-  settingLabelInline: { fontSize: FontSize.md, fontWeight: '500', color: Colors.textPrimary },
-  settingRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  activeBadge: {
-    backgroundColor: Colors.primaryPale,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
+  badgeSecondary: {
+    backgroundColor: Colors.surface,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
   },
-  activeBadgeText: { fontSize: FontSize.xs, color: Colors.primary, fontWeight: '700' },
-  warningBadge: {
-    backgroundColor: '#FFF3CD',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
+  badgeTTM: { backgroundColor: Colors.terracotta },
+  badgeText: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.background,
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
-  warningBadgeText: { fontSize: FontSize.xs, color: '#D97706', fontWeight: '700' },
+  badgeTextSecondary: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.ink2,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
 
-  // Bildirim Modal
-  notifModal: { flex: 1, backgroundColor: Colors.background },
-  notifHeader: {
+  // ── Section / Card ──
+  section: {
+    paddingHorizontal: 22,
+    marginTop: 22,
+    gap: 10,
+  },
+  editorialCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.md + 4,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    padding: Spacing.md,
+  },
+  dangerCard: {
+    borderColor: Colors.error + '40',
+  },
+
+  // ── Stats grid ──
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  statItem: {
+    flex: 1,
+    minWidth: '22%',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderWidth: 0.5,
+    borderColor: Colors.borderLight,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+  },
+  statValue: {
+    fontFamily: SERIF,
+    fontSize: 26,
+    color: Colors.ink,
+    lineHeight: 30,
+    letterSpacing: -0.4,
+  },
+  statUnit: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink3,
+    marginTop: 2,
+    letterSpacing: 0.5,
+  },
+  statLabel: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink4,
+    marginTop: 8,
+    letterSpacing: 1.2,
+  },
+
+  // ── Goal rows ──
+  goalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
+    alignItems: 'flex-end',
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 0.5,
     borderBottomColor: Colors.borderLight,
   },
-  notifTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.textPrimary },
-  notifClose: { fontSize: FontSize.md, color: Colors.primary, fontWeight: '600' },
-  notifContent: { flex: 1, paddingTop: Spacing.md },
-  notifCard: { marginHorizontal: Spacing.lg, marginBottom: Spacing.md },
-  notifRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  notifRowInfo: { flex: 1, marginRight: Spacing.md },
-  notifRowTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  notifRowDesc: { fontSize: FontSize.sm, color: Colors.textMuted, marginTop: 2 },
-  notifSectionLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: Spacing.sm,
+  goalRowLast: { borderBottomWidth: 0 },
+  goalLabel: {
+    fontFamily: SERIF,
+    fontSize: 16,
+    color: Colors.ink2,
   },
-  optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  optionBtn: {
+  goalValue: {
+    fontFamily: SERIF,
+    fontSize: 18,
+    color: Colors.ink,
+    letterSpacing: -0.2,
+  },
+  goalUnit: {
+    fontFamily: MONO,
+    fontSize: 11,
+    color: Colors.ink3,
+    fontWeight: '400',
+  },
+  bmrFormula: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink3,
+    marginTop: 2,
+    letterSpacing: 0.5,
+  },
+
+  // ── Activity ──
+  activityValue: {
+    fontFamily: SERIF,
+    fontSize: 22,
+    color: Colors.primary,
+    fontStyle: 'italic',
+  },
+  activityDesc: {
+    fontFamily: SERIF,
+    fontSize: 13,
+    color: Colors.ink3,
+    marginTop: 4,
+    lineHeight: 18,
+  },
+
+  // ── Tags / Allergies ──
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
+  tag: {
+    backgroundColor: Colors.accentLight + '40',
+    borderWidth: 0.5,
+    borderColor: Colors.accent + '60',
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  tagText: {
+    fontFamily: MONO,
+    fontSize: 11,
+    color: Colors.accent,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+
+  // ── Setting rows ──
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: 14,
+  },
+  settingRowBorder: {
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.borderLight,
+  },
+  settingIcon: { width: 22 },
+  settingLabelWrap: { flex: 1 },
+  settingLabel: {
+    fontFamily: SERIF,
+    fontSize: 16,
+    color: Colors.ink,
+  },
+  settingSubLabel: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.ink3,
+    marginTop: 3,
+    letterSpacing: 0.3,
+  },
+  settingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  settingBadge: {
+    backgroundColor: Colors.primaryPale,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  settingBadgeText: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.primary,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  settingBadgeWarn: {
+    backgroundColor: Colors.accent + '20',
+  },
+  settingBadgeTextWarn: {
+    color: Colors.accent,
+  },
+  chevron: {
+    fontFamily: SERIF,
+    fontSize: 22,
+    color: Colors.textFaint,
+    lineHeight: 22,
+  },
+
+  // ── Modal ──
+  modalContainer: { flex: 1, backgroundColor: Colors.background },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 22,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 0.5,
+    borderBottomColor: Colors.borderLight,
+  },
+  modalTitle: {
+    fontFamily: SERIF,
+    fontSize: 26,
+    color: Colors.ink,
+    lineHeight: 30,
+    marginTop: 4,
+  },
+  modalCloseBtn: {
+    paddingTop: 4,
+  },
+  modalCloseText: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: Colors.primary,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  modalScroll: { flex: 1 },
+  modalContent: {
+    paddingHorizontal: 22,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xl,
+    gap: Spacing.md,
+  },
+  modalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalRowInfo: { flex: 1, marginRight: Spacing.md },
+  modalRowTitle: {
+    fontFamily: SERIF,
+    fontSize: 18,
+    color: Colors.ink,
+  },
+  modalRowDesc: {
+    fontFamily: SERIF,
+    fontSize: 13,
+    color: Colors.ink3,
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  modalSectionLabel: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.ink3,
+    letterSpacing: 1.4,
+    marginTop: Spacing.sm,
+    marginBottom: 6,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  optionBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
     backgroundColor: Colors.surface,
   },
-  optionBtnActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  optionBtnText: { fontSize: FontSize.sm, fontWeight: '600', color: Colors.textSecondary },
-  optionBtnTextActive: { color: Colors.textLight },
-  notifSummary: {
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-    padding: Spacing.md,
-    backgroundColor: Colors.primaryPale,
-    borderRadius: BorderRadius.md,
+  optionBtnActive: {
+    backgroundColor: Colors.ink,
+    borderColor: Colors.ink,
   },
-  notifSummaryText: { fontSize: FontSize.sm, color: Colors.primary, fontWeight: '500', lineHeight: 20 },
-  notifFooter: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderTopWidth: 1,
+  optionBtnText: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: Colors.ink2,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+  },
+  optionBtnTextActive: { color: Colors.background },
+  modalSummary: {
+    marginTop: Spacing.md,
+    padding: Spacing.md,
+    backgroundColor: Colors.primaryPale + '60',
+    borderRadius: BorderRadius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.primary,
+  },
+  modalSummaryText: {
+    fontFamily: SERIF,
+    fontSize: 13,
+    color: Colors.primary,
+    lineHeight: 19,
+  },
+  modalFooter: {
+    paddingHorizontal: 22,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.md,
+    borderTopWidth: 0.5,
     borderTopColor: Colors.borderLight,
   },
   saveBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
+    backgroundColor: Colors.ink,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
     alignItems: 'center',
   },
-  saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.lg },
-  // Öğün modal
-  mealRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.xs },
-  mealLabel: { fontSize: FontSize.md, fontWeight: '600', color: Colors.textPrimary },
-  // Edit modal
-  editFieldLabel: {
-    fontSize: FontSize.sm,
+  btnDisabled: { opacity: 0.5 },
+  saveBtnText: {
+    color: Colors.background,
+    fontFamily: MONO,
     fontWeight: '700',
-    color: Colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: Spacing.sm,
+    fontSize: 13,
+    letterSpacing: 1.2,
   },
+
+  // ── Meal modal rows ──
+  mealRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  mealLabel: {
+    fontFamily: SERIF,
+    fontSize: 17,
+    color: Colors.ink,
+  },
+
+  // ── Edit modal inputs ──
   editInput: {
-    borderWidth: 1.5,
-    borderColor: Colors.border,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    fontSize: FontSize.md,
-    color: Colors.textPrimary,
-    backgroundColor: Colors.background,
+    paddingVertical: 12,
+    fontFamily: SERIF,
+    fontSize: 16,
+    color: Colors.ink,
+    backgroundColor: Colors.surface,
   },
-  // Privacy modal
-  privacySectionTitle: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.sm },
-  privacyText: { fontSize: FontSize.sm, color: Colors.textSecondary, lineHeight: 20, marginBottom: Spacing.md },
+
+  // ── Privacy modal ──
+  privacySectionTitle: {
+    fontFamily: SERIF,
+    fontSize: 18,
+    color: Colors.ink,
+    marginBottom: 6,
+  },
+  privacyText: {
+    fontFamily: SERIF,
+    fontSize: 14,
+    color: Colors.ink2,
+    lineHeight: 20,
+    marginBottom: Spacing.md,
+  },
   privacyBtn: {
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: 12,
     alignItems: 'center',
   },
-  privacyBtnText: { color: Colors.textLight, fontWeight: '700', fontSize: FontSize.sm },
+  privacyBtnText: {
+    color: Colors.background,
+    fontFamily: MONO,
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 0.8,
+  },
   deleteBtn: {
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: Colors.error,
     borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.sm,
+    paddingVertical: 12,
     alignItems: 'center',
   },
-  deleteBtnText: { color: Colors.error, fontWeight: '700', fontSize: FontSize.sm },
+  deleteBtnText: {
+    color: Colors.error,
+    fontFamily: MONO,
+    fontWeight: '700',
+    fontSize: 12,
+    letterSpacing: 0.8,
+  },
 });
