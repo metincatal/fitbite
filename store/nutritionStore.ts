@@ -35,6 +35,11 @@ interface NutritionState {
     }
   ) => Promise<void>;
   removeFoodLog: (id: string) => Promise<void>;
+  updateFoodLog: (
+    id: string,
+    updates: Partial<Pick<FoodLog, 'calories' | 'protein' | 'carbs' | 'fat' | 'serving_amount'>>
+  ) => Promise<void>;
+  updateFoodName: (foodId: string, name: string) => Promise<void>;
   addWaterLog: (userId: string, amount_ml: number) => Promise<void>;
 
   getDailyTotals: () => { calories: number; protein: number; carbs: number; fat: number };
@@ -103,6 +108,31 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
   removeFoodLog: async (id) => {
     await supabase.from('food_logs').delete().eq('id', id);
     set((state) => ({ foodLogs: state.foodLogs.filter((l) => l.id !== id) }));
+  },
+
+  updateFoodLog: async (id, updates) => {
+    const { error } = await supabase.from('food_logs').update(updates).eq('id', id);
+    if (!error) {
+      set((state) => ({
+        foodLogs: state.foodLogs.map((l) => (l.id === id ? { ...l, ...updates } : l)),
+      }));
+    }
+  },
+
+  updateFoodName: async (foodId, name) => {
+    const { error } = await supabase
+      .from('foods')
+      .update({ name, name_tr: name })
+      .eq('id', foodId);
+    if (!error) {
+      set((state) => ({
+        foodLogs: state.foodLogs.map((l) =>
+          l.food?.id === foodId
+            ? { ...l, food: { ...l.food, name, name_tr: name } }
+            : l
+        ),
+      }));
+    }
   },
 
   addWaterLog: async (userId, amount_ml) => {

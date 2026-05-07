@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
-import { checkAndRequestNotificationPermission } from '../lib/notifications';
+import { checkAndRequestNotificationPermission, initNotificationHandler } from '../lib/notifications';
 
 export default function RootLayout() {
   const { setSession, fetchProfile, session, profile, isLoading, profileFetched } = useAuthStore();
@@ -14,6 +14,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     mounted.current = true;
+    initNotificationHandler(); // Foreground bildirimler için handler'ı erkenden kur
     return () => { mounted.current = false; };
   }, []);
 

@@ -154,6 +154,147 @@ function StepHorizonChart({ totalSteps, stepGoal }: { totalSteps: number; stepGo
   );
 }
 
+// ── Dashboard greeting helpers ───────────────────────────────────────────────
+
+function getTimeGreeting(hour: number): string {
+  if (hour >= 5 && hour < 12) return 'Günaydın';
+  if (hour >= 12 && hour < 18) return 'İyi günler';
+  if (hour >= 18 && hour < 22) return 'İyi akşamlar';
+  return 'İyi geceler';
+}
+
+function getMoodLine({
+  hour,
+  dayOfWeek,
+  consumed,
+  calorieGoal,
+  mealTotals,
+  waterTotal,
+  waterGoal,
+  todaySteps,
+  stepGoal,
+  exerciseCount,
+}: {
+  hour: number;
+  dayOfWeek: number;
+  consumed: number;
+  calorieGoal: number;
+  mealTotals: { breakfast: { kcal: number }; lunch: { kcal: number }; dinner: { kcal: number }; snack: { kcal: number } };
+  waterTotal: number;
+  waterGoal: number;
+  todaySteps: number;
+  stepGoal: number;
+  exerciseCount: number;
+}): string {
+  const stepPct = stepGoal > 0 ? todaySteps / stepGoal : 0;
+  const dayIndex = new Date().getDate();
+
+  // Çok erken sabah (05–07)
+  if (hour >= 5 && hour < 7) {
+    return 'Erken kalkan yol alır — bugün sen aldın!';
+  }
+
+  // Gece geç (22+)
+  if (hour >= 22 || hour < 5) {
+    if (waterTotal < waterGoal * 0.6) {
+      return 'Yatmadan önce bir bardak su iyi gelir.';
+    }
+    return 'Gece geç saatteyiz — iyi uyku sağlığın yarısı.';
+  }
+
+  // Kalori hedefi aşıldı
+  if (consumed > calorieGoal * 1.1) {
+    return 'Bugün hedefini biraz aştın — yarın dengelersin.';
+  }
+
+  // Adım hedefi tamamlandı
+  if (stepGoal > 0 && stepPct >= 1) {
+    return 'Adım hedefini tamamladın — harika iş!';
+  }
+
+  // Bugün egzersiz yapıldı
+  if (exerciseCount > 0 && hour >= 12) {
+    return 'Bugün egzersiz yaptın — vücudun teşekkür ediyor.';
+  }
+
+  // Pazartesi sabahı/öğleni
+  if (dayOfWeek === 1 && hour < 14) {
+    return 'Yeni hafta, yeni fırsat. Güzel başlayalım.';
+  }
+
+  // Cuma akşamı
+  if (dayOfWeek === 5 && hour >= 17) {
+    return 'Hafta sonu başlıyor — alışkanlıklar tatil yapmaz.';
+  }
+
+  // Pazar akşamı
+  if (dayOfWeek === 0 && hour >= 18) {
+    return 'Yarın Pazartesi. Rutinin hazır mı?';
+  }
+
+  // Kahvaltı yapılmamış (sabah 08–11)
+  if (mealTotals.breakfast.kcal === 0 && hour >= 8 && hour < 11) {
+    return 'Kahvaltı yapmadan güne başladın — enerji için bir şeyler al.';
+  }
+
+  // Öğle yemeği yenmemiş (13–15)
+  if (mealTotals.lunch.kcal === 0 && hour >= 13 && hour < 16) {
+    return 'Öğle yemeği atlanırsa akşam daha çok yersin — dikkat et.';
+  }
+
+  // Hiç su içilmemiş (saat 10+)
+  if (waterTotal === 0 && hour >= 10) {
+    return 'Bugün henüz hiç su içmedin — hemen bir bardak iç.';
+  }
+
+  // Su az (öğleden sonra)
+  if (waterTotal < waterGoal * 0.3 && hour >= 15) {
+    return 'Suyunu az içiyorsun — biraz telafi et.';
+  }
+
+  // Kalori neredeyse doldu (öğleden sonra)
+  if (calorieGoal - consumed < 200 && consumed > 0 && hour >= 14) {
+    return 'Kalorin neredeyse doldu — gece hafif tut.';
+  }
+
+  // Adım hedefine yakın (öğleden sonra)
+  if (stepGoal > 0 && stepPct >= 0.7 && stepPct < 1 && hour >= 14) {
+    const stepsLeft = Math.round((1 - stepPct) * stepGoal);
+    return `${stepsLeft.toLocaleString('tr-TR')} adım daha — hedefe çok az kaldı!`;
+  }
+
+  // Sabah genel yedek
+  if (hour >= 7 && hour < 12) {
+    const opts = [
+      'Küçük adımlar, büyük değişimler.',
+      'Bugün de sağlıklı bir gün olsun.',
+      'Her güne sıfırdan başlanır — bu da senin günün.',
+      'Bedenin dinliyor, sen mi?',
+    ];
+    return opts[dayIndex % opts.length];
+  }
+
+  // Öğleden sonra genel yedek
+  if (hour >= 12 && hour < 18) {
+    const opts = [
+      'Günün ikinci yarısında da aynı enerji.',
+      'Bugünü güzel geçir.',
+      'Rutinler küçük, sonuçlar büyük.',
+      '"Yeterince iyi" yerine "biraz daha iyi" dene.',
+    ];
+    return opts[dayIndex % opts.length];
+  }
+
+  // Akşam genel yedek
+  const opts = [
+    'Akşama kadar geldik — sağlıkla.',
+    'Bugünü iyi geçirdin mi?',
+    'Güzel bir akşam olsun.',
+    'Küçük ama sağlam bir gün daha.',
+  ];
+  return opts[dayIndex % opts.length];
+}
+
 export default function DashboardScreen() {
   const router = useRouter();
   const { profile } = useAuthStore();
@@ -242,6 +383,23 @@ export default function DashboardScreen() {
   const stepPct = stepGoal > 0 ? Math.min(1, todaySteps / stepGoal) : 0;
   const stepRemaining = Math.max(0, stepGoal - todaySteps);
 
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentDayOfWeek = now.getDay();
+  const timeGreeting = getTimeGreeting(currentHour);
+  const moodLine = getMoodLine({
+    hour: currentHour,
+    dayOfWeek: currentDayOfWeek,
+    consumed,
+    calorieGoal,
+    mealTotals,
+    waterTotal,
+    waterGoal,
+    todaySteps,
+    stepGoal,
+    exerciseCount: todayExercises.length,
+  });
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView
@@ -253,10 +411,11 @@ export default function DashboardScreen() {
         <View style={styles.header}>
           <Text style={styles.dateOverline}>{todayFormatted}</Text>
           <Text style={styles.greeting}>
-            {'Günaydın, '}
+            {timeGreeting + ', '}
             <Text style={styles.greetingAccent}>{firstName}</Text>
             {'.'}
           </Text>
+          <Text style={styles.moodLine}>{moodLine}</Text>
           <Text style={styles.subtext}>
             {remaining > 0
               ? `Bugün ${remaining} kcal daha alabilirsin.`
@@ -558,10 +717,17 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     fontFamily: 'Georgia, serif',
   },
+  moodLine: {
+    fontSize: 14,
+    color: Colors.ink2,
+    marginTop: 5,
+    lineHeight: 20,
+    fontStyle: 'italic',
+  },
   subtext: {
     fontSize: 13,
     color: Colors.ink2,
-    marginTop: 6,
+    marginTop: 4,
     lineHeight: 18,
   },
 
@@ -586,6 +752,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: -6,
     fontFamily: 'Menlo, Courier, monospace',
+    backgroundColor: 'rgba(242,239,230,0.9)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
   },
 
   // Meal chips

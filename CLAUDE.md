@@ -1,4 +1,4 @@
-# CLAUDE.md
+# [CLAUDE.md](http://CLAUDE.md)
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -13,11 +13,13 @@ npx expo start --tunnel
 ```
 
 Test komutu yok; TypeScript kontrolü için:
+
 ```bash
 npx tsc --noEmit
 ```
 
 Smoke testler (birim test çerçevesi yok — doğrulama için bu kullanılır):
+
 ```bash
 npx tsx lib/__demo/engineDemo.ts     # Besin motoru (8 senaryo)
 npx tsx lib/__demo/exerciseDemo.ts   # Egzersiz motoru (5 senaryo, 19 kontrol)
@@ -34,23 +36,26 @@ Bunun yerine her değişiklik sonrası kullanıcıya net şekilde bildirilir:
 
 ### Hangi değişiklik ne gerektirir?
 
-| Değişiklik tipi | Build? |
-|---|---|
-| `app/`, `components/`, `lib/`, `hooks/`, `store/` altındaki .ts/.tsx | 🟢 Hayır |
-| Saf-JS npm paketi eklemek (lodash, date-fns vb.) | 🟢 Hayır |
-| `assets/sounds/` veya runtime require edilen küçük asset | 🟢 Hayır |
-| `react-native-*` native modül eklemek | 🔴 Evet |
-| Expo plugin gerektiren paket (`expo-camera` vb.) eklemek | 🔴 Evet |
-| `app.json` `plugins` / `permissions` / `android.*` / `ios.*` | 🔴 Evet |
-| `plugins/` altındaki custom config plugin değişimi | 🔴 Evet |
-| `assets/icon.png`, `assets/splash-icon.png`, `assets/adaptive-icon.png` | 🔴 Evet |
-| `package.json` `expo`/`react-native`/`react` versiyon değişikliği | 🔴 Evet |
 
-Kullanıcı "build al" dediğinde profili açıkça onaylanmadıysa **`eas build -p android --profile preview`** kullanılır (APK çıktı, internal distribution).
+| Değişiklik tipi                                                         | Build?   |
+| ----------------------------------------------------------------------- | -------- |
+| `app/`, `components/`, `lib/`, `hooks/`, `store/` altındaki .ts/.tsx    | 🟢 Hayır |
+| Saf-JS npm paketi eklemek (lodash, date-fns vb.)                        | 🟢 Hayır |
+| `assets/sounds/` veya runtime require edilen küçük asset                | 🟢 Hayır |
+| `react-native-*` native modül eklemek                                   | 🔴 Evet  |
+| Expo plugin gerektiren paket (`expo-camera` vb.) eklemek                | 🔴 Evet  |
+| `app.json` `plugins` / `permissions` / `android.*` / `ios.*`            | 🔴 Evet  |
+| `plugins/` altındaki custom config plugin değişimi                      | 🔴 Evet  |
+| `assets/icon.png`, `assets/splash-icon.png`, `assets/adaptive-icon.png` | 🔴 Evet  |
+| `package.json` `expo`/`react-native`/`react` versiyon değişikliği       | 🔴 Evet  |
+
+
+Kullanıcı "build al" dediğinde profili açıkça onaylanmadıysa `**eas build -p android --profile preview`** kullanılır (APK çıktı, internal distribution).
 
 ## Environment Variables
 
 `.env` dosyasında üç değişken gereklidir (`.env.example`'a bakın):
+
 - `EXPO_PUBLIC_SUPABASE_URL`
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 - `EXPO_PUBLIC_GEMINI_API_KEY`
@@ -101,6 +106,7 @@ Tab bar'da merkez slot (`ai-chat`) bir FAB butonu olarak render edilir — gerç
 `lib/supabase.ts` — Supabase client'ı. Expo SecureStore'un 2048 byte limitini aşmak için session token'ları chunk'lara bölünür.
 
 Supabase tablolar (`types/database.ts`):
+
 - `profiles` — kullanıcı metrikleri + hedefler. v2 bilimsel alanları: `body_fat_band`, `body_fat_percentage`, `occupational_activity`, `exercise_frequency`, `ttm_stage`, `scoff_answers`, `scoff_score`, `medical_conditions`, `safety_flags`, `bmr_formula`
 - `foods` — besin veritabanı (`name_tr` Türkçe isim içerir, `is_turkish` bayrağı var)
 - `food_logs` — öğüne göre yemek kayıtları + motor metadata: `cooking_method`, `texture`, `composition_entry_id`, `engine_confidence` (`high|medium|low`), `engine_factors` (jsonb: `{density, yield, hidden}`)
@@ -113,6 +119,7 @@ Supabase tablolar (`types/database.ts`):
 ### AI (Google Gemini 2.5 Flash)
 
 `lib/gemini.ts` — tüm fonksiyonlar:
+
 - `recognizeMealFromImage(base64, userHint?)` — fotoğraf → `DetectedFoodItem[]`. **Önemli (v2):** Gemini yalnızca tanıma + fiziksel metadata üretir (`cookingMethod`, `texture`, `hiddenSauceProb`, `referenceObject`, `occlusionRatio`, `ingredientBreakdown`). Kalori/makro hesabı `lib/nutritionEngine.ts` içinde yapılır; eski `calories/protein/carbs/fat` alanları opsiyonel olarak tutulur ve **yalnızca kompozisyon eşleşmediğinde fallback** olarak kullanılır.
 - `generateAnalysisQuestions(items)`, `refineAnalysisWithAnswers(items, questions, answers)` — QA döngüsü
 - `estimateNutritionFromText(params)` — metin açıklamasından besin tahmini (motor fallback'i)
@@ -156,6 +163,7 @@ waterBonus = 250 + ⌊(dk−30)/30⌋×150 + intensityBonus  # ACSM (2007)
 `lib/constants.ts` — `EXERCISE_CATALOG` (32 egzersiz, 6 grup, Ainsworth kodları) + `EXERCISE_GROUP_LABELS`. Eski `EXERCISE_CATEGORIES` hâlâ var — eski kodu bozmamak için silinmedi; yeni kod `EXERCISE_CATALOG` kullanır.
 
 **Egzersiz kalori eat-back stratejisi:**
+
 - Kilo verme hedefi: `totalKcalMin × 0.5` (MET tahmin hatası payı, Jakicic 2019)
 - Koruma/alma hedefi: `totalKcalMin × 1.0`
 - Gece 20:00+ egzersiz → chrono-nutrition uyarısı (insülin duyarlılığı riski)
@@ -185,18 +193,18 @@ Bileşenler: `FoodPhotoModal` (eski tekil), `PhotoMealReviewModal` (çoklu revie
 
 ### Health Connect Entegrasyonu (kritik, dokunurken oku)
 
-`react-native-health-connect` v3 native tarafta `MainActivity.onCreate`'de **`HealthConnectPermissionDelegate.setPermissionDelegate(this)`** çağrısını ZORUNLU kılar. Bu çağrı yoksa `requestPermission` Kotlin coroutine içinden `UninitializedPropertyAccessException` fırlatır ve **JS try/catch'i bypass ederek tüm uygulamayı çökertir**.
+`react-native-health-connect` v3 native tarafta `MainActivity.onCreate`'de `**HealthConnectPermissionDelegate.setPermissionDelegate(this)`** çağrısını ZORUNLU kılar. Bu çağrı yoksa `requestPermission` Kotlin coroutine içinden `UninitializedPropertyAccessException` fırlatır ve **JS try/catch'i bypass ederek tüm uygulamayı çökertir**.
 
 Çözüm üç parçalı:
 
-1. **`plugins/withHealthConnectSetup.js`** — custom config plugin:
-   - `AndroidManifest.xml`'e `<queries><package healthdata/></queries>` ekler (Android 11+ visibility)
-   - `MainActivity.kt`'a `setPermissionDelegate(this)` çağrısı ekler
-2. **`app.json` plugins**: `"react-native-health-connect"` (intent-filter için) + `"./plugins/withHealthConnectSetup"` aynı dizide
-3. **`lib/healthConnect.ts`** defansif:
-   - Lazy `require('react-native-health-connect')` (Platform guard'lı)
-   - Tüm async çağrılar `withTimeout` ile sarılı (delegate gelmezse hang etmesin)
-   - **`requestHealthConnectPermissions()` SADECE kullanıcı manuel tetikleyince çağrılır** (Profil → Health Connect satırı). Cold-start akışında ASLA otomatik tetiklenmemeli.
+1. `**plugins/withHealthConnectSetup.js`** — custom config plugin:
+  - `AndroidManifest.xml`'e `<queries><package healthdata/></queries>` ekler (Android 11+ visibility)
+  - `MainActivity.kt`'a `setPermissionDelegate(this)` çağrısı ekler
+2. `**app.json` plugins**: `"react-native-health-connect"` (intent-filter için) + `"./plugins/withHealthConnectSetup"` aynı dizide
+3. `**lib/healthConnect.ts`** defansif:
+  - Lazy `require('react-native-health-connect')` (Platform guard'lı)
+  - Tüm async çağrılar `withTimeout` ile sarılı (delegate gelmezse hang etmesin)
+  - `**requestHealthConnectPermissions()` SADECE kullanıcı manuel tetikleyince çağrılır** (Profil → Health Connect satırı). Cold-start akışında ASLA otomatik tetiklenmemeli.
 
 Profil sayfasında `hcState: 'checking' | 'unavailable' | 'available' | 'connected'` durumu gösterilir; tıklayınca duruma göre Play Store'a yönlendirir, izin diyaloğu açar veya HC uygulamasına gider.
 
@@ -225,3 +233,4 @@ Profil sayfasında `hcState: 'checking' | 'unavailable' | 'available' | 'connect
 - **Native paket eklerken**: önce `app.plugin.js`'i kontrol et; yetersizse `plugins/` altında custom plugin yaz. `withHealthConnectSetup.js`'i pattern olarak kullan (`withMainActivity` + `withAndroidManifest`).
 - **Asset boyutları**: `assets/icon.png`, `assets/splash-icon.png`, `assets/adaptive-icon.png` 1024×1024'ten büyük olmamalı, `assets/favicon.png` 256×256. Daha büyük PNG'ler splash screen decoding'inde OOM riskine yol açar (canlı örneği: 2048² 5MB icon'lar uygulamayı çökertmişti).
 - **Cold-start akışına yeni native paket çağrısı eklerken**: `_layout.tsx`, `(tabs)/index.tsx`, `usePedometer` gibi giriş noktalarına permission istemi koymadan önce paketin native exception handling'ini incele. Coroutine içinde unwrap edilmeyen exception'lar JS try/catch ile yakalanmaz; defansif lazy require + `withTimeout` pattern'i kullan (örnek: `lib/healthConnect.ts`).
+

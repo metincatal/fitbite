@@ -645,6 +645,35 @@ export interface RecipeResult {
 /**
  * Fotoğraf öğünü için espritüel Türkçe isim üret
  */
+/**
+ * Bir besin + gramaj için kullanıcının zihninde somutlaşmasını sağlayan kısa Türkçe örnek üretir.
+ * Örn: 40g zeytin → "bir avuç zeytin", 150g pirinç → "yarım su bardağı pirinç"
+ *
+ * Module-level cache: aynı besin+gram için AI'ya ikinci kez gitme. Hem analiz sayfası
+ * hem düzenleme modu bu cache'i paylaşır — kullanıcı ikinci açılışta anında görür.
+ */
+const _gramHintCache = new Map<string, string>();
+
+export async function generateGramVisualization(foodName: string, grams: number): Promise<string> {
+  const key = `${foodName.toLowerCase().trim()}_${Math.round(grams)}`;
+  if (_gramHintCache.has(key)) return _gramHintCache.get(key)!;
+
+  const prompt = `"${foodName}" için ${grams} gram, günlük hayattan somut bir örnek ile ifade et.
+Kısa, anlaşılır ve Türkçe. Sadece örneği yaz, başka metin ekleme. 3-6 kelime.
+Örnekler: "bir avuç kuru üzüm", "yarım su bardağı pirinç", "2 yemek kaşığı zeytinyağı", "tek dilim ekmek"`;
+
+  const result = await geminiFlash.generateContent(prompt);
+  const hint = result.response.text().trim().slice(0, 50);
+  _gramHintCache.set(key, hint);
+  return hint;
+}
+
+/** Module cache'den senkron okuma — EditableCard'da loading göstermeden anlık doldurma için */
+export function getCachedGramHint(foodName: string, grams: number): string | undefined {
+  const key = `${foodName.toLowerCase().trim()}_${Math.round(grams)}`;
+  return _gramHintCache.get(key);
+}
+
 export async function generateMealName(foodNames: string[]): Promise<string> {
   const list = foodNames.join(', ');
   const prompt = `Şu yiyecekleri içeren bir öğün için kısa, espritüel, yaratıcı ve Türkçe bir isim üret: ${list}

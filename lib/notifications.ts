@@ -121,7 +121,6 @@ function ensureHandler(notif: NotifModule) {
   try {
     notif.setNotificationHandler({
       handleNotification: async () => ({
-        shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,
         shouldPlaySound: true,
@@ -130,6 +129,13 @@ function ensureHandler(notif: NotifModule) {
     });
     _handlerSet = true;
   } catch {}
+}
+
+// Uygulama açılışında handler'ı erkenden kur (foreground bildirimler için)
+export function initNotificationHandler(): void {
+  const notif = getNotif();
+  if (!notif) return;
+  ensureHandler(notif);
 }
 
 // --- Yardımcı: Tipli bildirimleri iptal et ---
@@ -211,8 +217,7 @@ export async function scheduleWaterReminders(settings: WaterReminderSettings): P
           data: { type: 'water_reminder' },
         },
         trigger: {
-          type: notif.SchedulableTriggerInputTypes.CALENDAR,
-          repeats: true,
+          type: notif.SchedulableTriggerInputTypes.DAILY,
           hour: h,
           minute: 0,
         },
@@ -291,8 +296,7 @@ export async function scheduleMealReminders(settings: MealReminderSettings): Pro
           data: { type: meal.type },
         },
         trigger: {
-          type: notif.SchedulableTriggerInputTypes.CALENDAR,
-          repeats: true,
+          type: notif.SchedulableTriggerInputTypes.DAILY,
           hour: meal.slot.hour,
           minute: meal.slot.minute,
         },
@@ -346,8 +350,7 @@ export async function scheduleStepReminder(settings: StepReminderSettings): Prom
         data: { type: 'step_reminder' },
       },
       trigger: {
-        type: notif.SchedulableTriggerInputTypes.CALENDAR,
-        repeats: true,
+        type: notif.SchedulableTriggerInputTypes.DAILY,
         hour: settings.hour,
         minute: 0,
       },
@@ -422,8 +425,7 @@ export async function scheduleMotivationMessages(settings: MotivationSettings): 
         data: { type: 'motivation' },
       },
       trigger: {
-        type: notif.SchedulableTriggerInputTypes.CALENDAR,
-        repeats: true,
+        type: notif.SchedulableTriggerInputTypes.DAILY,
         hour: settings.hour,
         minute: settings.minute,
       },
@@ -462,8 +464,7 @@ export async function scheduleWeeklyReport(enabled: boolean): Promise<void> {
         data: { type: 'weekly_report' },
       },
       trigger: {
-        type: notif.SchedulableTriggerInputTypes.CALENDAR,
-        repeats: true,
+        type: notif.SchedulableTriggerInputTypes.WEEKLY,
         weekday: 2, // Pazartesi (1=Pazar, 2=Pazartesi)
         hour: 9,
         minute: 0,

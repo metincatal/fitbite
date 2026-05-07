@@ -15,6 +15,8 @@ import {
   Platform,
   Animated,
   Easing,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -29,12 +31,23 @@ import { useNutritionStore } from '../../store/nutritionStore';
 import { Colors, Spacing, FontSize, BorderRadius, getMealTypes, MealType, MEAL_TYPES } from '../../lib/constants';
 import { Food, FoodLogWithFood } from '../../types';
 import { DetectedFoodItem, generateMealName, recognizeMealFromImage } from '../../lib/gemini';
+import { compute as computeNutrition } from '../../lib/nutritionEngine';
 import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 import { uploadFoodPhoto } from '../../lib/storage';
 import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
 import { FoodLogFlow } from '../../components/food/FoodLogFlow';
 import type { ComputedFoodItem } from '../../components/food/PhotoMealReviewModal';
 import { setQuickActionCallbacks } from './_layout';
+
+function pickMealByHour(): MealType {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 11) return 'breakfast';
+  if (h >= 11 && h < 15) return 'lunch';
+  if (h >= 15 && h < 18) return 'snack';
+  return 'dinner';
+}
+
+const EDITED_MEALS_KEY = 'fitbite_edited_meals';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -60,10 +73,12 @@ const MEAL_DOT: Record<string, string> = {
 export default function FoodLogScreen() {
   const router = useRouter();
   const { user, profile } = useAuthStore();
-  const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, addWaterLog, selectedDate } = useNutritionStore();
+  const { foodLogs, fetchDayLogs, addFoodLog, removeFoodLog, updateFoodLog, updateFoodName, addWaterLog, selectedDate } = useNutritionStore();
 
   const [yesterdayLogs, setYesterdayLogs] = useState<FoodLogWithFood[]>([]);
   const [mealNames, setMealNames] = useState<Record<string, string>>({});
+  const [editedMeals, setEditedMeals] = useState<Set<string>>(new Set());
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // Search modal (legacy fallback)
   const [showSearch, setShowSearch] = useState(false);
@@ -97,11 +112,27 @@ export default function FoodLogScreen() {
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const pendingSaveRef = useRef<PendingSave | null>(null);
 
-  // Load mealNames
+  // Background edit save
+  const [pendingEditUrl, setPendingEditUrl] = useState<string | null>(null);
+
+  // AppState tracking — arka plan analiz auto-save için
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      appStateRef.current = state;
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Load mealNames + editedMeals
   useEffect(() => {
     AsyncStorage.getItem('fitbite_meal_names').then((raw) => {
       if (raw) {
         try { setMealNames(JSON.parse(raw)); } catch {}
+      }
+    });
+    AsyncStorage.getItem(EDITED_MEALS_KEY).then((raw) => {
+      if (raw) {
+        try { setEditedMeals(new Set(JSON.parse(raw))); } catch {}
       }
     });
   }, []);
@@ -179,6 +210,31 @@ export default function FoodLogScreen() {
     try {
       const detected = await recognizeMealFromImage(base64, hint || undefined);
       clearInterval(intervalId);
+
+      // Uygulama arka plandaysa kullanıcı sonuç ekranını göremez — direkt kaydet
+      if (appStateRef.current !== 'active') {
+        setBgAnalysis(null);
+        if (user) {
+          const mealType = pickMealByHour();
+          const computedItems: ComputedFoodItem[] = detected.map((d) => {
+            const eng = computeNutrition({ detection: d, userGrams: d.estimatedGrams });
+            return {
+              detection: {
+                ...d,
+                calories: eng.kcal,
+                protein: eng.protein,
+                carbs: eng.carbs,
+                fat: eng.fat,
+              },
+              engine: eng,
+            };
+          });
+          const namePromise = generateMealName(detected.map((d) => d.name));
+          handleSavePhotoMeal(computedItems, mealType, base64, namePromise);
+        }
+        return;
+      }
+
       setBgAnalysis((prev) => (prev ? { ...prev, progress: 100, phase: 'Analiz tamamlandı' } : null));
       setTimeout(() => {
         setBgAnalysis(null);
@@ -190,7 +246,6 @@ export default function FoodLogScreen() {
     } catch (err) {
       clearInterval(intervalId);
       setBgAnalysis(null);
-      // Gerçek hatayı Metro log'una düşür (yemek tanınamadığında debugging için kritik)
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[food-log] recognizeMealFromImage failed:', err);
       Alert.alert('Hata', `Yemek tanınamadı.\n\n${msg}`);
@@ -403,16 +458,22 @@ export default function FoodLogScreen() {
       const mealName = mealNames[url];
       const time = new Date(log.logged_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
+      const isEditPending = pendingEditUrl === url;
       return (
         <TouchableOpacity
           key={`photo-${url}`}
           style={styles.photoEntryCard}
-          activeOpacity={0.88}
-          onPress={() => !readonly && setPhotoDetailGroup(photoGroup)}
+          activeOpacity={isEditPending ? 1 : 0.88}
+          onPress={() => !readonly && !isEditPending && setPhotoDetailGroup(photoGroup)}
         >
           <View style={styles.photoEntryImageWrap}>
-            <Image source={{ uri: url }} style={styles.photoEntryImage} resizeMode="cover" />
-            {mealName && (
+            <Image
+              source={{ uri: url }}
+              style={styles.photoEntryImage}
+              resizeMode="cover"
+              blurRadius={isEditPending ? 6 : 0}
+            />
+            {mealName && !isEditPending && (
               <LinearGradient
                 colors={['transparent', 'rgba(0,0,0,0.7)']}
                 style={styles.photoEntryGradient}
@@ -427,6 +488,7 @@ export default function FoodLogScreen() {
               {Math.round(totalCal)}<Text style={styles.photoEntryKcalUnit}> kcal</Text>
             </Text>
           </View>
+          {isEditPending && <EditSavingOverlay />}
         </TouchableOpacity>
       );
     }
@@ -575,6 +637,29 @@ export default function FoodLogScreen() {
         onNameChange={(name) => {
           const url = photoDetailGroup[0]?.image_url;
           if (url) setMealNames((prev) => ({ ...prev, [url]: name }));
+        }}
+        isEdited={photoDetailGroup[0]?.image_url ? editedMeals.has(photoDetailGroup[0].image_url) : false}
+        onRemoveLog={removeFoodLog}
+        onUpdateLog={updateFoodLog}
+        onUpdateFoodName={updateFoodName}
+        onEditComplete={() => {
+          const url = photoDetailGroup[0]?.image_url;
+          if (url) {
+            setEditedMeals((prev) => {
+              const next = new Set(prev);
+              next.add(url);
+              AsyncStorage.setItem(EDITED_MEALS_KEY, JSON.stringify([...next])).catch(() => {});
+              return next;
+            });
+          }
+        }}
+        onSavingStateChange={(isSaving) => {
+          if (isSaving) {
+            const url = photoDetailGroup[0]?.image_url;
+            if (url) setPendingEditUrl(url);
+          } else {
+            setPendingEditUrl(null);
+          }
         }}
       />
 
@@ -849,6 +934,47 @@ function PendingPhotoCard({ pending }: { pending: PendingSave }) {
     </Animated.View>
   );
 }
+
+// ──────────────────────────── EDIT SAVING OVERLAY ────────────────────────────
+function EditSavingOverlay() {
+  const fadeIn = useRef(new Animated.Value(0)).current;
+  const spin = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeIn, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+    Animated.loop(
+      Animated.timing(spin, { toValue: 1, duration: 900, useNativeDriver: true, easing: Easing.linear })
+    ).start();
+  }, []);
+
+  const rot = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+
+  return (
+    <Animated.View style={[editSavingStyles.overlay, { opacity: fadeIn }]}>
+      <Animated.View style={{ transform: [{ rotate: rot }] }}>
+        <Ionicons name="sync" size={18} color={Colors.terracotta} />
+      </Animated.View>
+      <Text style={editSavingStyles.text}>Değişiklikler kaydediliyor…</Text>
+    </Animated.View>
+  );
+}
+
+const editSavingStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    borderRadius: 16,
+  },
+  text: {
+    fontFamily: SERIF,
+    fontStyle: 'italic',
+    fontSize: 14,
+    color: '#F2EFE6',
+  },
+});
 
 // ──────────────────────────── ANALYZING BANNER ────────────────────────────
 function AnalyzingBanner({ base64, phase, progress }: { base64: string; phase: string; progress: number }) {

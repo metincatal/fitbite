@@ -16,7 +16,7 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -253,7 +253,6 @@ export function FoodLogFlow({
             onText={setHint}
             error={analysisError}
             onClose={onClose}
-            onSkip={() => runAnalysis('')}
             onAnalyze={() => runAnalysis(hint)}
           />
         )}
@@ -433,7 +432,6 @@ function StepDescribe({
   onText,
   error,
   onClose,
-  onSkip,
   onAnalyze,
 }: {
   base64: string | null;
@@ -441,62 +439,90 @@ function StepDescribe({
   onText: (t: string) => void;
   error: string | null;
   onClose: () => void;
-  onSkip: () => void;
   onAnalyze: () => void;
 }) {
   const HINTS = ['+ baharatlı', '+ sade pişmiş', '+ az yağlı', '+ tam porsiyon', '+ yarım porsiyon'];
+  const insets = useSafeAreaInsets();
+  const [imgRatio, setImgRatio] = useState(4 / 3);
+
+  useEffect(() => {
+    if (base64) {
+      Image.getSize(`data:image/jpeg;base64,${base64}`, (w, h) => {
+        if (h > 0) setImgRatio(w / h);
+      });
+    }
+  }, [base64]);
+
   return (
     <View style={s.fill}>
-      <StepHeader title="Fotoğrafı Analiz Et" onClose={onClose} />
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
-          {base64 && (
-            <View style={s.photoStripWrap}>
-              <Image source={{ uri: `data:image/jpeg;base64,${base64}` }} style={s.photoStrip} resizeMode="cover" />
-              <View style={s.photoStripFade} />
-            </View>
-          )}
-          <View style={s.padX}>
-            {error && (
-              <View style={s.errorPill}>
-                <Ionicons name="alert-circle" size={14} color={Colors.terracotta} />
-                <Text style={s.errorPillText}>{error}</Text>
-              </View>
-            )}
-            <Text style={s.overline}>OPSİYONEL</Text>
-            <Text style={s.serifTitle}>
-              Bu yemeği <Text style={s.italicAccent}>kendi sözlerinle</Text> anlat.
-            </Text>
-            <Text style={s.bodyMuted}>FitBot daha doğru tanısın diye birkaç ipucu ver. Yazmazsan da olur.</Text>
-
-            <TextInput
-              value={text}
-              onChangeText={onText}
-              placeholder="örn. kazandibi, 2 porsiyon…"
-              placeholderTextColor={Colors.ink4}
-              multiline
-              style={s.textArea}
-            />
-
-            <View style={s.chipWrap}>
-              {HINTS.map((h) => (
-                <TouchableOpacity
-                  key={h}
-                  onPress={() => onText(text ? `${text}, ${h.slice(2)}` : h.slice(2))}
-                  style={s.hintChip}
-                >
-                  <Text style={s.hintChipText}>{h}</Text>
-                </TouchableOpacity>
-              ))}
+      {/* Fotoğraf — kenar boşluksuz, doğal en/boy oranında */}
+      {base64 && (
+        <View style={{ width: '100%', aspectRatio: imgRatio }}>
+          <Image
+            source={{ uri: `data:image/jpeg;base64,${base64}` }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+          />
+          {/* Kapat butonu + başlık — resmin üstüne yüzer */}
+          <View
+            style={[StyleSheet.absoluteFill, { paddingTop: insets.top }]}
+            pointerEvents="box-none"
+          >
+            <View style={s.describeOverlayHeader} pointerEvents="box-none">
+              <TouchableOpacity
+                onPress={onClose}
+                style={s.describeCloseBtn}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={20} color="#fff" />
+              </TouchableOpacity>
+              <Text style={s.describeOverlayTitle}>Fotoğrafı Analiz Et</Text>
+              <View style={{ width: 40 }} />
             </View>
           </View>
-        </ScrollView>
-        <View style={s.bottomBar}>
-          <TouchableOpacity onPress={onSkip} style={s.btnGhost}>
-            <Text style={s.btnGhostText}>Atla</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onAnalyze} style={s.btnPrimary}>
-            <Ionicons name="sparkles" size={14} color={Colors.background} />
+        </View>
+      )}
+
+      {/* İçerik — sabit, kaydırmasız */}
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={[s.padX, { flex: 1, paddingTop: 18 }]}>
+          {error && (
+            <View style={s.errorPill}>
+              <Ionicons name="alert-circle" size={14} color={Colors.terracotta} />
+              <Text style={s.errorPillText}>{error}</Text>
+            </View>
+          )}
+          <Text style={s.overline}>OPSİYONEL</Text>
+          <Text style={s.serifTitle}>
+            Bu yemeği <Text style={s.italicAccent}>kendi sözlerinle</Text> anlat.
+          </Text>
+          <Text style={s.bodyMuted}>FitBot daha doğru tanısın diye birkaç ipucu ver. Yazmazsan da olur.</Text>
+
+          <TextInput
+            value={text}
+            onChangeText={onText}
+            placeholder="örn. kazandibi, 2 porsiyon…"
+            placeholderTextColor={Colors.ink4}
+            multiline
+            style={s.textArea}
+          />
+
+          <View style={s.chipWrap}>
+            {HINTS.map((h) => (
+              <TouchableOpacity
+                key={h}
+                onPress={() => onText(text ? `${text}, ${h.slice(2)}` : h.slice(2))}
+                style={s.hintChip}
+              >
+                <Text style={s.hintChipText}>{h}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={s.bottomBarSingle}>
+          <TouchableOpacity onPress={onAnalyze} style={s.btnPrimaryFull}>
+            <Ionicons name="sparkles" size={16} color={Colors.background} />
             <Text style={s.btnPrimaryText}>Analiz Et</Text>
           </TouchableOpacity>
         </View>
@@ -613,6 +639,14 @@ function StepResults({
 }) {
   const [openId, setOpenId] = useState<number | null>(0);
   const [editingId, setEditingId] = useState<number | null>(null);
+
+  // Kullanıcı 5 dk içinde kaydetmezse otomatik kaydet
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (items.length > 0) onSave();
+    }, 5 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const total = items.reduce((s2, it) => s2 + Math.round(it.baseCalories * it.pct / 100), 0);
   const macros = items.reduce(
@@ -1074,9 +1108,8 @@ function StepImprove({
               <Image
                 source={{ uri: `data:image/jpeg;base64,${base64}` }}
                 style={s.photoStrip}
-                resizeMode="cover"
+                resizeMode="contain"
               />
-              <View style={s.photoStripFade} />
             </View>
           )}
           <View style={s.padX}>
@@ -1199,9 +1232,12 @@ const s = StyleSheet.create({
   serifSm: { fontFamily: SERIF, fontSize: 16, color: Colors.ink },
   chevron: { fontFamily: SERIF, fontSize: 22, color: Colors.ink4 },
 
-  photoStripWrap: { height: 200, backgroundColor: '#2a1f16', position: 'relative', overflow: 'hidden' },
-  photoStrip: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
-  photoStripFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 60, backgroundColor: Colors.background, opacity: 0.95 },
+  photoStripWrap: { width: '100%', minHeight: 220, maxHeight: 400, backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
+  photoStrip: { width: '100%', height: 360 },
+
+  describeOverlayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
+  describeCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
+  describeOverlayTitle: { fontFamily: SERIF, fontSize: 16, color: '#fff', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
 
   textArea: { marginTop: 16, minHeight: 96, padding: 14, borderRadius: 16, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, fontFamily: SERIF, fontSize: 15, fontStyle: 'italic', color: Colors.ink, textAlignVertical: 'top' },
   chipWrap: { marginTop: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
@@ -1212,9 +1248,11 @@ const s = StyleSheet.create({
   errorPillText: { fontSize: 12, color: Colors.terracotta, fontWeight: '600' },
 
   bottomBar: { flexDirection: 'row', gap: 10, padding: 18, paddingBottom: 30, backgroundColor: Colors.background, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.line, alignItems: 'center' },
+  bottomBarSingle: { padding: 18, paddingBottom: 30, backgroundColor: Colors.background, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Colors.line },
   btnGhost: { paddingHorizontal: 22, paddingVertical: 14, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, alignItems: 'center', justifyContent: 'center' },
   btnGhostText: { fontFamily: SERIF, fontSize: 14, color: Colors.ink2 },
   btnPrimary: { flex: 1, paddingHorizontal: 22, paddingVertical: 14, borderRadius: 999, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
+  btnPrimaryFull: { width: '100%', paddingVertical: 16, borderRadius: 999, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   btnPrimaryText: { fontFamily: SERIF, fontSize: 14, color: Colors.background },
 
   // Analyzing

@@ -22,6 +22,7 @@ import {
   generateAnalysisQuestions,
   refineAnalysisWithAnswers,
   estimateNutritionFromText,
+  generateGramVisualization,
 } from '../../lib/gemini';
 import { compute as computeNutrition, estimateForManualInput } from '../../lib/nutritionEngine';
 import type { EngineOutput, EngineConfidence } from '../../types/nutrition';
@@ -101,6 +102,8 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
   const [reanalyzing, setReanalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedMeal, setSelectedMeal] = useState<MealType>(getSuggestedMeal());
+  const [gramHints, setGramHints] = useState<Record<number, string>>({});
+  const [gramHintsLoading, setGramHintsLoading] = useState<Record<number, boolean>>({});
 
   React.useEffect(() => {
     if (visible) {
@@ -116,6 +119,21 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
       setShowAddForm(false);
       setViewMode('review');
       setSelectedMeal(getSuggestedMeal());
+      setGramHints({});
+      setGramHintsLoading({});
+
+      // Gram somutlaştırma: analiz açıldığı anda arka planda üret (modul cache'e yazar)
+      // Her item için loading state aç, sonuç gelince kapat
+      initialItems.forEach((item, i) => {
+        setGramHintsLoading((prev) => ({ ...prev, [i]: true }));
+        generateGramVisualization(item.name, item.estimatedGrams)
+          .then((hint) => setGramHints((prev) => ({ ...prev, [i]: hint })))
+          .catch(() => {
+            // Fallback: API başarısız → gram değerini metin olarak göster
+            setGramHints((prev) => ({ ...prev, [i]: `${item.estimatedGrams}g` }));
+          })
+          .finally(() => setGramHintsLoading((prev) => ({ ...prev, [i]: false })));
+      });
     }
   }, [visible, initialItems]);
 
@@ -633,7 +651,14 @@ export function PhotoMealReviewModal({ visible, onClose, items: initialItems, im
                             >
                               <View style={styles.itemHeaderLeft}>
                                 <Text style={styles.itemName}>{item.name}</Text>
-                                <Text style={styles.itemGram}>~{item.estimatedGrams}g toplam</Text>
+                                <View style={styles.itemGramRow}>
+                                  <Text style={styles.itemGram}>~{item.estimatedGrams}g toplam</Text>
+                                  {(gramHintsLoading[index] || gramHints[index]) ? (
+                                    <Text style={styles.itemGramHint}>
+                                      ≈ {gramHints[index] || '···'}
+                                    </Text>
+                                  ) : null}
+                                </View>
                               </View>
                               <View style={styles.itemHeaderRight}>
                                 {(() => {
@@ -1268,7 +1293,9 @@ const styles = StyleSheet.create({
   },
   itemHeaderLeft: { flex: 1, marginRight: Spacing.sm },
   itemName: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
-  itemGram: { fontSize: FontSize.xs, color: Colors.textMuted, marginTop: 2 },
+  itemGramRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 2 },
+  itemGram: { fontSize: FontSize.xs, color: Colors.textMuted },
+  itemGramHint: { fontSize: FontSize.xs, color: Colors.textMuted, fontStyle: 'italic' },
   itemHeaderRight: { alignItems: 'flex-end', gap: 4 },
   itemCalories: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textPrimary },
 
