@@ -14,9 +14,12 @@ interface Props {
   onBack: () => void;
 }
 
-const HOURS = [
+const FIRST_MEAL_HOURS = [
   '05:00','06:00','07:00','08:00','09:00','10:00','11:00','12:00',
-  '13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00',
+];
+
+const LAST_MEAL_HOURS = [
+  '14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00','22:00',
 ];
 
 function hourAngle(h: number) { return (h / 24) * 360 - 90; }
@@ -65,7 +68,7 @@ function DayClock({ first, last }: { first: string; last: string }) {
       <SvgText x={cx - r + 22} y={cy + 4} textAnchor="middle" fontSize="9" fontFamily={MONO} fill={OnbColors.ink3}>18</SvgText>
 
       <Path
-        d={`M ${x1} ${y1} A ${r - 6} ${r - 6} 0 ${large} 1 ${x2} ${y2}`}
+        d={`M ${x1} ${y1} A ${r - 6} ${r - 6} 0 ${large} 0 ${x2} ${y2}`}
         fill="none"
         stroke={OnbColors.terracotta}
         strokeWidth="6"
@@ -87,12 +90,12 @@ function DayClock({ first, last }: { first: string; last: string }) {
   );
 }
 
-function TimeStrip({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function TimeStrip({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   return (
     <View style={strip.wrap}>
       <Text style={strip.label}>{label}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={strip.scroll} contentContainerStyle={strip.row}>
-        {HOURS.map((h) => {
+        {options.map((h) => {
           const sel = h === value;
           return (
             <TouchableOpacity
@@ -155,8 +158,8 @@ export function MealTiming({ onNext, onBack }: Props) {
           </View>
         </View>
 
-        <TimeStrip label="İLK ÖĞÜN" value={first} onChange={(v) => updateField('first_meal_time', v)} />
-        <TimeStrip label="SON ÖĞÜN" value={last}  onChange={(v) => updateField('last_meal_time', v)} />
+        <TimeStrip label="İLK ÖĞÜN" value={first} onChange={(v) => updateField('first_meal_time', v)} options={FIRST_MEAL_HOURS} />
+        <TimeStrip label="SON ÖĞÜN" value={last}  onChange={(v) => updateField('last_meal_time', v)} options={LAST_MEAL_HOURS} />
 
         <View style={styles.tipBox}>
           <Text style={styles.tipText}>ÖNERİ · SON ÖĞÜN UYKUDAN ≥ 3 SAAT ÖNCE OLMALI.</Text>

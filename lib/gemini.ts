@@ -26,22 +26,27 @@ export const geminiFlash = genAI.getGenerativeModel({
 });
 
 export const DIETITIAN_SYSTEM_PROMPT = `Sen FitBite uygulamasının yapay zeka diyetisyeni FitBot'sun.
-Türkiye Diyetisyenler Derneği standartlarına ve WHO beslenme rehberlerine uygun,
-bilimsel temelli ve kişiselleştirilmiş beslenme tavsiyeleri veriyorsun.
+FitBite; yemek kaydı, egzersiz takibi, su takibi ve haftalık AI analizi sunan bir beslenme uygulamasıdır.
+Kullanıcının uygulama içindeki gerçek verileri (kalori, makro, egzersiz, su) sana bağlam olarak verilir — bunları aktif şekilde kullan.
+
+YANIT FORMATI (zorunlu):
+- Yanıtlarını **Markdown** ile yaz: **kalın** vurgu, *italik* ton, ## bölüm başlığı, - madde listesi
+- Kısa tut: çoğu yanıt 3-6 cümle veya 4-6 madde
+- Uzun paragraf blokları yazma — her fikir ayrı madde ya da kısa paragraf olsun
+- Sayısal veri varsa kesinlikle kullan: "Bugün 1.840 kcal aldın, hedefe 210 kcal kaldı"
 
 KURALLAR:
 - Her zaman Türkçe yanıt ver
-- Kısa, net ve pratik öneriler sun
-- Kesinlikle tehlikeli diyet önerileri verme (1200 kcal altı, tek gıda diyeti vb.)
-- Tıbbi durumlar için mutlaka doktora yönlendir
-- Pozitif ve motive edici bir dil kullan
-- Türk mutfağından örnekler ver
+- Kesinlikle tehlikeli diyet önerme (1200 kcal altı, tek gıda diyeti vb.)
+- Tıbbi durumlar için doktora yönlendir
+- Türk mutfağından somut örnekler ver (mercimek çorbası, yoğurt, zeytinyağlı sebze vb.)
 
 BİLİMSEL ZEMİN:
-- Protein tok tutar ve ~%20 termik etki (TEF) ile metabolizmayı artırır — her öğünde yeterli protein öner.
-- Son öğünü uykudan en az 2-3 saat önce bitirmesini hatırlat (sirkadiyen uyum).
+- Protein: ~%20 termik etki + tokluk → her öğünde yeterli protein öner
+- Sirkadiyen: son öğün uykudan 2-3 saat önce bitmeli
+- Egzersiz kalori geri dönüşü (eat-back): yalnızca aktif yakımın %50'si kilo verme hedefinde sayılır
 
-Kullanıcı profili aşağıda verilecek.`;
+Kullanıcı profili ve günlük veriler aşağıda verilecek.`;
 
 // Transtheoretical Model — aşamaya göre konuşma tonu
 const TTM_PROMPTS: Record<TTMStage, string> = {
@@ -532,7 +537,7 @@ export async function recognizeFoodFromImage(imageBase64: string): Promise<{
 }
 
 /**
- * Haftalık beslenme analizi
+ * Haftalık beslenme analizi — gerçek uygulama verileriyle (yemek, egzersiz, su, kilo)
  */
 export async function analyzeWeeklyNutrition(params: {
   profile: Profile;
@@ -544,53 +549,107 @@ export async function analyzeWeeklyNutrition(params: {
     fat: number;
   }>;
   goals: { calories: number; protein_g: number; carbs_g: number; fat_g: number };
+  exerciseLogs?: Array<{
+    date: string;
+    exercise_name: string;
+    duration_minutes: number;
+    calories_burned: number;
+  }>;
+  waterLogs?: Array<{ date: string; amount_ml: number }>;
+  recentWeightLogs?: Array<{ logged_at: string; weight_kg: number }>;
 }): Promise<string> {
-  const { profile, dailyData, goals } = params;
+  const { profile, dailyData, goals, exerciseLogs = [], waterLogs = [], recentWeightLogs = [] } = params;
 
-  const avgCalories = dailyData.reduce((s, d) => s + d.calories, 0) / (dailyData.length || 1);
-  const avgProtein = dailyData.reduce((s, d) => s + d.protein, 0) / (dailyData.length || 1);
-  const daysLogged = dailyData.filter((d) => d.calories > 0).length;
+  const loggedDays = dailyData.filter((d) => d.calories > 0);
+  const daysLogged = loggedDays.length;
+  const avgCalories = daysLogged > 0 ? Math.round(loggedDays.reduce((s, d) => s + d.calories, 0) / daysLogged) : 0;
+  const avgProtein = daysLogged > 0 ? Math.round(loggedDays.reduce((s, d) => s + d.protein, 0) / daysLogged) : 0;
+  const avgCarbs = daysLogged > 0 ? Math.round(loggedDays.reduce((s, d) => s + d.carbs, 0) / daysLogged) : 0;
+  const avgFat = daysLogged > 0 ? Math.round(loggedDays.reduce((s, d) => s + d.fat, 0) / daysLogged) : 0;
 
   const age = new Date().getFullYear() - new Date(profile.birth_date ?? '').getFullYear();
+  const goalLabel = profile.goal === 'lose' ? 'kilo vermek' : profile.goal === 'gain' ? 'kilo almak' : 'kiloyu korumak';
 
-  const profileText = `
-- İsim: ${profile.name}
-- Yaş: ${age} yaş
-- Hedef: ${profile.goal === 'lose' ? 'Kilo vermek' : profile.goal === 'gain' ? 'Kilo almak' : 'Kiloyu korumak'}
-- Günlük kalori hedefi: ${goals.calories} kcal
-- Protein hedefi: ${goals.protein_g}g`;
+  // Yemek kayıtları (tüm 7 gün, boş olanlar "kayıt yok" ile)
+  const foodTable = dailyData
+    .map((d) =>
+      d.calories > 0
+        ? `  ${d.date}: ${d.calories} kcal | P:${d.protein}g K:${d.carbs}g Y:${d.fat}g`
+        : `  ${d.date}: — kayıt yok`
+    )
+    .join('\n');
 
-  const dataText = dailyData
-    .filter((d) => d.calories > 0)
-    .map((d) => `  ${d.date}: ${d.calories} kcal, ${d.protein}g protein, ${d.carbs}g karb, ${d.fat}g yağ`)
-    .join('\n') || '  (Bu hafta kayıt yok)';
+  // Egzersiz özeti
+  const exerciseSummary =
+    exerciseLogs.length > 0
+      ? exerciseLogs
+          .map((e) => `  ${e.date}: ${e.exercise_name} ${e.duration_minutes}dk → ~${e.calories_burned} kcal`)
+          .join('\n')
+      : '  Bu hafta egzersiz kaydı yok';
+
+  // Su özeti (günlük ortalama)
+  const totalWaterMl = waterLogs.reduce((s, w) => s + w.amount_ml, 0);
+  const waterDays = new Set(waterLogs.map((w) => w.date)).size;
+  const avgWaterL = waterDays > 0 ? (totalWaterMl / waterDays / 1000).toFixed(1) : null;
+  const waterLine = avgWaterL ? `Ortalama ${avgWaterL}L/gün (${waterDays} günde kayıt var)` : 'Bu hafta su kaydı yok';
+
+  // Kilo değişimi
+  const weightLine =
+    recentWeightLogs.length >= 2
+      ? (() => {
+          const first = recentWeightLogs[0].weight_kg;
+          const last = recentWeightLogs[recentWeightLogs.length - 1].weight_kg;
+          const diff = last - first;
+          return `${last.toFixed(1)} kg (${diff > 0 ? '+' : ''}${diff.toFixed(1)} kg değişim son kayıtlara göre)`;
+        })()
+      : recentWeightLogs.length === 1
+      ? `${recentWeightLogs[0].weight_kg.toFixed(1)} kg`
+      : 'Bu hafta kilo ölçümü yok';
 
   const prompt = `${buildSystemPrompt(profile)}
 
-Kullanıcı profili:
-${profileText}
+## HAFTALIK ANALİZ GÖREVİ
 
-Hedefler:
-- Kalori: ${goals.calories} kcal/gün
-- Protein: ${goals.protein_g}g/gün
-- Karbonhidrat: ${goals.carbs_g}g/gün
-- Yağ: ${goals.fat_g}g/gün
+Kullanıcı: ${profile.name}, ${age} yaş, hedef: ${goalLabel}
+Günlük hedefler → Kalori: ${goals.calories} kcal | Protein: ${goals.protein_g}g | Karb: ${goals.carbs_g}g | Yağ: ${goals.fat_g}g
 
-Son 7 günün beslenme verileri:
-${dataText}
+### YEMEK KAYITLARI (son 7 gün)
+${foodTable}
 
-Özet:
-- Takip edilen gün sayısı: ${daysLogged}/7
-- Ortalama kalori: ${Math.round(avgCalories)} kcal
-- Ortalama protein: ${Math.round(avgProtein)}g
+Özet: ${daysLogged}/7 gün kayıtlı | Ort. ${avgCalories} kcal | P:${avgProtein}g K:${avgCarbs}g Y:${avgFat}g
 
-Lütfen bu kullanıcıya kişiselleştirilmiş haftalık beslenme analizi yap. Şunları içer:
-1. Genel değerlendirme (2-3 cümle)
-2. Güçlü yönler (1-2 madde)
-3. İyileştirilecek alanlar (1-2 madde)
-4. Bu hafta için 2-3 pratik öneri
+### EGZERSİZ
+${exerciseSummary}
 
-Kısa ve motive edici tut. Türkçe yaz.`;
+### SU
+${waterLine}
+
+### KİLO
+${weightLine}
+
+---
+
+Bu verilere dayanarak **kişiselleştirilmiş haftalık analiz** üret. ZORUNLU FORMAT:
+
+## [Kullanıcı adı], geçen haftana baktım.
+(2 cümle genel özet — net sayılar kullan: kaç gün kayıt, ort. kalori, hedefe ne kadar yakın)
+
+**Güçlü yönlerin**
+- (2 madde — somut veri referansı ver)
+
+**Dikkat etmek isteyebileceğin**
+- (2 madde — somut, yargısız)
+
+**Bu hafta 3 küçük adım**
+- (uygulamaya özgü, gerçekçi öneriler; Türk mutfağından örnekler içerebilir)
+
+KURALLAR:
+- Markdown kullan: **kalın**, *italik*, ## başlık, - madde
+- Toplam uzunluk: 150-220 kelime, aşma
+- Kayıt olmayan günleri "görünmez günler" olarak adlandır
+- Egzersiz varsa kcal rakamını ver
+- Su varsa L cinsinden ver
+- Gerçek sayıları daima referans al; genel laflar etme`;
 
   const result = await geminiFlash.generateContent(prompt);
   return result.response.text();
@@ -675,13 +734,34 @@ export function getCachedGramHint(foodName: string, grams: number): string | und
 }
 
 export async function generateMealName(foodNames: string[]): Promise<string> {
-  const list = foodNames.join(', ');
-  const prompt = `Şu yiyecekleri içeren bir öğün için kısa, espritüel, yaratıcı ve Türkçe bir isim üret: ${list}
-SADECE ismi yaz, başka hiçbir şey ekleme. 3-5 kelimelik, eğlenceli ve akılda kalıcı olsun.
-Örnek stiller: "Karbonhidrat Festivali", "Proteinin Şafağı", "Gece Yarısı Keşfi", "Kahramanlık Öğünü"`;
+  const list = foodNames.filter(Boolean).join(', ');
+  if (!list) return _localMealName(foodNames);
 
-  const result = await geminiFlash.generateContent(prompt);
-  return result.response.text().trim().slice(0, 40);
+  const prompt = `Şu yiyecekleri içeren bir öğün için Türkçe, kısa ve akılda kalıcı bir isim üret: ${list}
+
+TON: Türk sokak diline has, samimi ve hafif alaycı. Sanki arkadaşın "ne yedin?" diye sorsun, sen de kahkaha attıran ama küfürsüz, sınır aşmayan bir cevap veriyorsun. Abartılı ciddiyet, kendini ele verme, dramatik an hissi olabilir.
+
+KURAL: SADECE ismi yaz. Başka hiçbir şey ekleme. 2-4 kelime.`;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await geminiFlash.generateContent(prompt);
+      const name = result.response.text().trim().replace(/^["'«»]+|["'«»]+$/g, '').trim().slice(0, 40);
+      if (name) return name;
+    } catch {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 900));
+    }
+  }
+  return _localMealName(foodNames);
+}
+
+function _localMealName(foodNames: string[]): string {
+  const valid = foodNames.filter(Boolean);
+  if (valid.length === 0) return 'Fotoğraflı Öğün';
+  const h = new Date().getHours();
+  const timeWord = h < 11 ? 'Sabah' : h < 15 ? 'Öğle' : h < 18 ? 'Ara' : 'Akşam';
+  if (valid.length === 1) return `${timeWord} Tabağı: ${valid[0]}`.slice(0, 40);
+  return `${valid[0]} ve ${valid.length - 1} lezzet daha`.slice(0, 40);
 }
 
 export async function estimateNutritionFromText(params: {

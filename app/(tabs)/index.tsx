@@ -416,11 +416,6 @@ export default function DashboardScreen() {
             {'.'}
           </Text>
           <Text style={styles.moodLine}>{moodLine}</Text>
-          <Text style={styles.subtext}>
-            {remaining > 0
-              ? `Bugün ${remaining} kcal daha alabilirsin.`
-              : 'Günlük kalori hedefine ulaştın!'}
-          </Text>
         </View>
 
         {/* ── THE DAY PLATE + MACRO ORBIT ── */}
@@ -444,6 +439,32 @@ export default function DashboardScreen() {
               size={110}
             />
             <Text style={styles.orbitLabel}>MAKRO{'\n'}YÖRÜNGESİ</Text>
+            {(() => {
+              const pPct = proteinGoal > 0 ? Math.min(999, Math.round((totals.protein / proteinGoal) * 100)) : 0;
+              const kPct = carbsGoal   > 0 ? Math.min(999, Math.round((totals.carbs   / carbsGoal)   * 100)) : 0;
+              const yPct = fatGoal     > 0 ? Math.min(999, Math.round((totals.fat     / fatGoal)     * 100)) : 0;
+              const rows: { letter: string; color: string; pct: number }[] = [
+                { letter: 'P', color: Colors.protein, pct: pPct },
+                { letter: 'K', color: Colors.carbs,   pct: kPct },
+                { letter: 'Y', color: Colors.fat,     pct: yPct },
+              ];
+              return (
+                <View style={styles.orbitLegend}>
+                  {rows.map((r) => {
+                    const done = r.pct >= 100;
+                    return (
+                      <View key={r.letter} style={styles.legendRow}>
+                        <View style={[styles.legendDot, { backgroundColor: r.color }]} />
+                        <Text style={[styles.legendLetter, done && { color: r.color }]}>{r.letter}</Text>
+                        <Text style={[styles.legendPct, done && styles.legendPctDone]}>
+                          {r.pct}%
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              );
+            })()}
           </View>
         </View>
 
@@ -542,8 +563,22 @@ export default function DashboardScreen() {
           <Text style={styles.overline}>BUGÜNÜN ISIRIKLARI</Text>
           <View style={styles.railWrap}>
             <View style={styles.railLine} />
-            {getMealTypes(profile?.meal_count ?? 3).map(({ key, label }) => {
-              const logs = foodLogs.filter((l) => l.meal_type === key);
+            {getMealTypes(profile?.meal_count ?? 3)
+              .map(({ key, label }) => {
+                const logs = foodLogs.filter((l) => l.meal_type === key);
+                const earliestTime = logs.reduce<string | null>((min, l) => {
+                  if (!l.logged_at) return min;
+                  return min === null || l.logged_at < min ? l.logged_at : min;
+                }, null);
+                return { key, label, logs, earliestTime };
+              })
+              .sort((a, b) => {
+                if (!a.earliestTime && !b.earliestTime) return 0;
+                if (!a.earliestTime) return 1;
+                if (!b.earliestTime) return -1;
+                return a.earliestTime.localeCompare(b.earliestTime);
+              })
+              .map(({ key, label, logs }) => {
               const kcal = logs.reduce((s, l) => s + l.calories, 0);
               const hasData = logs.length > 0;
               const timeDisplay = hasData && logs[0]?.logged_at ? fmtLocalTime(logs[0].logged_at) : '—';
@@ -756,6 +791,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: 3,
+  },
+  orbitLegend: {
+    marginTop: 4,
+    gap: 2,
+    alignItems: 'stretch',
+    backgroundColor: 'rgba(242,239,230,0.9)',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  legendLetter: {
+    fontSize: 9,
+    color: Colors.ink2,
+    fontFamily: 'Menlo, Courier, monospace',
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    width: 8,
+  },
+  legendPct: {
+    fontSize: 9,
+    color: Colors.ink3,
+    fontFamily: 'Menlo, Courier, monospace',
+    letterSpacing: 0.3,
+    minWidth: 30,
+    textAlign: 'right',
+  },
+  legendPctDone: {
+    color: Colors.primary,
+    fontWeight: '700',
   },
 
   // Meal chips

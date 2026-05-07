@@ -2,7 +2,7 @@
 // 2-sütun cinsiyet seçimi + cetvel yıl seçici.
 
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions } from 'react-native';
 import {
   OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
 } from '../shared/OnbDesign';
@@ -14,9 +14,10 @@ interface Props {
 }
 
 const MIN_YEAR = 1940;
-const MAX_YEAR = 2010;
+const MAX_YEAR = new Date().getFullYear() - 12;
 const YEARS = Array.from({ length: MAX_YEAR - MIN_YEAR + 1 }, (_, i) => MIN_YEAR + i);
 const TICK_WIDTH = 16;
+const RULER_PADDING = Math.round(Dimensions.get('window').width / 2);
 
 export function GenderBirthDate({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
@@ -70,7 +71,7 @@ export function GenderBirthDate({ onNext, onBack }: Props) {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentOffset={{ x: (birthYear - MIN_YEAR) * TICK_WIDTH - 150, y: 0 }}
+            contentOffset={{ x: (birthYear - MIN_YEAR) * TICK_WIDTH, y: 0 }}
             onMomentumScrollEnd={(e) => {
               const idx = Math.round(e.nativeEvent.contentOffset.x / TICK_WIDTH);
               const y = Math.max(MIN_YEAR, Math.min(MAX_YEAR, MIN_YEAR + idx));
@@ -191,6 +192,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     height: 38,
+    paddingLeft: RULER_PADDING,
+    paddingRight: RULER_PADDING,
   },
   tick: {
     alignItems: 'center',

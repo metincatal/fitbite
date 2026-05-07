@@ -42,13 +42,21 @@ export function MacroOrbit({
     { r: size * 0.18, val: fat, goal: fatGoal, color: Colors.fat, label: 'Y' },
   ];
 
+  // Padding viewBox: ay + halo + harf, sınırlara taşmasın diye.
+  const pad = 14;
   return (
-    <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <Svg
+      width={size}
+      height={size}
+      viewBox={`${-pad} ${-pad} ${size + 2 * pad} ${size + 2 * pad}`}
+    >
       {/* center sun */}
       <Circle cx={cx} cy={cy} r={3.5} fill={Colors.ink} />
 
       {orbits.map((o, i) => {
-        const frac = Math.min(1, o.val / o.goal);
+        const rawFrac = o.goal > 0 ? o.val / o.goal : 0;
+        const isComplete = rawFrac >= 1;
+        const frac = Math.min(1, rawFrac);
         const angle = -90 + frac * 360;
         const [mx, my] = polar(cx, cy, o.r, angle);
         const moonR = Math.max(6, 7 + (frac) * 4);
@@ -56,11 +64,14 @@ export function MacroOrbit({
 
         return (
           <G key={i}>
-            {/* orbit ring */}
+            {/* orbit ring — tamamlandıysa solid, değilse noktalı */}
             <Circle
               cx={cx} cy={cy} r={o.r}
-              fill="none" stroke={Colors.line} strokeWidth={0.8}
-              strokeDasharray="1 3"
+              fill="none"
+              stroke={isComplete ? o.color : Colors.line}
+              strokeWidth={isComplete ? 0.8 : 0.8}
+              strokeOpacity={isComplete ? 0.45 : 1}
+              strokeDasharray={isComplete ? undefined : '1 3'}
             />
             {/* progress arc */}
             {frac > 0.01 && (
@@ -71,6 +82,29 @@ export function MacroOrbit({
                 strokeWidth={1.5}
                 strokeLinecap="round"
               />
+            )}
+            {/* tamamlandı halesi — ayın etrafında çift ince çember */}
+            {isComplete && (
+              <>
+                <Circle
+                  cx={mx}
+                  cy={my}
+                  r={moonR + 2.5}
+                  fill="none"
+                  stroke={o.color}
+                  strokeWidth={0.8}
+                  strokeOpacity={0.6}
+                />
+                <Circle
+                  cx={mx}
+                  cy={my}
+                  r={moonR + 4.5}
+                  fill="none"
+                  stroke={o.color}
+                  strokeWidth={0.5}
+                  strokeOpacity={0.3}
+                />
+              </>
             )}
             {/* moon */}
             <Circle cx={mx} cy={my} r={moonR} fill={o.color} />

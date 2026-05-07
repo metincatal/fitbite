@@ -21,6 +21,7 @@ import { Colors, Spacing, BorderRadius, FontSize } from '../../lib/constants';
 import { WeightLog, BodyMeasurement } from '../../types';
 import { calculateBMI, getBMICategory, calculateMacroGoals, AMDR, UserMetrics } from '../../lib/nutrition';
 import { analyzeWeeklyNutrition } from '../../lib/gemini';
+import { MarkdownText } from '../../components/ui/MarkdownText';
 import { WeightSpiral } from '../../components/charts/WeightSpiral';
 import { KcalStrip } from '../../components/charts/KcalStrip';
 import { HabitGarden } from '../../components/charts/HabitGarden';
@@ -174,13 +175,23 @@ export default function ProgressScreen() {
     setAnalyzingWeekly(true);
     setShowAnalysisModal(true);
     try {
+      // Son 7 günün sınırları
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+      const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+
+      // Yemek kayıtları — her gün için toplu
       const days: { date: string; calories: number; protein: number; carbs: number; fat: number }[] = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().split('T')[0];
-        const { data } = await supabase.from('food_logs').select('calories, protein, carbs, fat')
-          .eq('user_id', user.id).gte('logged_at', `${dateStr}T00:00:00`).lte('logged_at', `${dateStr}T23:59:59`);
+        const { data } = await supabase
+          .from('food_logs')
+          .select('calories, protein, carbs, fat')
+          .eq('user_id', user.id)
+          .gte('logged_at', `${dateStr}T00:00:00`)
+          .lte('logged_at', `${dateStr}T23:59:59`);
         const logs = data ?? [];
         days.push({
           date: d.toLocaleDateString('tr-TR', { weekday: 'short', day: 'numeric', month: 'short' }),
@@ -190,10 +201,57 @@ export default function ProgressScreen() {
           fat: Math.round(logs.reduce((s, l) => s + l.fat, 0)),
         });
       }
+
+      // Egzersiz kayıtları — son 7 gün
+      const { data: exData } = await supabase
+        .from('exercise_logs')
+        .select('exercise_name, duration_minutes, calories_burned, logged_at')
+        .eq('user_id', user.id)
+        .gte('logged_at', `${sevenDaysAgoStr}T00:00:00`)
+        .order('logged_at', { ascending: true });
+      const exerciseLogs = (exData ?? []).map((e) => ({
+        date: new Date(e.logged_at).toLocaleDateString('tr-TR', { weekday: 'short', day: 'numeric', month: 'short' }),
+        exercise_name: e.exercise_name,
+        duration_minutes: e.duration_minutes,
+        calories_burned: e.calories_burned,
+      }));
+
+      // Su kayıtları — son 7 gün
+      const { data: wData } = await supabase
+        .from('water_logs')
+        .select('amount_ml, logged_at')
+        .eq('user_id', user.id)
+        .gte('logged_at', `${sevenDaysAgoStr}T00:00:00`)
+        .order('logged_at', { ascending: true });
+      const waterLogs = (wData ?? []).map((w) => ({
+        date: w.logged_at.split('T')[0],
+        amount_ml: w.amount_ml,
+      }));
+
+      // Son kilo kayıtları (zaten state'te var, son 7'yi al)
+      const recentWeightLogs = weightLogs
+        .filter((l) => l.logged_at >= `${sevenDaysAgoStr}T00:00:00`)
+        .map((l) => ({ logged_at: l.logged_at, weight_kg: l.weight_kg }));
+
       const age = new Date().getFullYear() - new Date(profile.birth_date).getFullYear();
-      const metrics: UserMetrics = { gender: profile.gender, age, height_cm: profile.height_cm, weight_kg: profile.weight_kg, activity_level: profile.activity_level, goal: profile.goal };
+      const metrics: UserMetrics = {
+        gender: profile.gender,
+        age,
+        height_cm: profile.height_cm,
+        weight_kg: profile.weight_kg,
+        activity_level: profile.activity_level,
+        goal: profile.goal,
+      };
       const goals = calculateMacroGoals(metrics);
-      const analysis = await analyzeWeeklyNutrition({ profile, dailyData: days, goals });
+
+      const analysis = await analyzeWeeklyNutrition({
+        profile,
+        dailyData: days,
+        goals,
+        exerciseLogs,
+        waterLogs,
+        recentWeightLogs,
+      });
       setWeeklyAnalysis(analysis);
     } catch {
       setWeeklyAnalysis('Analiz alınırken bir hata oluştu.');
@@ -497,11 +555,12 @@ export default function ProgressScreen() {
             {analyzingWeekly ? (
               <View style={styles.loadingWrap}>
                 <ActivityIndicator size="large" color={Colors.primary} />
-                <Text style={styles.loadingText}>FitBot analiz ediyor…</Text>
+                <Text style={styles.loadingText}>FitBot son 7 günü analiz ediyor…</Text>
               </View>
             ) : (
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={styles.analysisText}>{weeklyAnalysis}</Text>
+                <MarkdownText content={weeklyAnalysis} baseStyle={styles.analysisBase} />
+                <View style={{ height: 24 }} />
               </ScrollView>
             )}
           </View>
@@ -640,5 +699,5 @@ const styles = StyleSheet.create({
 
   loadingWrap: { alignItems: 'center', paddingVertical: 40 },
   loadingText: { color: Colors.ink3, fontSize: 14, marginTop: 12 },
-  analysisText: { fontSize: 14, color: Colors.ink, lineHeight: 22 },
+  analysisBase: { fontSize: 15, color: Colors.ink, lineHeight: 23 },
 });

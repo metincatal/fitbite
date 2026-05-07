@@ -18,6 +18,7 @@ import { useAuthStore } from '../../../store/authStore';
 import { useNutritionStore } from '../../../store/nutritionStore';
 import { useChatStore } from '../../../store/chatStore';
 import { DIETITIAN_SYSTEM_PROMPT, generateConversationTitle } from '../../../lib/gemini';
+import { MarkdownText } from '../../../components/ui/MarkdownText';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY!);
@@ -27,18 +28,6 @@ import { ChatMessage } from '../../../types';
 const SERIF = Platform.select({ ios: 'Georgia', android: 'serif', default: 'Georgia' });
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' });
 
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/\*\*([^*]+)\*\*/g, '$1')   // **bold** → bold
-    .replace(/\*([^*]+)\*/g, '$1')        // *italic* → italic
-    .replace(/^#{1,6}\s+/gm, '')          // ## başlık → başlık
-    .replace(/^[-•]\s+/gm, '• ')          // - madde → • madde
-    .replace(/^\d+\.\s+/gm, (m) => m)    // 1. liste → olduğu gibi bırak
-    .replace(/`([^`]+)`/g, '$1')          // `kod` → kod
-    .replace(/^>\s+/gm, '')               // > alıntı → alıntı
-    .replace(/\n{3,}/g, '\n\n')           // fazla boş satırları temizle
-    .trim();
-}
 
 const QUICK_QUESTIONS = [
   'Bugün ne yesem?',
@@ -136,7 +125,7 @@ export default function ChatScreen() {
       });
 
       const result = await chat.sendMessage(messageText);
-      const responseText = stripMarkdown(result.response.text());
+      const responseText = result.response.text().replace(/\n{3,}/g, '\n\n').trim();
 
       chatHistory.current.push({ role: 'model', parts: [{ text: responseText }] });
 
@@ -227,14 +216,13 @@ export default function ChatScreen() {
                   item.role === 'user' ? styles.userBubble : styles.botBubble,
                 ]}
               >
-                <Text
-                  style={[
-                    styles.messageText,
-                    item.role === 'user' && styles.userMessageText,
-                  ]}
-                >
-                  {item.content}
-                </Text>
+                {item.role === 'user' ? (
+                  <Text style={[styles.messageText, styles.userMessageText]}>
+                    {item.content}
+                  </Text>
+                ) : (
+                  <MarkdownText content={item.content} baseStyle={styles.botMessageText} />
+                )}
               </View>
             </View>
           )}
@@ -383,6 +371,12 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
   },
   messageText: {
+    fontFamily: SERIF,
+    fontSize: 15,
+    color: Colors.ink,
+    lineHeight: 22,
+  },
+  botMessageText: {
     fontFamily: SERIF,
     fontSize: 15,
     color: Colors.ink,
