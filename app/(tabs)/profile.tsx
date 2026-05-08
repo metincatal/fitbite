@@ -170,12 +170,26 @@ export default function ProfileScreen() {
       { text: 'İptal', style: 'cancel' },
       { text: 'Kamera', onPress: () => pickProfilePhoto('camera') },
       { text: 'Galeri', onPress: () => pickProfilePhoto('gallery') },
-      ...(profileImageUri ? [{ text: 'Kaldır', style: 'destructive' as const, onPress: () => {
-        if (!user) return;
-        AsyncStorage.removeItem(`fitbite_profile_avatar_uri_${user.id}`);
-        setProfileImageUri(null);
-      } }] : []),
     ]);
+  }
+
+  function handleRemoveProfilePhoto() {
+    Alert.alert(
+      'Fotoğrafı Kaldır',
+      'Profil fotoğrafını kaldırmak istiyor musun?',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Kaldır',
+          style: 'destructive',
+          onPress: () => {
+            if (!user) return;
+            AsyncStorage.removeItem(`fitbite_profile_avatar_uri_${user.id}`);
+            setProfileImageUri(null);
+          },
+        },
+      ]
+    );
   }
 
   async function refreshHealthConnectState() {
@@ -516,24 +530,44 @@ export default function ProfileScreen() {
         <View style={styles.heroBlock}>
           <Text style={styles.overline}>SENİN PROFİLİN</Text>
           <View style={styles.heroRow}>
-            <TouchableOpacity style={styles.avatar} activeOpacity={0.85} onPress={handleProfilePhotoPress}>
+            <View style={styles.avatarContainer}>
+              <TouchableOpacity style={styles.avatar} activeOpacity={0.85} onPress={handleProfilePhotoPress}>
+                {profileImageUri ? (
+                  <Image source={{ uri: profileImageUri }} style={styles.avatarImage} />
+                ) : (
+                  <Ionicons
+                    name="person"
+                    size={34}
+                    color={Colors.accent}
+                  />
+                )}
+              </TouchableOpacity>
               {profileImageUri ? (
-                <Image source={{ uri: profileImageUri }} style={styles.avatarImage} />
+                <TouchableOpacity
+                  style={styles.avatarDeleteBadge}
+                  onPress={handleRemoveProfilePhoto}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 6, right: 6, bottom: 6, left: 6 }}
+                >
+                  <Ionicons name="close" size={10} color="#fff" />
+                </TouchableOpacity>
               ) : (
-                <Ionicons
-                  name={profile.gender === 'male' ? 'person' : 'person'}
-                  size={34}
-                  color={Colors.accent}
-                />
+                <View style={styles.avatarAddBadge} pointerEvents="none">
+                  <Ionicons name="add" size={11} color="#fff" />
+                </View>
               )}
-            </TouchableOpacity>
+            </View>
             <View style={styles.heroText}>
               <Text style={styles.profileName}>
                 {firstName}
                 <Text style={styles.profileNameAccent}>.</Text>
               </Text>
               <Text style={styles.profileEmail}>{user?.email}</Text>
-              <Text style={styles.profilePhotoHint}>Fotoğrafı değiştirmek için daireye dokun</Text>
+              <Text style={styles.profilePhotoHint}>
+                {profileImageUri
+                  ? 'Değiştirmek için dokun · kaldırmak için ✕'
+                  : 'Fotoğraf eklemek için daireye dokun'}
+              </Text>
             </View>
           </View>
           <View style={styles.profileBadges}>
@@ -1257,6 +1291,11 @@ const styles = StyleSheet.create({
     gap: 14,
     marginTop: 10,
   },
+  avatarContainer: {
+    position: 'relative',
+    width: 64,
+    height: 64,
+  },
   avatar: {
     width: 64,
     height: 64,
@@ -1271,6 +1310,34 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: '100%',
     height: '100%',
+  },
+  avatarDeleteBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.background,
+    zIndex: 1,
+  },
+  avatarAddBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.background,
+    zIndex: 1,
   },
   heroText: {
     flex: 1,

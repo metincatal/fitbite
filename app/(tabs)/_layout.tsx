@@ -20,7 +20,7 @@ const { width: SW } = Dimensions.get('window');
 
 // Shared callback refs for camera/gallery (set by the food-log page)
 let _onCameraCallback: ((base64: string) => void) | null = null;
-let _onGalleryCallback: ((base64: string) => void) | null = null;
+let _onGalleryCallback: ((base64s: string[]) => void) | null = null;
 
 // Module-level ref for programmatic tab navigation (used by swipe gesture)
 let _swipeNavigateToTab: ((tabName: string) => void) | null = null;
@@ -28,7 +28,7 @@ let _isQuickActionOpen = false;
 
 export function setQuickActionCallbacks(
   onCamera: (base64: string) => void,
-  onGallery: (base64: string) => void,
+  onGallery: (base64s: string[]) => void,
 ) {
   _onCameraCallback = onCamera;
   _onGalleryCallback = onGallery;
@@ -176,13 +176,15 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.7,
+      quality: 0.65,
       base64: true,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
     });
-    if (result.canceled || !result.assets[0].base64) return;
-    if (_onGalleryCallback) _onGalleryCallback(result.assets[0].base64);
+    if (result.canceled || result.assets.length === 0) return;
+    const base64s = result.assets.map((a) => a.base64).filter((b): b is string => !!b);
+    if (base64s.length === 0) return;
+    if (_onGalleryCallback) _onGalleryCallback(base64s);
   }
 
   const BAR_H = 58;

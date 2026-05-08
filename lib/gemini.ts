@@ -217,27 +217,43 @@ Mesaj: "${firstMessage}"`;
  * Eski `calories/protein/carbs/fat` alanları sadece kompozisyonda eşleşme
  * bulunamayan egzotik yemekler için fallback amacıyla istenir.
  */
-export async function recognizeMealFromImage(imageBase64: string, userHint?: string): Promise<DetectedFoodItem[]> {
+export async function recognizeMealFromImage(imageBase64: string | string[], userHint?: string): Promise<DetectedFoodItem[]> {
   if (!process.env.EXPO_PUBLIC_GEMINI_API_KEY) {
     throw new Error('EXPO_PUBLIC_GEMINI_API_KEY tanımlı değil (.env eksik)');
   }
   // Yeni v2 şeması nested ve uzun — Gemini bazen markdown code fence ile sarıyor
   // veya thinking-mode bütçesini tüketip boş döndürüyor. responseMimeType ile
   // saf JSON garanti, maxOutputTokens ile yeterli alan.
+  const images = Array.isArray(imageBase64) ? imageBase64 : [imageBase64];
+
+  // Çok-görselli analizde modelin görsel başına ayrı muhakeme yapabilmesi
+  // için küçük bir thinking bütçesi şart. Tek görselde thinking'e gerek yok.
+  const thinkingBudget = images.length > 1 ? 4096 : 0;
+
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash',
     generationConfig: {
       responseMimeType: 'application/json',
-      maxOutputTokens: 8192,
+      maxOutputTokens: 16384,
       temperature: 0.4,
-    },
+      thinkingConfig: { thinkingBudget },
+    } as any,
   });
 
   const hintSection = userHint && userHint.trim()
     ? `\nKullanıcı notu (öncelikli referans al): "${userHint.trim()}"\n`
     : '';
 
+  const multiPhotoNote = images.length > 1
+    ? `\nÖNEMLİ — ÇOKLU FOTOĞRAF ANALİZİ:
+Sana ${images.length} ayrı tabak/açı fotoğrafı verildi. Bunların TAMAMINI birlikte analiz et:
+- Her fotoğraftaki yemekleri tek listeye birleştir
+- Aynı yemeği (pirinç, ekmek vb.) sadece BİR kez listele; porsiyonları birleştir
+- Sadece 1. fotoğrafa bakıp diğerlerini atlama — her görseli mutlaka incele\n`
+    : '';
+
   const prompt = `Bu yemek fotoğrafını dikkatle analiz et. Fotoğraftaki TÜM yiyecek ve içecekleri tespit et.
+${multiPhotoNote}
 ${hintSection}
 GÖREVİN: Her yiyecek için hem gramaj hem de besin değerlerini sen hesapla. Dışarıda bir düzeltme motoru YOK — senin verdiğin değerler direkt kullanılır.
 
@@ -278,9 +294,9 @@ Kurallar:
 - Pişirme yöntemi belirsizse "unknown"
 - ingredientBreakdown tekil yemekte boş bırak`;
 
-  const imagePart = { inlineData: { data: imageBase64, mimeType: 'image/jpeg' } };
+  const imageParts = images.map((img) => ({ inlineData: { data: img, mimeType: 'image/jpeg' as const } }));
   const text = await withGeminiRetry(async () => {
-    const result = await model.generateContent([prompt, imagePart]);
+    const result = await model.generateContent([prompt, ...imageParts]);
     const t = result.response.text();
     console.log('[gemini:recognizeMealFromImage] raw response length:', t.length);
     if (!t || !t.trim()) {
@@ -297,6 +313,33 @@ Kurallar:
   }, 'recognizeMealFromImage');
   const parsed = parseJsonArray(text, 'recognizeMealFromImage');
   return parsed.map(normalizeDetection);
+}
+
+// Kesik JSON'dan tamamlanmış { } bloklarını kurtarır.
+// Brace sayacı ile dış seviyede açılan her nesneyi ayrıştırır; parse hatası verenleri atlar.
+function extractCompleteObjects(text: string): unknown[] {
+  const results: unknown[] = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        try {
+          const obj = JSON.parse(text.slice(start, i + 1));
+          if (obj && typeof obj === 'object') results.push(obj);
+        } catch {
+          // incomplete nested structure — skip
+        }
+        start = -1;
+      }
+    }
+  }
+  return results;
 }
 
 // Gemini cevabı bazen markdown code fence ile sarılı (```json ... ```) ya da
@@ -338,6 +381,12 @@ function parseJsonArray(text: string, ctx: string): unknown[] {
     } catch (e) {
       console.warn(`[gemini:${ctx}] object regex parse failed`, e);
     }
+  }
+  // 5) Kesik JSON kurtarma: tamamlanmış {...} bloklarını tek tek çek
+  const recovered = extractCompleteObjects(stripped);
+  if (recovered.length > 0) {
+    console.warn(`[gemini:${ctx}] truncated JSON — recovered ${recovered.length} complete item(s)`);
+    return recovered;
   }
   console.warn(`[gemini:${ctx}] could not parse — raw text:`, stripped.slice(0, 500));
   throw new Error('Yemek tanınamadı');

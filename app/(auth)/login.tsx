@@ -4,17 +4,27 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
+import { signInWithGoogle } from '../../lib/googleAuth';
 import { useAuthStore } from '../../store/authStore';
-import { Colors, Spacing, FontSize, BorderRadius } from '../../lib/constants';
-import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
+import { Colors } from '../../lib/constants';
+import {
+  AuthCornerMarks,
+  AuthLogo,
+  AuthInput,
+  AuthCta,
+  OrDivider,
+  ProviderRow,
+  FootSwitch,
+  ShowToggle,
+  ForgotPassword,
+  AuthFonts,
+} from '../../components/auth/AuthChrome';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -23,124 +33,157 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   function validate(): boolean {
-    const newErrors: typeof errors = {};
-    if (!email.trim()) newErrors.email = 'E-posta zorunludur';
-    else if (!/\S+@\S+\.\S+/.test(email)) newErrors.email = 'Geçerli bir e-posta girin';
-    if (!password) newErrors.password = 'Şifre zorunludur';
-    else if (password.length < 6) newErrors.password = 'Şifre en az 6 karakter olmalı';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
+      Alert.alert('E-posta', 'Geçerli bir e-posta adresi girin.');
+      return false;
+    }
+    if (!password || password.length < 6) {
+      Alert.alert('Şifre', 'Şifre en az 6 karakter olmalı.');
+      return false;
+    }
+    return true;
   }
 
   async function handleLogin() {
     if (!validate()) return;
     setLoading(true);
     try {
-      console.log('[Login] signInWithPassword başlıyor...');
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      console.log('[Login] Sonuç:', { session: !!data.session, error: error?.message });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) {
         if (error.message.toLowerCase().includes('email not confirmed')) {
           Alert.alert(
             'E-posta Doğrulanmadı',
-            'Hesabını doğrulamak için e-postana gelen bağlantıya tıklamalısın. E-postayı almadıysan spam klasörünü kontrol et.'
+            'Hesabını doğrulamak için e-postana gelen bağlantıya tıklamalısın. Spam klasörünü kontrol et.'
           );
         } else {
-          Alert.alert('Giriş Başarısız', `Hata: ${error.message}`);
+          Alert.alert('Giriş Başarısız', error.message);
         }
-      } else if (data.session) {
+        return;
+      }
+      if (data.session) {
         setSession(data.session);
         await fetchProfile();
         const { profile } = useAuthStore.getState();
-        if (profile) {
-          router.replace('/(tabs)');
-        } else {
-          // Hesap var ama profil tamamlanmamış — onboarding'e devam
-          router.replace('/onboarding');
-        }
+        router.replace(profile ? '/(tabs)' : '/onboarding');
       }
     } catch (e: any) {
-      console.error('[Login] Exception:', e);
       Alert.alert('Bağlantı Hatası', 'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.');
     } finally {
       setLoading(false);
     }
   }
 
+  async function handleGoogle() {
+    setOauthLoading(true);
+    try {
+      const result = await signInWithGoogle();
+      if (!result.ok) {
+        if (result.reason === 'cancelled') return;
+        Alert.alert('Google Girişi', result.message ?? 'Google ile giriş tamamlanamadı.');
+        return;
+      }
+      // setSession otomatik tetiklenecek (onAuthStateChange) — ama biz de yine de profil çekelim
+      await fetchProfile();
+      const { profile } = useAuthStore.getState();
+      router.replace(profile ? '/(tabs)' : '/onboarding');
+    } finally {
+      setOauthLoading(false);
+    }
+  }
+
+  function handleApple() {
+    Alert.alert('Apple ile Giriş', 'Apple ile giriş yakında. Şimdilik e-posta veya Google ile devam edebilirsin.');
+  }
+
+  function handleForgot() {
+    Alert.alert(
+      'Şifre Sıfırla',
+      'Şifre sıfırlama akışı yakında. E-posta ile destek almak için: destek@fitbite.app'
+    );
+  }
+
+  const formDisabled = loading || oauthLoading;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Logo & Başlık */}
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logoEmoji}>🥗</Text>
+      <View style={styles.container}>
+        <AuthCornerMarks />
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <AuthLogo />
+
+          <Text style={styles.kicker}>GİRİŞ — HOŞ GELDİN</Text>
+
+          <Text style={styles.headline}>
+            Tabağın <Text style={styles.headlineItalic}>seni</Text>
+            {'\n'}
+            bekliyor.
+          </Text>
+
+          <Text style={styles.lede}>
+            Hesabına giriş yap, kaldığın yerden devam edelim. Spiraline yeni bir gün eklenecek.
+          </Text>
+
+          <View style={{ marginTop: 18 }}>
+            <AuthInput
+              label="E-POSTA"
+              hint="ad@ornek.com"
+              value={email}
+              onChange={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+            />
+            <AuthInput
+              label="ŞİFRE"
+              hint="En az 8 karakter"
+              value={password}
+              onChange={setPassword}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              autoComplete="password"
+              textContentType="password"
+              secondary={<ShowToggle shown={showPassword} onToggle={() => setShowPassword((s) => !s)} />}
+            />
+            <ForgotPassword onPress={handleForgot} />
           </View>
-          <Text style={styles.appName}>FitBite</Text>
-          <Text style={styles.tagline}>Akıllı beslenme, sağlıklı yaşam</Text>
-        </View>
 
-        {/* Form */}
-        <View style={styles.form}>
-          <Text style={styles.title}>Giriş Yap</Text>
+          <View style={{ marginTop: 22 }}>
+            <AuthCta label="Giriş Yap" kicker="↵" onPress={handleLogin} loading={loading} dim={formDisabled} />
+          </View>
 
-          <Input
-            label="E-posta"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="ornek@email.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoComplete="email"
-            error={errors.email}
+          <OrDivider />
+
+          <ProviderRow
+            disabled={formDisabled}
+            items={[
+              { k: 'apple', label: 'Apple' },
+              { k: 'google', label: oauthLoading ? 'Bağlanıyor…' : 'Google' },
+            ]}
+            onPick={(k) => {
+              if (k === 'google') handleGoogle();
+              if (k === 'apple') handleApple();
+            }}
           />
 
-          <Input
-            label="Şifre"
-            value={password}
-            onChangeText={setPassword}
-            placeholder="••••••••"
-            secureTextEntry={!showPassword}
-            autoComplete="password"
-            error={errors.password}
-            rightIcon={
-              <Text style={styles.showPasswordIcon}>
-                {showPassword ? '🙈' : '👁️'}
-              </Text>
-            }
-            onRightIconPress={() => setShowPassword(!showPassword)}
+          <FootSwitch
+            kicker="Henüz aramızda değil misin?"
+            label="Hesap oluştur,"
+            italic="başlayalım"
+            onPress={() => router.push('/(auth)/register')}
           />
-
-          <TouchableOpacity style={styles.forgotPassword}>
-            <Text style={styles.forgotPasswordText}>Şifremi unuttum</Text>
-          </TouchableOpacity>
-
-          <Button
-            title="Giriş Yap"
-            onPress={handleLogin}
-            loading={loading}
-            size="lg"
-            style={styles.loginButton}
-          />
-        </View>
-
-        {/* Kayıt Ol Linki */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Hesabın yok mu? </Text>
-          <TouchableOpacity onPress={() => router.push('/onboarding')}>
-            <Text style={styles.footerLink}>Kayıt Ol</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -152,74 +195,35 @@ const styles = StyleSheet.create({
   },
   content: {
     flexGrow: 1,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: 80,
-    paddingBottom: Spacing.xl,
+    paddingHorizontal: 22,
+    paddingTop: 70,
+    paddingBottom: 40,
   },
-  header: {
-    alignItems: 'center',
-    marginBottom: Spacing.xxl,
+  kicker: {
+    fontFamily: AuthFonts.MONO,
+    fontSize: 10,
+    letterSpacing: 2.6,
+    color: Colors.terracotta,
+    marginTop: 38,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: BorderRadius.xl,
-    backgroundColor: Colors.primaryPale,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.md,
+  headline: {
+    fontFamily: AuthFonts.SERIF,
+    fontSize: 44,
+    lineHeight: 45,
+    color: Colors.ink,
+    marginTop: 10,
+    letterSpacing: -0.9,
   },
-  logoEmoji: {
-    fontSize: 40,
+  headlineItalic: {
+    fontFamily: AuthFonts.SERIF_ITALIC,
+    color: Colors.terracotta,
   },
-  appName: {
-    fontSize: FontSize.xxxl,
-    fontWeight: '900',
-    color: Colors.primary,
-    letterSpacing: -0.5,
-  },
-  tagline: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-    marginTop: Spacing.xs,
-  },
-  form: {
-    marginBottom: Spacing.xl,
-  },
-  title: {
-    fontSize: FontSize.xxl,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: Spacing.xl,
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginTop: -Spacing.sm,
-    marginBottom: Spacing.lg,
-  },
-  forgotPasswordText: {
-    fontSize: FontSize.sm,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
-  loginButton: {
-    marginTop: Spacing.sm,
-  },
-  showPasswordIcon: {
-    fontSize: 18,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: FontSize.md,
-    color: Colors.textSecondary,
-  },
-  footerLink: {
-    fontSize: FontSize.md,
-    color: Colors.primary,
-    fontWeight: '700',
+  lede: {
+    fontFamily: AuthFonts.UI,
+    fontSize: 13,
+    color: Colors.ink2,
+    marginTop: 10,
+    lineHeight: 19.5,
+    maxWidth: 300,
   },
 });

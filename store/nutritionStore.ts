@@ -25,6 +25,7 @@ interface NutritionState {
       | 'composition_entry_id'
       | 'engine_confidence'
       | 'engine_factors'
+      | 'meal_name'
     > & {
       image_url?: string | null;
       cooking_method?: string | null;
@@ -32,6 +33,7 @@ interface NutritionState {
       composition_entry_id?: string | null;
       engine_confidence?: 'high' | 'medium' | 'low' | null;
       engine_factors?: { density: number; yield: number; hidden: number } | null;
+      meal_name?: string | null;
     }
   ) => Promise<void>;
   removeFoodLog: (id: string) => Promise<void>;

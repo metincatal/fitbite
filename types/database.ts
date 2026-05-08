@@ -211,6 +211,7 @@ export interface Database {
           composition_entry_id: string | null;
           engine_confidence: 'high' | 'medium' | 'low' | null;
           engine_factors: { density: number; yield: number; hidden: number } | null;
+          meal_name: string | null;
         };
         Insert: {
           id?: string;
@@ -230,6 +231,7 @@ export interface Database {
           composition_entry_id?: string | null;
           engine_confidence?: 'high' | 'medium' | 'low' | null;
           engine_factors?: { density: number; yield: number; hidden: number } | null;
+          meal_name?: string | null;
         };
         Update: Partial<Database['public']['Tables']['food_logs']['Insert']>;
         Relationships: [

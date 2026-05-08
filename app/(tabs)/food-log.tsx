@@ -48,6 +48,8 @@ function pickMealByHour(): MealType {
 }
 
 const EDITED_MEALS_KEY = 'fitbite_edited_meals';
+const KARE_COUNTS_KEY = 'fitbite_kare_counts';
+const KARE_URLS_KEY = 'fitbite_kare_urls';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -78,6 +80,8 @@ export default function FoodLogScreen() {
   const [yesterdayLogs, setYesterdayLogs] = useState<FoodLogWithFood[]>([]);
   const [mealNames, setMealNames] = useState<Record<string, string>>({});
   const [editedMeals, setEditedMeals] = useState<Set<string>>(new Set());
+  const [karesCount, setKaresCount] = useState<Record<string, number>>({});
+  const [kareUrls, setKareUrls] = useState<Record<string, string[]>>({});
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // Search modal (legacy fallback)
@@ -98,7 +102,7 @@ export default function FoodLogScreen() {
 
   // Photo flow (FoodLogFlow)
   const [flowVisible, setFlowVisible] = useState(false);
-  const [flowBase64, setFlowBase64] = useState<string | null>(null);
+  const [flowImages, setFlowImages] = useState<string[]>([]);
   const [flowInitialStep, setFlowInitialStep] = useState<'add' | 'describe' | 'results' | undefined>(undefined);
   const [flowInitialItems, setFlowInitialItems] = useState<DetectedFoodItem[] | undefined>(undefined);
 
@@ -126,14 +130,16 @@ export default function FoodLogScreen() {
   // Load mealNames + editedMeals
   useEffect(() => {
     AsyncStorage.getItem('fitbite_meal_names').then((raw) => {
-      if (raw) {
-        try { setMealNames(JSON.parse(raw)); } catch {}
-      }
+      if (raw) { try { setMealNames(JSON.parse(raw)); } catch {} }
     });
     AsyncStorage.getItem(EDITED_MEALS_KEY).then((raw) => {
-      if (raw) {
-        try { setEditedMeals(new Set(JSON.parse(raw))); } catch {}
-      }
+      if (raw) { try { setEditedMeals(new Set(JSON.parse(raw))); } catch {} }
+    });
+    AsyncStorage.getItem(KARE_COUNTS_KEY).then((raw) => {
+      if (raw) { try { setKaresCount(JSON.parse(raw)); } catch {} }
+    });
+    AsyncStorage.getItem(KARE_URLS_KEY).then((raw) => {
+      if (raw) { try { setKareUrls(JSON.parse(raw)); } catch {} }
     });
   }, []);
 
@@ -169,15 +175,15 @@ export default function FoodLogScreen() {
     setQuickActionCallbacks(
       (base64) => {
         router.push('/(tabs)/food-log');
-        setFlowBase64(base64);
+        setFlowImages([base64]);
         setFlowInitialStep('describe');
         setFlowInitialItems(undefined);
         setFlowVisible(true);
       },
-      (base64) => {
+      (base64s) => {
         router.push('/(tabs)/food-log');
-        setFlowBase64(base64);
-        setFlowInitialStep('describe');
+        setFlowImages(base64s);
+        setFlowInitialStep(base64s.length > 0 ? 'describe' : 'add');
         setFlowInitialItems(undefined);
         setFlowVisible(true);
       }
@@ -186,18 +192,20 @@ export default function FoodLogScreen() {
   }, [router]);
 
   function openAddFlow() {
-    setFlowBase64(null);
+    setFlowImages([]);
     setFlowInitialStep('add');
     setFlowInitialItems(undefined);
     setFlowVisible(true);
   }
 
-  function handleStartAnalysis(base64: string, hint: string) {
-    setBgAnalysis({ base64, phase: 'Fotoğraf inceleniyor', progress: 0 });
-    runBgAnalysis(base64, hint);
+  function handleStartAnalysis(images: string[], hint: string) {
+    const firstBase64 = images[0] ?? '';
+    setBgAnalysis({ base64: firstBase64, phase: 'Fotoğraf inceleniyor', progress: 0 });
+    runBgAnalysis(images, hint);
   }
 
-  async function runBgAnalysis(base64: string, hint: string) {
+  async function runBgAnalysis(images: string[], hint: string) {
+    const base64 = images[0] ?? '';
     const phases = ['Fotoğraf inceleniyor', 'Yemekler ayrıştırılıyor', 'Makrolar çıkarılıyor'];
     const intervalId = setInterval(() => {
       setBgAnalysis((prev) => {
@@ -208,7 +216,7 @@ export default function FoodLogScreen() {
       });
     }, 120);
     try {
-      const detected = await recognizeMealFromImage(base64, hint || undefined);
+      const detected = await recognizeMealFromImage(images, hint || undefined);
       clearInterval(intervalId);
 
       // Uygulama arka plandaysa kullanıcı sonuç ekranını göremez — direkt kaydet
@@ -230,7 +238,7 @@ export default function FoodLogScreen() {
             };
           });
           const namePromise = generateMealName(detected.map((d) => d.name));
-          handleSavePhotoMeal(computedItems, mealType, base64, namePromise);
+          handleSavePhotoMeal(computedItems, mealType, [base64], namePromise);
         }
         return;
       }
@@ -238,7 +246,7 @@ export default function FoodLogScreen() {
       setBgAnalysis((prev) => (prev ? { ...prev, progress: 100, phase: 'Analiz tamamlandı' } : null));
       setTimeout(() => {
         setBgAnalysis(null);
-        setFlowBase64(base64);
+        setFlowImages(images);
         setFlowInitialItems(detected);
         setFlowInitialStep('results');
         setFlowVisible(true);
@@ -252,10 +260,10 @@ export default function FoodLogScreen() {
     }
   }
 
-  function handleSavePhotoMeal(items: ComputedFoodItem[], mealType: MealType, base64: string, namePromise?: Promise<string>) {
+  function handleSavePhotoMeal(items: ComputedFoodItem[], mealType: MealType, images: string[], namePromise?: Promise<string>, imageCount?: number) {
     if (!user) return;
     const pending: PendingSave = {
-      imageBase64: base64,
+      imageBase64: images[0] ?? '',
       items,
       mealType,
       progress: 0,
@@ -263,10 +271,10 @@ export default function FoodLogScreen() {
     };
     setPendingSave(pending);
     pendingSaveRef.current = pending;
-    runBackgroundSave(user.id, base64, items, mealType, namePromise);
+    runBackgroundSave(user.id, images, items, mealType, namePromise);
   }
 
-  async function runBackgroundSave(userId: string, base64: string, items: ComputedFoodItem[], mealType: MealType, namePromise?: Promise<string>) {
+  async function runBackgroundSave(userId: string, images: string[], items: ComputedFoodItem[], mealType: MealType, namePromise?: Promise<string>) {
     const totalSteps = items.length + 1;
     let completedSteps = 0;
     function bump(text: string) {
@@ -275,9 +283,9 @@ export default function FoodLogScreen() {
       setPendingSave((prev) => (prev ? { ...prev, progress: p, statusText: text } : null));
     }
     try {
-      // Upload image and wait for name in parallel
+      // Upload primary image + name in parallel
       const [imageUrl, generatedName] = await Promise.all([
-        uploadFoodPhoto(userId, base64),
+        uploadFoodPhoto(userId, images[0] ?? ''),
         (namePromise ?? Promise.resolve(null)).catch(() => null),
       ]);
 
@@ -286,6 +294,26 @@ export default function FoodLogScreen() {
       // Associate name before items appear in log so it shows immediately
       if (imageUrl && generatedName) {
         setMealNames((prev) => ({ ...prev, [imageUrl]: generatedName }));
+      }
+
+      // Upload extra photos and record all URLs
+      if (imageUrl && images.length > 1) {
+        const extraUploadResults = await Promise.all(
+          images.slice(1).map((b64) => uploadFoodPhoto(userId, b64).catch(() => null))
+        );
+        const extraUrls = extraUploadResults.filter(Boolean) as string[];
+        const allUrls = [imageUrl, ...extraUrls];
+        const count = allUrls.length;
+        setKaresCount((prev) => {
+          const next = { ...prev, [imageUrl]: count };
+          AsyncStorage.setItem(KARE_COUNTS_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
+        setKareUrls((prev) => {
+          const next = { ...prev, [imageUrl]: allUrls };
+          AsyncStorage.setItem(KARE_URLS_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
       }
 
       bump('Besinler kaydediliyor...');
@@ -337,6 +365,7 @@ export default function FoodLogScreen() {
       setTimeout(() => {
         setPendingSave(null);
         pendingSaveRef.current = null;
+        fetchDayLogs(userId, selectedDate);
       }, 600);
     } catch {
       Alert.alert('Hata', 'Kayıt sırasında bir sorun oluştu.');
@@ -455,38 +484,80 @@ export default function FoodLogScreen() {
       const url = log.image_url;
       const photoGroup = group.filter((l) => l.image_url === url);
       const totalCal = photoGroup.reduce((s, l) => s + l.calories, 0);
-      const mealName = mealNames[url];
+      const mealName = photoGroup[0]?.meal_name ?? mealNames[url];
+      const allUrls = kareUrls[url] ?? [url];
+      const kares = allUrls.length;
       const time = new Date(log.logged_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-
+      const ingredients = photoGroup.map((l) => l.food?.name_tr ?? l.food?.name).filter(Boolean).join(' · ');
       const isEditPending = pendingEditUrl === url;
+
+      // Circular staggered thumbnails (max 3 visible)
+      const CIRCLE = 54;
+      const DX = 22;
+      const DY = 10;
+      const displayUrls = allUrls.slice(0, 3);
+      const circleContainerW = CIRCLE + DX * (displayUrls.length - 1);
+      const circleContainerH = displayUrls.length > 1 ? CIRCLE + DY : CIRCLE;
+      const extraCount = allUrls.length - displayUrls.length;
+
       return (
         <TouchableOpacity
           key={`photo-${url}`}
-          style={styles.photoEntryCard}
+          style={styles.entryCard}
           activeOpacity={isEditPending ? 1 : 0.88}
           onPress={() => !readonly && !isEditPending && setPhotoDetailGroup(photoGroup)}
         >
-          <View style={styles.photoEntryImageWrap}>
-            <Image
-              source={{ uri: url }}
-              style={styles.photoEntryImage}
-              resizeMode="cover"
-              blurRadius={isEditPending ? 6 : 0}
-            />
-            {mealName && !isEditPending && (
-              <LinearGradient
-                colors={['transparent', 'rgba(0,0,0,0.7)']}
-                style={styles.photoEntryGradient}
-              >
-                <Text style={styles.photoEntryName} numberOfLines={2}>{mealName}</Text>
-              </LinearGradient>
-            )}
+          {/* Circular staggered thumbnails */}
+          <View style={{ width: circleContainerW, height: circleContainerH, flexShrink: 0 }}>
+            {displayUrls.map((imgUrl, i) => (
+              <React.Fragment key={i}>
+                <Image
+                  source={{ uri: imgUrl }}
+                  style={{
+                    position: 'absolute',
+                    left: i * DX,
+                    top: i % 2 === 1 ? DY : 0,
+                    width: CIRCLE,
+                    height: CIRCLE,
+                    borderRadius: CIRCLE / 2,
+                    borderWidth: 2.5,
+                    borderColor: '#F2EFE6',
+                  }}
+                  resizeMode="cover"
+                  blurRadius={isEditPending ? 6 : 0}
+                />
+                {i === displayUrls.length - 1 && extraCount > 0 && (
+                  <View style={{
+                    position: 'absolute',
+                    right: 0, bottom: 0,
+                    width: 20, height: 20, borderRadius: 10,
+                    backgroundColor: Colors.ink,
+                    alignItems: 'center', justifyContent: 'center',
+                    borderWidth: 1.5, borderColor: '#F2EFE6',
+                  }}>
+                    <Text style={{ fontFamily: MONO, fontSize: 8, color: '#fff', fontWeight: '700' }}>+{extraCount}</Text>
+                  </View>
+                )}
+              </React.Fragment>
+            ))}
           </View>
-          <View style={styles.photoEntryMeta}>
-            <Text style={styles.photoEntryMetaTime}>{time} · {getMealLabel(log.meal_type)}</Text>
-            <Text style={styles.photoEntryKcal}>
-              {Math.round(totalCal)}<Text style={styles.photoEntryKcalUnit}> kcal</Text>
+          {/* Body */}
+          <View style={styles.entryBody}>
+            <View style={styles.entryTimeRow}>
+              <Text style={styles.entryTime}>{time}</Text>
+              {kares > 1 && <Text style={styles.entryKareBadge}>· {kares} KARE</Text>}
+            </View>
+            <Text style={styles.entryTitle} numberOfLines={1}>
+              {mealName ?? (photoGroup[0]?.food?.name_tr ?? photoGroup[0]?.food?.name ?? 'Öğün')}
             </Text>
+            {ingredients ? (
+              <Text style={styles.entryIngredients} numberOfLines={1}>{ingredients}</Text>
+            ) : null}
+          </View>
+          {/* Kcal */}
+          <View style={styles.entryRight}>
+            <Text style={styles.entryKcal}>{Math.round(totalCal)}</Text>
+            <Text style={styles.entryKcalUnit}>KCAL</Text>
           </View>
           {isEditPending && <EditSavingOverlay />}
         </TouchableOpacity>
@@ -494,24 +565,30 @@ export default function FoodLogScreen() {
     }
 
     const time = new Date(log.logged_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    const foodName = log.food?.name_tr ?? log.food?.name ?? '';
+    const abbr = foodName.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 5);
     return (
-      <View key={log.id} style={styles.entry}>
-        <View style={[styles.entryNoPhoto, { backgroundColor: MEAL_DOT[log.meal_type] ?? Colors.ink }]}>
-          <Text style={styles.entryNoPhotoTime}>{time.split(':')[0]}</Text>
+      <View key={log.id} style={styles.entryCard}>
+        {/* Colored circle */}
+        <View style={[styles.colorCircle, { backgroundColor: entryColor(foodName) }]}>
+          <Text style={styles.colorCircleText}>{abbr}</Text>
         </View>
+        {/* Body */}
         <View style={styles.entryBody}>
-          <Text style={styles.entryTitle} numberOfLines={2}>{log.food?.name_tr ?? log.food?.name}</Text>
-          <Text style={styles.entryMeta} numberOfLines={1}>
-            {time} · {getMealLabel(log.meal_type)} · {log.serving_amount}g
+          <Text style={styles.entryTime}>{time}</Text>
+          <Text style={styles.entryTitle} numberOfLines={1}>{foodName}</Text>
+          <Text style={styles.entryIngredients} numberOfLines={1}>
+            {getMealLabel(log.meal_type)} · {log.serving_amount}g
           </Text>
         </View>
+        {/* Kcal */}
         <View style={styles.entryRight}>
           <Text style={styles.entryKcal}>{Math.round(log.calories)}</Text>
-          <Text style={styles.entryKcalUnit}>kcal</Text>
+          <Text style={styles.entryKcalUnit}>KCAL</Text>
         </View>
         {!readonly && (
-          <TouchableOpacity onPress={() => removeFoodLog(log.id)} style={styles.entryDelete}>
-            <Ionicons name="close" size={16} color={Colors.ink4} />
+          <TouchableOpacity onPress={() => removeFoodLog(log.id)} style={styles.entryDeleteBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={15} color={Colors.ink4} />
           </TouchableOpacity>
         )}
       </View>
@@ -538,6 +615,11 @@ export default function FoodLogScreen() {
             <Text style={styles.heroTitle}>
               Yemek <Text style={styles.heroTitleAccent}>Günlüğü</Text>
             </Text>
+            <Text style={styles.heroTagline}>
+              {foodLogs.some((l) => l.image_url && (karesCount[l.image_url] ?? 1) > 1)
+                ? 'Bir öğün — birden fazla tabak.'
+                : 'Her öğün, tek bir kare.'}
+            </Text>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 8 }}>
             <View style={{ alignItems: 'flex-end' }}>
@@ -546,7 +628,6 @@ export default function FoodLogScreen() {
               </Text>
               <Text style={styles.heroSubOverline}>BUGÜN</Text>
             </View>
-            {/* Inline add button — replaces floating FAB */}
             <TouchableOpacity style={styles.headerAddBtn} onPress={openAddFlow} activeOpacity={0.82}>
               <Ionicons name="add" size={16} color="#fff" />
               <Text style={styles.headerAddBtnText}>Ekle</Text>
@@ -557,7 +638,7 @@ export default function FoodLogScreen() {
         {/* Today section */}
         <DaySection
           dateLabel={`Bugün · ${todayLabel.split(' ').slice(0, 2).join(' ')}`}
-          subtitle={totalCaloriesToday > 0 ? `${Math.round(totalCaloriesToday)} kcal` : 'Henüz boş'}
+          mealCount={countMealGroups(foodLogs)}
           active
         >
           {foodLogs.length === 0 && !pendingSave && !bgAnalysis ? (
@@ -580,7 +661,7 @@ export default function FoodLogScreen() {
         {/* Yesterday section */}
         <DaySection
           dateLabel={`Dün · ${yesterdayLabel.split(' ').slice(0, 2).join(' ')}`}
-          subtitle={yesterdayLogs.length > 0 ? `${Math.round(totalCaloriesYesterday)} kcal` : 'Kayıt yok'}
+          mealCount={countMealGroups(yesterdayLogs)}
         >
           {yesterdayLogs.length === 0 ? (
             <Text style={styles.emptyDayLine}>Dün hiçbir şey yazmadın.</Text>
@@ -589,33 +670,20 @@ export default function FoodLogScreen() {
           )}
         </DaySection>
 
-        {/* Hint card (yalnızca bugün boşken) */}
-        {foodLogs.length === 0 && !pendingSave && !bgAnalysis && (
-          <View style={styles.hintCard}>
-            <View style={styles.hintCardArrow}>
-              <Text style={styles.hintCardArrowText}>↗</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.hintCardTitle}>Sağ üstteki Ekle'ye bas.</Text>
-              <Text style={styles.hintCardSub}>Fotoğraf çek, AI tabağını okusun. Veya sağ alttaki + butonu ile de ekleyebilirsin.</Text>
-            </View>
-          </View>
-        )}
-
         <View style={{ height: 120 }} />
       </ScrollView>
 
       {/* Photo flow */}
       <FoodLogFlow
         visible={flowVisible}
-        initialBase64={flowBase64}
+        initialImages={flowImages}
         initialStep={flowInitialStep}
         initialItems={flowInitialItems}
         onClose={() => { setFlowVisible(false); setFlowInitialItems(undefined); }}
-        onSave={(items, mealType, base64, namePromise) => {
+        onSave={(items, mealType, images, namePromise, imageCount) => {
           setFlowVisible(false);
           setFlowInitialItems(undefined);
-          handleSavePhotoMeal(items, mealType, base64, namePromise);
+          handleSavePhotoMeal(items, mealType, images, namePromise, imageCount);
         }}
         onStartAnalysis={handleStartAnalysis}
         onOpenSearch={() => {
@@ -634,6 +702,8 @@ export default function FoodLogScreen() {
         logs={photoDetailGroup}
         onRemoveAll={() => { photoDetailGroup.forEach((l) => removeFoodLog(l.id)); setPhotoDetailGroup([]); }}
         mealName={photoDetailGroup[0]?.image_url ? mealNames[photoDetailGroup[0].image_url] : undefined}
+        karesCount={photoDetailGroup[0]?.image_url ? (karesCount[photoDetailGroup[0].image_url] ?? (kareUrls[photoDetailGroup[0].image_url]?.length ?? 1)) : 1}
+        allImageUrls={photoDetailGroup[0]?.image_url ? (kareUrls[photoDetailGroup[0].image_url] ?? [photoDetailGroup[0].image_url]) : undefined}
         onNameChange={(name) => {
           const url = photoDetailGroup[0]?.image_url;
           if (url) setMealNames((prev) => ({ ...prev, [url]: name }));
@@ -813,15 +883,33 @@ export default function FoodLogScreen() {
   );
 }
 
+// ──────────────────────────── HELPER FUNCTIONS ────────────────────────────
+const ENTRY_COLORS = ['#C9945A', '#7A9C4A', '#3A6D8C', '#8B5E83', '#4A8BA4', '#A06B50'];
+function entryColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffff;
+  return ENTRY_COLORS[Math.abs(h) % ENTRY_COLORS.length];
+}
+
+function countMealGroups(logs: FoodLogWithFood[]): number {
+  const seen = new Set<string>();
+  let count = 0;
+  for (const l of logs) {
+    if (l.image_url) { if (!seen.has(l.image_url)) { seen.add(l.image_url); count++; } }
+    else count++;
+  }
+  return count;
+}
+
 // ──────────────────────────── DAY SECTION ────────────────────────────
 function DaySection({
   dateLabel,
-  subtitle,
+  mealCount,
   active,
   children,
 }: {
   dateLabel: string;
-  subtitle: string;
+  mealCount: number;
   active?: boolean;
   children: React.ReactNode;
 }) {
@@ -832,9 +920,11 @@ function DaySection({
           <View style={[styles.dayDot, { backgroundColor: active ? Colors.terracotta : Colors.ink4 }]} />
           <Text style={styles.dayLabel}>{dateLabel}</Text>
         </View>
-        <Text style={styles.daySubtitle}>{subtitle}</Text>
+        {mealCount > 0 && (
+          <Text style={styles.daySubtitle}>{mealCount} ÖĞÜN</Text>
+        )}
       </View>
-      <View style={{ paddingTop: 4 }}>{children}</View>
+      <View style={{ paddingTop: 8 }}>{children}</View>
     </View>
   );
 }
@@ -1034,16 +1124,18 @@ const analyzingStyles = StyleSheet.create({
 });
 
 // ──────────────────────────── STYLES ────────────────────────────
-const PHOTO_ENTRY_SIZE = SCREEN_WIDTH - 44;
+const PHOTO_ENTRY_WIDTH = SCREEN_WIDTH - 44;
+const PHOTO_ENTRY_HEIGHT = Math.round(PHOTO_ENTRY_WIDTH * 0.625); // 16:10 — kırpma yok, dengeli yükseklik
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scrollContent: { paddingTop: 8, paddingBottom: 40 },
 
-  heroRow: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start' },
+  heroRow: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 16, flexDirection: 'row', alignItems: 'flex-start' },
   heroOverline: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 1.6 },
   heroTitle: { fontFamily: SERIF, fontSize: 36, lineHeight: 46, color: Colors.ink, marginTop: 4 },
   heroTitleAccent: { fontStyle: 'italic', color: Colors.terracotta },
+  heroTagline: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 13, color: Colors.ink3, marginTop: 4 },
   heroKcal: { fontFamily: SERIF, fontSize: 26, lineHeight: 28 },
   heroKcalUnit: { fontFamily: MONO, fontSize: 12, color: Colors.ink3, letterSpacing: 1 },
   heroSubOverline: { fontFamily: MONO, fontSize: 9, color: Colors.ink4, letterSpacing: 1.6, marginTop: 2 },
@@ -1056,30 +1148,30 @@ const styles = StyleSheet.create({
   daySubtitle: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 1.2 },
   emptyDayLine: { paddingVertical: 14, textAlign: 'center', color: Colors.ink4, fontSize: 12 },
 
-  // Photo meal entry (wide card)
-  photoEntryCard: { borderRadius: 16, overflow: 'hidden', backgroundColor: Colors.line2, marginBottom: 2 },
-  photoEntryImageWrap: { width: PHOTO_ENTRY_SIZE, height: PHOTO_ENTRY_SIZE, position: 'relative' },
-  photoEntryImage: { width: PHOTO_ENTRY_SIZE, height: PHOTO_ENTRY_SIZE },
-  photoEntryGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 14, paddingBottom: 14, paddingTop: 48 },
-  photoEntryName: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 17, color: '#F2EFE6', lineHeight: 22 },
-  photoEntryMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 },
-  photoEntryMetaTime: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 0.8 },
-  photoEntryKcal: { fontFamily: SERIF, fontSize: 16, color: Colors.ink },
-  photoEntryKcalUnit: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 0.6 },
-
-  // Entry (non-photo)
-  entry: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.line2 },
-  entryThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: Colors.line2 },
-  entryNoPhoto: { width: 56, height: 56, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  entryNoPhotoTime: { fontFamily: SERIF, fontSize: 16, color: Colors.background },
+  // Entry card (photo & text — shared new design)
+  entryCard: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14, backgroundColor: Colors.surface, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line },
+  // Single photo thumbnail
+  thumbWrap: { width: 72, height: 72, borderRadius: 14, overflow: 'hidden', flexShrink: 0 },
+  singleThumb: { width: 72, height: 72 },
+  // Stacked thumbnails (multi-kare)
+  stackedThumbWrap: { width: 86, height: 72, flexShrink: 0, position: 'relative' },
+  stackedThumb1: { position: 'absolute', left: 0, top: 6, width: 60, height: 60, borderRadius: 12 },
+  stackedThumb2: { position: 'absolute', right: 0, bottom: 6, width: 60, height: 60, borderRadius: 12, borderWidth: 2, borderColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
+  stackedThumb2Text: { fontFamily: MONO, fontSize: 12, color: '#fff', fontWeight: '700' },
+  // Colored circle (no-photo)
+  colorCircle: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  colorCircleText: { fontFamily: MONO, fontSize: 9, color: '#fff', letterSpacing: 1, fontWeight: '700', textAlign: 'center' },
+  // Entry body
   entryBody: { flex: 1, minWidth: 0 },
-  entryTitle: { fontFamily: SERIF, fontSize: 15, color: Colors.ink, lineHeight: 18 },
-  entryDot: { color: Colors.terracotta },
-  entryMeta: { fontFamily: MONO, fontSize: 10, color: Colors.ink3, letterSpacing: 0.6, marginTop: 3 },
-  entryRight: { alignItems: 'flex-end', marginLeft: 4 },
-  entryKcal: { fontFamily: SERIF, fontSize: 17, color: Colors.ink, lineHeight: 19 },
-  entryKcalUnit: { fontFamily: MONO, fontSize: 9, color: Colors.ink3, letterSpacing: 0.6 },
-  entryDelete: { padding: 6 },
+  entryTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  entryTime: { fontFamily: MONO, fontSize: 10.5, color: Colors.ink3, letterSpacing: 0.6 },
+  entryKareBadge: { fontFamily: MONO, fontSize: 9, color: Colors.terracotta, letterSpacing: 1 },
+  entryTitle: { fontFamily: SERIF, fontStyle: 'italic', fontSize: 16, color: Colors.ink, lineHeight: 20, marginTop: 2 },
+  entryIngredients: { fontSize: 11, color: Colors.ink3, marginTop: 2 },
+  entryRight: { alignItems: 'flex-end', flexShrink: 0, marginLeft: 4 },
+  entryKcal: { fontFamily: SERIF, fontSize: 22, color: Colors.ink, lineHeight: 24 },
+  entryKcalUnit: { fontFamily: MONO, fontSize: 8, color: Colors.ink4, letterSpacing: 1.2, marginTop: 1 },
+  entryDeleteBtn: { padding: 4, marginLeft: -4 },
 
   // Empty day
   emptyDay: { paddingVertical: 32, alignItems: 'center', gap: 12 },
@@ -1088,10 +1180,11 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 13, color: Colors.ink3, maxWidth: 240, textAlign: 'center' },
 
   // Hint card
-  hintCard: { marginHorizontal: 22, marginTop: 24, padding: 14, borderRadius: 18, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, borderStyle: 'dashed', flexDirection: 'row', alignItems: 'center', gap: 12 },
-  hintCardArrow: { width: 36, height: 36, borderRadius: 99, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center' },
-  hintCardArrowText: { color: Colors.background, fontSize: 18 },
-  hintCardTitle: { fontSize: 12.5, color: Colors.ink, fontWeight: '700' },
+  hintCard: { marginHorizontal: 22, marginTop: 20, marginBottom: 8, padding: 14, borderRadius: 18, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  hintCardIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.ink, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  hintCardTitle: { fontSize: 12.5, color: Colors.ink2, lineHeight: 18 },
+  hintCardBold: { fontWeight: '700', color: Colors.ink },
+  hintCardAccent: { fontFamily: MONO, fontSize: 11, color: Colors.terracotta, letterSpacing: 1 },
   hintCardSub: { fontSize: 12, color: Colors.ink3, marginTop: 2 },
 
   // Header add button (replaces floating FAB)

@@ -1,7 +1,11 @@
 import { useEffect, useRef } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFonts, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from '@expo-google-fonts/instrument-serif';
+import { Geist_400Regular, Geist_500Medium, Geist_600SemiBold } from '@expo-google-fonts/geist';
+import { GeistMono_400Regular, GeistMono_500Medium } from '@expo-google-fonts/geist-mono';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
 import { checkAndRequestNotificationPermission, initNotificationHandler } from '../lib/notifications';
@@ -11,6 +15,16 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const mounted = useRef(false);
+
+  const [fontsLoaded] = useFonts({
+    InstrumentSerif_400Regular,
+    InstrumentSerif_400Regular_Italic,
+    Geist_400Regular,
+    Geist_500Medium,
+    Geist_600SemiBold,
+    GeistMono_400Regular,
+    GeistMono_500Medium,
+  });
 
   useEffect(() => {
     mounted.current = true;
@@ -72,6 +86,14 @@ export default function RootLayout() {
     }
     // session && !profile && !profileFetched: fetchProfile henüz bitmedi, bekle
   }, [session, profile, isLoading, profileFetched, segments]);
+
+  if (!fontsLoaded || isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#F2EFE6', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color="#2D6A4F" />
+      </View>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

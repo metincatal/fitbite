@@ -62,11 +62,16 @@
       "expo-audio",
       "react-native-health-connect",
       "./plugins/withHealthConnectSetup",
-      ["expo-build-properties", {
-        "android": {
-          "minSdkVersion": 26
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26
+          }
         }
-      }]
+      ],
+      "expo-web-browser",
+      "expo-font"
     ],
     "extra": {
       "router": {},

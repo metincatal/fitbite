@@ -50,12 +50,13 @@ interface ItemPlus extends DetectedFoodItem {
 
 interface FoodLogFlowProps {
   visible: boolean;
-  initialBase64: string | null;
+  initialBase64?: string | null;
+  initialImages?: string[];
   initialStep?: Step;
   initialItems?: DetectedFoodItem[];
   onClose: () => void;
-  onSave: (items: ComputedFoodItem[], mealType: MealType, base64: string, namePromise?: Promise<string>) => void;
-  onStartAnalysis?: (base64: string, hint: string) => void;
+  onSave: (items: ComputedFoodItem[], mealType: MealType, images: string[], namePromise?: Promise<string>, imageCount?: number) => void;
+  onStartAnalysis?: (images: string[], hint: string) => void;
   onOpenSearch: () => void;
   onOpenBarcode: () => void;
 }
@@ -87,6 +88,7 @@ function pickMealByHour(): MealType {
 export function FoodLogFlow({
   visible,
   initialBase64,
+  initialImages,
   initialStep,
   initialItems,
   onClose,
@@ -96,7 +98,7 @@ export function FoodLogFlow({
   onOpenBarcode,
 }: FoodLogFlowProps) {
   const [step, setStep] = useState<Step>(initialStep ?? 'add');
-  const [base64, setBase64] = useState<string | null>(initialBase64);
+  const [images, setImages] = useState<string[]>([]);
   const [hint, setHint] = useState('');
   const [items, setItems] = useState<ItemPlus[]>([]);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -105,7 +107,13 @@ export function FoodLogFlow({
 
   useEffect(() => {
     if (visible) {
-      setBase64(initialBase64);
+      const initImgs =
+        initialImages && initialImages.length > 0
+          ? initialImages
+          : initialBase64
+          ? [initialBase64]
+          : [];
+      setImages(initImgs);
       setStep(initialStep ?? 'add');
       setHint('');
       if (initialItems && initialItems.length > 0) {
@@ -117,7 +125,7 @@ export function FoodLogFlow({
       setQuestions([]);
       setMeal(pickMealByHour());
     }
-  }, [visible, initialBase64, initialStep, initialItems]);
+  }, [visible, initialBase64, initialImages, initialStep, initialItems]);
 
   async function handlePickPhoto(source: 'camera' | 'gallery') {
     const reqFn =
@@ -129,24 +137,52 @@ export function FoodLogFlow({
       Alert.alert('İzin Gerekli', source === 'camera' ? 'Kamera izni gerekli.' : 'Galeri izni gerekli.');
       return;
     }
-    const launchFn = source === 'camera' ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-    const result = await launchFn({ mediaTypes: ['images'], quality: 0.7, base64: true, allowsEditing: true, aspect: [1, 1] });
-    if (result.canceled || !result.assets[0].base64) return;
-    setBase64(result.assets[0].base64);
-    setStep('describe');
+    if (source === 'camera') {
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.7,
+        base64: true,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (result.canceled || !result.assets[0].base64) return;
+      setImages((prev) => [...prev, result.assets[0].base64!]);
+      if (step === 'add') setStep('describe');
+    } else {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.65,
+        base64: true,
+        allowsMultipleSelection: true,
+        selectionLimit: 5,
+      });
+      if (result.canceled || result.assets.length === 0) return;
+      const newBase64s = result.assets.map((a) => a.base64).filter((b): b is string => !!b);
+      if (newBase64s.length === 0) return;
+      setImages((prev) => [...prev, ...newBase64s]);
+      if (step === 'add') setStep('describe');
+    }
+  }
+
+  function handleRemoveImage(index: number) {
+    setImages((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) setStep('add');
+      return next;
+    });
   }
 
   async function runAnalysis(useHint: string) {
-    if (!base64) return;
+    if (images.length === 0) return;
     if (onStartAnalysis) {
-      onStartAnalysis(base64, useHint);
+      onStartAnalysis(images, useHint);
       onClose();
       return;
     }
     setStep('analyzing');
     setAnalysisError(null);
     try {
-      const detected = await recognizeMealFromImage(base64, useHint || undefined);
+      const detected = await recognizeMealFromImage(images, useHint || undefined);
       setItems(detected.map(toItemPlus));
       setStep('results');
     } catch (e) {
@@ -156,7 +192,8 @@ export function FoodLogFlow({
   }
 
   async function reanalyzeWithAnswers(answers: string[]) {
-    if (!base64) return;
+    if (images.length === 0) return;
+    const base64 = images[0];
     setStep('analyzing');
     try {
       const baseItems = items.map<DetectedFoodItem>((it) => ({
@@ -204,7 +241,8 @@ export function FoodLogFlow({
   }
 
   function handleSaveFromResults() {
-    if (!base64 || items.length === 0) return;
+    if (images.length === 0 || items.length === 0) return;
+    const base64 = images[0];
     // Her item için motor üstünden ölçeklenmiş hesap üret (audit metadata'sıyla birlikte).
     const computed: ComputedFoodItem[] = items.map((it) => {
       const userGrams = Math.round(it.baseGrams * (it.pct / 100));
@@ -229,7 +267,7 @@ export function FoodLogFlow({
     const namePromise = generateMealName(computed.map((c) => c.detection.name));
     setStep('saving');
     setTimeout(() => {
-      onSave(computed, meal, base64, namePromise);
+      onSave(computed, meal, images, namePromise, images.length);
       onClose();
     }, 280);
   }
@@ -248,18 +286,20 @@ export function FoodLogFlow({
         )}
         {step === 'describe' && (
           <StepDescribe
-            base64={base64}
+            images={images}
             text={hint}
             onText={setHint}
             error={analysisError}
             onClose={onClose}
             onAnalyze={() => runAnalysis(hint)}
+            onAddImage={handlePickPhoto}
+            onRemoveImage={handleRemoveImage}
           />
         )}
-        {step === 'analyzing' && <StepAnalyzing base64={base64} />}
+        {step === 'analyzing' && <StepAnalyzing base64={images[0] ?? null} />}
         {step === 'results' && (
           <StepResults
-            base64={base64}
+            images={images}
             items={items}
             setItems={setItems}
             meal={meal}
@@ -271,15 +311,66 @@ export function FoodLogFlow({
         )}
         {step === 'improve' && (
           <StepImprove
-            base64={base64}
+            base64={images[0] ?? null}
             questions={questions}
             onCancel={() => setStep('results')}
             onReanalyze={reanalyzeWithAnswers}
           />
         )}
-        {step === 'saving' && <StepSaving base64={base64} />}
+        {step === 'saving' && <StepSaving base64={images[0] ?? null} />}
       </View>
     </Modal>
+  );
+}
+
+// ──────────────────────────── RESULTS PHOTO CIRCLES ────────────────────────────
+function ResultsPhotoCircles({ images }: { images: string[] }) {
+  const displayImgs = images.slice(0, 3);
+  const CIRC = Math.min(Math.round(SW * 0.56), 228);
+  const OVERLAP = Math.round(CIRC * 0.34);
+  const containerW = displayImgs.length === 1 ? CIRC : CIRC * displayImgs.length - OVERLAP * (displayImgs.length - 1);
+  return (
+    <View style={s.circleRow}>
+      <View style={{ width: containerW, height: CIRC }}>
+        {displayImgs.map((img, i) => (
+          <View
+            key={i}
+            style={{
+              position: 'absolute',
+              left: i * (CIRC - OVERLAP),
+              top: 0,
+              zIndex: i + 1,
+              width: CIRC,
+              height: CIRC,
+              borderRadius: CIRC / 2,
+              overflow: 'hidden',
+              borderWidth: 5,
+              borderColor: Colors.background,
+            }}
+          >
+            <Image
+              source={{ uri: `data:image/jpeg;base64,${img}` }}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
+            />
+          </View>
+        ))}
+        {images.length > 3 && (
+          <View style={{
+            position: 'absolute',
+            left: 2 * (CIRC - OVERLAP) + CIRC - 34,
+            top: CIRC - 34,
+            zIndex: 10,
+            width: 30, height: 30, borderRadius: 15,
+            backgroundColor: Colors.ink,
+            alignItems: 'center', justifyContent: 'center',
+            borderWidth: 2, borderColor: Colors.background,
+          }}>
+            <Text style={{ fontFamily: MONO, fontSize: 9, color: '#fff', fontWeight: '700' }}>+{images.length - 3}</Text>
+          </View>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -427,65 +518,72 @@ function BigTile({
 
 // ──────────────────────────── STEP 2: DESCRIBE ────────────────────────────
 function StepDescribe({
-  base64,
+  images,
   text,
   onText,
   error,
   onClose,
   onAnalyze,
+  onAddImage,
+  onRemoveImage,
 }: {
-  base64: string | null;
+  images: string[];
   text: string;
   onText: (t: string) => void;
   error: string | null;
   onClose: () => void;
   onAnalyze: () => void;
+  onAddImage: (source: 'camera' | 'gallery') => void;
+  onRemoveImage: (index: number) => void;
 }) {
   const HINTS = ['+ baharatlı', '+ sade pişmiş', '+ az yağlı', '+ tam porsiyon', '+ yarım porsiyon'];
-  const insets = useSafeAreaInsets();
-  const [imgRatio, setImgRatio] = useState(4 / 3);
 
-  useEffect(() => {
-    if (base64) {
-      Image.getSize(`data:image/jpeg;base64,${base64}`, (w, h) => {
-        if (h > 0) setImgRatio(w / h);
-      });
-    }
-  }, [base64]);
+  function promptAddSource() {
+    Alert.alert('Fotoğraf Ekle', 'Nasıl eklemek istersin?', [
+      { text: 'Kamera', onPress: () => onAddImage('camera') },
+      { text: 'Galeriden Seç', onPress: () => onAddImage('gallery') },
+      { text: 'İptal', style: 'cancel' },
+    ]);
+  }
 
   return (
     <View style={s.fill}>
-      {/* Fotoğraf — kenar boşluksuz, doğal en/boy oranında */}
-      {base64 && (
-        <View style={{ width: '100%', aspectRatio: imgRatio }}>
-          <Image
-            source={{ uri: `data:image/jpeg;base64,${base64}` }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-          />
-          {/* Kapat butonu + başlık — resmin üstüne yüzer */}
-          <View
-            style={[StyleSheet.absoluteFill, { paddingTop: insets.top }]}
-            pointerEvents="box-none"
-          >
-            <View style={s.describeOverlayHeader} pointerEvents="box-none">
-              <TouchableOpacity
-                onPress={onClose}
-                style={s.describeCloseBtn}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close" size={20} color="#fff" />
-              </TouchableOpacity>
-              <Text style={s.describeOverlayTitle}>Fotoğrafı Analiz Et</Text>
-              <View style={{ width: 40 }} />
-            </View>
-          </View>
-        </View>
-      )}
+      <StepHeader title="Fotoğrafı Analiz Et" onClose={onClose} />
 
-      {/* İçerik — sabit, kaydırmasız */}
+      {/* Fotoğraf şeridi */}
+      <View style={s.describeStripWrap}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.describeStripContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {images.map((img, i) => (
+            <View key={i} style={s.describeThumbWrap}>
+              <Image
+                source={{ uri: `data:image/jpeg;base64,${img}` }}
+                style={s.describeThumb}
+                resizeMode="cover"
+              />
+              <TouchableOpacity
+                onPress={() => onRemoveImage(i)}
+                style={s.describeThumbRemove}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Ionicons name="close" size={12} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity style={s.describeAddBtn} onPress={promptAddSource} activeOpacity={0.75}>
+            <Ionicons name="add" size={28} color={Colors.ink3} />
+            <Text style={s.describeAddBtnLabel}>Ekle</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+
+      {/* İçerik */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={[s.padX, { flex: 1, paddingTop: 18 }]}>
+        <ScrollView contentContainerStyle={[s.padX, { paddingTop: 14, paddingBottom: 20 }]} keyboardShouldPersistTaps="handled">
           {error && (
             <View style={s.errorPill}>
               <Ionicons name="alert-circle" size={14} color={Colors.terracotta} />
@@ -518,12 +616,18 @@ function StepDescribe({
               </TouchableOpacity>
             ))}
           </View>
-        </View>
+        </ScrollView>
 
         <View style={s.bottomBarSingle}>
-          <TouchableOpacity onPress={onAnalyze} style={s.btnPrimaryFull}>
+          <TouchableOpacity
+            onPress={onAnalyze}
+            style={[s.btnPrimaryFull, images.length === 0 && { opacity: 0.45 }]}
+            disabled={images.length === 0}
+          >
             <Ionicons name="sparkles" size={16} color={Colors.background} />
-            <Text style={s.btnPrimaryText}>Analiz Et</Text>
+            <Text style={s.btnPrimaryText}>
+              Analiz Et{images.length > 1 ? ` (${images.length} fotoğraf)` : ''}
+            </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -619,7 +723,7 @@ const MEAL_OPTIONS: { k: MealType; label: string; when: string; icon: string }[]
 ];
 
 function StepResults({
-  base64,
+  images,
   items,
   setItems,
   meal,
@@ -628,7 +732,7 @@ function StepResults({
   onSave,
   onImprove,
 }: {
-  base64: string | null;
+  images: string[];
   items: ItemPlus[];
   setItems: React.Dispatch<React.SetStateAction<ItemPlus[]>>;
   meal: MealType;
@@ -666,12 +770,8 @@ function StepResults({
   return (
     <View style={s.fill}>
       <ScrollView contentContainerStyle={{ paddingBottom: 110 }}>
-        {base64 && (
-          <Image
-            source={{ uri: `data:image/jpeg;base64,${base64}` }}
-            style={{ width: SW, height: SW }}
-            resizeMode="cover"
-          />
+        {images.length > 0 && (
+          <ResultsPhotoCircles images={images} />
         )}
 
         <View style={s.summaryRow}>
@@ -1238,6 +1338,18 @@ const s = StyleSheet.create({
   describeOverlayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 10 },
   describeCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center' },
   describeOverlayTitle: { fontFamily: SERIF, fontSize: 16, color: '#fff', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+
+  // Multi-image strip in StepDescribe
+  describeStripWrap: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.line },
+  describeStripContent: { paddingHorizontal: 14, paddingVertical: 12, gap: 10, alignItems: 'center' },
+  describeThumbWrap: { width: 110, height: 110, borderRadius: 14, overflow: 'hidden', position: 'relative' },
+  describeThumb: { width: 110, height: 110 },
+  describeThumbRemove: { position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(0,0,0,0.58)', alignItems: 'center', justifyContent: 'center' },
+  describeAddBtn: { width: 110, height: 110, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.line, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surface, gap: 4 },
+  describeAddBtnLabel: { fontFamily: MONO, fontSize: 9.5, color: Colors.ink4, letterSpacing: 1 },
+
+  // Multi-image strip in StepResults
+  circleRow: { alignItems: 'center', paddingTop: 20, paddingBottom: 8, paddingHorizontal: 22 },
 
   textArea: { marginTop: 16, minHeight: 96, padding: 14, borderRadius: 16, backgroundColor: Colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: Colors.line, fontFamily: SERIF, fontSize: 15, fontStyle: 'italic', color: Colors.ink, textAlignVertical: 'top' },
   chipWrap: { marginTop: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
