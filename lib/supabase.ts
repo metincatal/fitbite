@@ -2,6 +2,16 @@ import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { Database } from '../types/database';
 
+// Supabase SDK'sı geçersiz refresh token'ı yenilemeye çalıştığında console.error'a
+// düşer. Uygulama bunu doğru handle ediyor (session temizlenir, login'e yönlendirilir)
+// ama kırmızı hata gürültü yaratır. Bu beklenen, zararsız bir hata.
+const _origError = console.error.bind(console);
+console.error = (...args: unknown[]) => {
+  const msg = String(args[0] ?? '');
+  if (msg.includes('Invalid Refresh Token') || msg.includes('Refresh Token Not Found')) return;
+  _origError(...args);
+};
+
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 

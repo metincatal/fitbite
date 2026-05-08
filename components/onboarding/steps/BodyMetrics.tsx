@@ -1,7 +1,7 @@
 // Onboarding 08 — Body Measurements
 // +/- stepper, BMI + fark stat kutucukları.
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import {
   OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
@@ -93,6 +93,13 @@ function StatBox({
 
 export function BodyMetrics({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
+
+  useEffect(() => {
+    if (!data.height_cm) updateField('height_cm', '170');
+    if (!data.weight_kg) updateField('weight_kg', '70');
+    if (!data.target_weight_kg) updateField('target_weight_kg', '65');
+  }, []);
+
   const height = parseFloat(data.height_cm) || 170;
   const weight = parseFloat(data.weight_kg) || 70;
   const target = parseFloat(data.target_weight_kg) || 65;

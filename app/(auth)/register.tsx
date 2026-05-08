@@ -11,6 +11,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { supabase } from '../../lib/supabase';
 import { signInWithGoogle } from '../../lib/googleAuth';
 import { useAuthStore } from '../../store/authStore';
 import { useOnboardingData } from '../../hooks/useOnboardingData';
@@ -50,18 +51,50 @@ export default function RegisterScreen() {
     if (!formValid) return;
     setLoading(true);
     try {
-      // Onboarding handleFinish, e-posta + şifre üzerinden hesap oluşturur.
-      // Burada hesabı kendimiz oluşturmak yerine bilgileri onboarding store'una
-      // yazıp onboarding'e devrediyoruz — KVKK onayı ve şifre gücü bu ekranda
-      // alındığı için onboarding'in AccountCreation adımı atlanmış olur.
+      // Hesap oluştur — duplicate kontrolü ve email doğrulama akışı için
+      const { data: authData, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+
+      if (error) {
+        const msg = error.message.toLowerCase();
+        if (
+          msg.includes('already registered') ||
+          msg.includes('already exists') ||
+          msg.includes('user already')
+        ) {
+          Alert.alert(
+            'Hesap Mevcut',
+            'Bu e-posta adresiyle zaten kayıtlısın. Giriş yap sayfasına yönlendirelim mi?',
+            [
+              { text: 'İptal', style: 'cancel' },
+              { text: 'Giriş Yap', onPress: () => router.replace('/(auth)/login') },
+            ]
+          );
+        } else {
+          Alert.alert('Kayıt Hatası', error.message);
+        }
+        return;
+      }
+
+      if (!authData.session) {
+        // E-posta doğrulaması gerekiyor
+        Alert.alert(
+          'E-postanı Doğrula',
+          `${email.trim()} adresine bir doğrulama bağlantısı gönderdik. Doğruladıktan sonra giriş yap.`,
+          [{ text: 'Tamam', onPress: () => router.replace('/(auth)/login') }]
+        );
+        return;
+      }
+
+      // Hesap oluşturuldu, session aktif — onboarding store'a yaz, onboarding'e geç
       useOnboardingData.setState((s) => ({
-        data: {
-          ...s.data,
-          email: email.trim(),
-          password,
-        },
+        data: { ...s.data, email: email.trim(), password },
       }));
       router.replace('/onboarding');
+    } catch {
+      Alert.alert('Bağlantı Hatası', 'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.');
     } finally {
       setLoading(false);
     }

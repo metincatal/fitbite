@@ -49,7 +49,13 @@ export default function RootLayout() {
         setSession(null);
       });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        // Token yenileme başarısız olduğunda Supabase bu event'i gönderir.
+        // Session temizlenir, navigation effect login'e yönlendirir.
+        setSession(null);
+        return;
+      }
       setSession(session);
       if (session) {
         fetchProfile();

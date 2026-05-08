@@ -68,7 +68,7 @@ function DayClock({ first, last }: { first: string; last: string }) {
       <SvgText x={cx - r + 22} y={cy + 4} textAnchor="middle" fontSize="9" fontFamily={MONO} fill={OnbColors.ink3}>18</SvgText>
 
       <Path
-        d={`M ${x1} ${y1} A ${r - 6} ${r - 6} 0 ${large} 0 ${x2} ${y2}`}
+        d={`M ${x1} ${y1} A ${r - 6} ${r - 6} 0 ${large} 1 ${x2} ${y2}`}
         fill="none"
         stroke={OnbColors.terracotta}
         strokeWidth="6"

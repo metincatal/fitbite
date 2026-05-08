@@ -93,26 +93,32 @@ export default function OnboardingScreen() {
 
   const isPregnant = (data.medical_conditions ?? []).includes('pregnancy');
 
+  const emailAlreadySet = !!data.email.trim();
+  const ACCOUNT_CREATION_STEP = 22;
+
   const goNext = useCallback(() => {
     setDirection('forward');
-    // Hamilelik varsa WeightGoalRate'i atla
     const next = currentStep + 1;
-    if (next === WEIGHT_GOAL_RATE_STEP && isPregnant) {
-      setStep(Math.min(next + 1, TOTAL_STEPS - 1));
-    } else {
-      setStep(Math.min(next, TOTAL_STEPS - 1));
+    // AccountCreation adımını atla — email register ekranında zaten alındıysa
+    let target = (next === ACCOUNT_CREATION_STEP && emailAlreadySet) ? next + 1 : next;
+    // Hamilelik varsa WeightGoalRate'i atla
+    if (target === WEIGHT_GOAL_RATE_STEP && isPregnant) {
+      target = target + 1;
     }
-  }, [currentStep, isPregnant, setStep]);
+    setStep(Math.min(target, TOTAL_STEPS - 1));
+  }, [currentStep, isPregnant, emailAlreadySet, setStep]);
 
   const goBack = useCallback(() => {
     setDirection('back');
     const prev = currentStep - 1;
-    if (prev === WEIGHT_GOAL_RATE_STEP && isPregnant) {
-      setStep(Math.max(prev - 1, 0));
-    } else {
-      setStep(Math.max(prev, 0));
+    // AccountCreation adımını atla — email register ekranında zaten alındıysa
+    let target = (prev === ACCOUNT_CREATION_STEP && emailAlreadySet) ? prev - 1 : prev;
+    // Hamilelik varsa WeightGoalRate'i atla
+    if (target === WEIGHT_GOAL_RATE_STEP && isPregnant) {
+      target = target - 1;
     }
-  }, [currentStep, isPregnant, setStep]);
+    setStep(Math.max(target, 0));
+  }, [currentStep, isPregnant, emailAlreadySet, setStep]);
 
   // Hamilelik seçilirse weekly_weight_goal_kg'yi sıfırla ve goal'u maintain'e çek
   useEffect(() => {
@@ -128,54 +134,62 @@ export default function OnboardingScreen() {
 
     let userId: string;
 
-    // 1. Hesap oluştur (zaten varsa giriş yap)
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: data.email.trim(),
-      password: data.password,
-      options: { data: { name: data.name.trim() } },
-    });
+    // 1. Oturum kontrolü — register ekranı zaten hesap oluşturduysa tekrar yapma
+    const { data: { session: existingSession } } = await supabase.auth.getSession();
 
-    if (authError) {
-      const msg = authError.message.toLowerCase();
-      if (
-        msg.includes('already registered') ||
-        msg.includes('already exists') ||
-        msg.includes('user already')
-      ) {
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: data.email.trim(),
-          password: data.password,
-        });
-        if (signInError) {
+    if (existingSession) {
+      userId = existingSession.user.id;
+      setSession(existingSession);
+    } else {
+      // Hesap oluştur (zaten varsa giriş yap)
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email.trim(),
+        password: data.password,
+        options: { data: { name: data.name.trim() } },
+      });
+
+      if (authError) {
+        const msg = authError.message.toLowerCase();
+        if (
+          msg.includes('already registered') ||
+          msg.includes('already exists') ||
+          msg.includes('user already')
+        ) {
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: data.email.trim(),
+            password: data.password,
+          });
+          if (signInError) {
+            setLoading(false);
+            Alert.alert(
+              'Hata',
+              'Bu e-posta zaten kullanımda. Farklı bir e-posta dene veya giriş ekranından giriş yap.'
+            );
+            return;
+          }
+          userId = signInData.user!.id;
+          if (signInData.session) setSession(signInData.session);
+        } else {
           setLoading(false);
-          Alert.alert(
-            'Hata',
-            'Bu e-posta zaten kullanımda. Farklı bir e-posta dene veya giriş ekranından giriş yap.'
-          );
+          Alert.alert('Hata', authError.message);
           return;
         }
-        userId = signInData.user!.id;
-        if (signInData.session) setSession(signInData.session);
-      } else {
+      } else if (!authData.user) {
         setLoading(false);
-        Alert.alert('Hata', authError.message);
+        Alert.alert('Hata', 'Hesap oluşturulamadı. Lütfen tekrar dene.');
         return;
+      } else if (!authData.session) {
+        setLoading(false);
+        Alert.alert(
+          'E-postanı Doğrula',
+          `${data.email.trim()} adresine bir doğrulama bağlantısı gönderdik.\n\nE-postanı doğruladıktan sonra giriş yap.`,
+          [{ text: 'Giriş Yap', onPress: () => router.replace('/(auth)/login') }]
+        );
+        return;
+      } else {
+        userId = authData.user.id;
+        setSession(authData.session);
       }
-    } else if (!authData.user) {
-      setLoading(false);
-      Alert.alert('Hata', 'Hesap oluşturulamadı. Lütfen tekrar dene.');
-      return;
-    } else if (!authData.session) {
-      setLoading(false);
-      Alert.alert(
-        'E-postanı Doğrula',
-        `${data.email.trim()} adresine bir doğrulama bağlantısı gönderdik.\n\nE-postanı doğruladıktan sonra giriş yap.`,
-        [{ text: 'Giriş Yap', onPress: () => router.replace('/(auth)/login') }]
-      );
-      return;
-    } else {
-      userId = authData.user.id;
-      setSession(authData.session);
     }
 
     // 2. Profil oluştur
