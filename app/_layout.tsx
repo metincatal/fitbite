@@ -51,9 +51,14 @@ export default function RootLayout() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        // Token yenileme başarısız olduğunda Supabase bu event'i gönderir.
-        // Session temizlenir, navigation effect login'e yönlendirir.
         setSession(null);
+        return;
+      }
+      if (event === 'PASSWORD_RECOVERY') {
+        // Deep link'ten gelen recovery token — şifre sıfırlama ekranına yönlendir.
+        // fetchProfile çağrılmaz; navigation guard reset-password'ı korur.
+        setSession(session);
+        router.replace('/(auth)/reset-password');
         return;
       }
       setSession(session);
@@ -68,24 +73,23 @@ export default function RootLayout() {
   useEffect(() => {
     if (isLoading || !mounted.current) return;
 
-    const inAuthGroup = segments[0] === '(auth)';
-    const inOnboarding = segments[0] === 'onboarding';
-    const inTabs = segments[0] === '(tabs)';
+    const segs = segments as string[];
+    const inAuthGroup = segs[0] === '(auth)';
+    const inResetPassword = segs[0] === '(auth)' && segs[1] === 'reset-password';
+    const inOnboarding = segs[0] === 'onboarding';
 
     if (!session) {
-      // Oturum yok: auth ekranlarına yönlendir (onboarding'e izin ver)
       if (!inAuthGroup && !inOnboarding) {
         router.replace('/(auth)/login');
       }
     } else if (session && profile) {
-      // Oturum + profil var: doğrudan tabs'a
+      // Şifre sıfırlama ekranındaysa tabs'a yönlendirme — recovery session geçerli
+      if (inResetPassword) return;
       if (inAuthGroup || inOnboarding) {
         router.replace('/(tabs)');
       }
-      // Bildirim izni kontrolü (sessiz — zaten varsa geçer, yoksa sistem diyaloğu gösterir)
       checkAndRequestNotificationPermission();
     } else if (session && !profile && profileFetched) {
-      // fetchProfile tamamlandı ama profil DB'de yok: onboarding'e gönder
       if (!inOnboarding && !inAuthGroup) {
         router.replace('/onboarding');
       }

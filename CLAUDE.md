@@ -218,7 +218,7 @@ Profil sayfasında `hcState: 'checking' | 'unavailable' | 'available' | 'connect
 
 `lib/constants.ts` — `Colors`, `Spacing`, `BorderRadius`, `FontSize`. `StyleSheet.create` + bu tokenlar zorunlu; satır içi stil kullanılmaz.
 
-`Colors.primary` = `#2D6A4F` (yeşil), `Colors.accent` = `#E85D3C` (terracotta). Arka plan: sıcak parşömen (`#F2EFE6`).
+`Colors.accent` = `#E85D3C` (terracotta) — uygulamanın ana vurgu rengi. `Colors.ink` = `#17201A` — metin ve UI elementler. Arka plan: sıcak parşömen (`#F2EFE6`). `Colors.primary` (`#2D6A4F`) tanımlı ama uygulamada görsel kimlik olarak **kullanılmıyor**; yeşil UI'da yer almaz.
 
 ## Key Conventions
 

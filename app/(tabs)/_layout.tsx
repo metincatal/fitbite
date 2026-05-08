@@ -15,6 +15,7 @@ import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { QuickActionSheet } from '../../components/ui/QuickActionSheet';
 import * as ImagePicker from 'expo-image-picker';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -187,8 +188,9 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     if (_onGalleryCallback) _onGalleryCallback(base64s);
   }
 
+  const insets = useSafeAreaInsets();
   const BAR_H = 58;
-  const BAR_BOTTOM = Platform.OS === 'ios' ? 26 : 14;
+  const BAR_BOTTOM = insets.bottom + 8;
   const BAR_SIDE = 14;
   const DISC_BOTTOM = BAR_BOTTOM + BAR_H + 10;
 

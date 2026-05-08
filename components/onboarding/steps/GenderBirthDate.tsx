@@ -2,7 +2,7 @@
 // 2-sütun cinsiyet seçimi + cetvel yıl seçici.
 
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, TextInput, Keyboard } from 'react-native';
 import {
   OnbColors, OnbShell, OnbHead, OnbFoot, SERIF, MONO,
 } from '../shared/OnbDesign';
@@ -23,7 +23,24 @@ export function GenderBirthDate({ onNext, onBack }: Props) {
   const { data, updateField } = useOnboardingData();
   const gender = data.gender;
   const birthYear = parseInt(data.birth_year) || 1995;
-  const age = new Date().getFullYear() - birthYear;
+
+  const [displayYear, setDisplayYear] = React.useState(birthYear);
+  const [editingYear, setEditingYear] = React.useState(false);
+  const [inputText, setInputText] = React.useState('');
+  const scrollRef = React.useRef<ScrollView>(null);
+
+  const age = new Date().getFullYear() - displayYear;
+
+  const commitManualYear = () => {
+    const y = parseInt(inputText);
+    if (!isNaN(y) && y >= MIN_YEAR && y <= MAX_YEAR) {
+      updateField('birth_year', String(y));
+      setDisplayYear(y);
+      scrollRef.current?.scrollTo({ x: (y - MIN_YEAR) * TICK_WIDTH, animated: true });
+    }
+    setEditingYear(false);
+    Keyboard.dismiss();
+  };
 
   const isValid = !!gender && !!data.birth_year;
 
@@ -63,23 +80,51 @@ export function GenderBirthDate({ onNext, onBack }: Props) {
         {/* Birth year */}
         <Text style={[styles.sectionLabel, { marginTop: 28 }]}>DOĞUM YILI</Text>
 
-        <Text style={styles.yearDisplay}>{birthYear}</Text>
+        <TouchableOpacity
+          onPress={() => { setInputText(String(displayYear)); setEditingYear(true); }}
+          activeOpacity={0.7}
+        >
+          {editingYear ? (
+            <TextInput
+              style={styles.yearDisplay}
+              value={inputText}
+              onChangeText={setInputText}
+              keyboardType="number-pad"
+              autoFocus
+              onSubmitEditing={commitManualYear}
+              onBlur={commitManualYear}
+              maxLength={4}
+              returnKeyType="done"
+            />
+          ) : (
+            <Text style={styles.yearDisplay}>{displayYear}</Text>
+          )}
+        </TouchableOpacity>
 
         {/* Ruler */}
         <View style={styles.rulerWrap}>
           <View style={styles.rulerCenterLine} />
           <ScrollView
+            ref={scrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             contentOffset={{ x: (birthYear - MIN_YEAR) * TICK_WIDTH, y: 0 }}
+            scrollEventThrottle={16}
+            onScroll={(e) => {
+              const idx = Math.round(e.nativeEvent.contentOffset.x / TICK_WIDTH);
+              const y = Math.max(MIN_YEAR, Math.min(MAX_YEAR, MIN_YEAR + idx));
+              setDisplayYear(y);
+            }}
             onMomentumScrollEnd={(e) => {
               const idx = Math.round(e.nativeEvent.contentOffset.x / TICK_WIDTH);
               const y = Math.max(MIN_YEAR, Math.min(MAX_YEAR, MIN_YEAR + idx));
+              setDisplayYear(y);
               updateField('birth_year', String(y));
             }}
             onScrollEndDrag={(e) => {
               const idx = Math.round(e.nativeEvent.contentOffset.x / TICK_WIDTH);
               const y = Math.max(MIN_YEAR, Math.min(MAX_YEAR, MIN_YEAR + idx));
+              setDisplayYear(y);
               updateField('birth_year', String(y));
             }}
           >
@@ -98,7 +143,7 @@ export function GenderBirthDate({ onNext, onBack }: Props) {
                         styles.tickBar,
                         {
                           height: isBig ? 24 : isMed ? 14 : 8,
-                          backgroundColor: y === birthYear ? OnbColors.terracotta : OnbColors.ink,
+                          backgroundColor: y === displayYear ? OnbColors.terracotta : OnbColors.ink,
                           opacity: isBig ? 0.85 : isMed ? 0.6 : 0.35,
                         },
                       ]}

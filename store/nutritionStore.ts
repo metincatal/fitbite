@@ -42,7 +42,7 @@ interface NutritionState {
     updates: Partial<Pick<FoodLog, 'calories' | 'protein' | 'carbs' | 'fat' | 'serving_amount'>>
   ) => Promise<void>;
   updateFoodName: (foodId: string, name: string) => Promise<void>;
-  addWaterLog: (userId: string, amount_ml: number) => Promise<void>;
+  addWaterLog: (userId: string, amount_ml: number, source?: string) => Promise<void>;
 
   getDailyTotals: () => { calories: number; protein: number; carbs: number; fat: number };
   getWaterTotal: () => number;
@@ -137,10 +137,10 @@ export const useNutritionStore = create<NutritionState>((set, get) => ({
     }
   },
 
-  addWaterLog: async (userId, amount_ml) => {
+  addWaterLog: async (userId, amount_ml, source?) => {
     const { data } = await supabase
       .from('water_logs')
-      .insert({ user_id: userId, amount_ml, logged_at: new Date().toISOString() })
+      .insert({ user_id: userId, amount_ml, logged_at: new Date().toISOString(), source: source ?? null })
       .select()
       .single();
 

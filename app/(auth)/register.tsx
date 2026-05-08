@@ -117,10 +117,6 @@ export default function RegisterScreen() {
     }
   }
 
-  function handleApple() {
-    Alert.alert('Apple ile Devam', 'Apple ile giriş yakında. Şimdilik e-posta veya Google ile devam edebilirsin.');
-  }
-
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -197,12 +193,10 @@ export default function RegisterScreen() {
           <ProviderRow
             disabled={formDisabled}
             items={[
-              { k: 'apple', label: 'Apple' },
               { k: 'google', label: oauthLoading ? 'Bağlanıyor…' : 'Google' },
             ]}
             onPick={(k) => {
               if (k === 'google') handleGoogle();
-              if (k === 'apple') handleApple();
             }}
           />
 

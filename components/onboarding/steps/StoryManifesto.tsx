@@ -30,11 +30,11 @@ export function StoryManifesto({ onNext, onBack }: Props) {
         <View style={styles.pairs}>
           {PAIRS.map(([yes, no], i) => (
             <View key={i} style={styles.pairRow}>
+              <Text style={styles.pairNo}>{no}</Text>
+              <Text style={styles.pairLabel}>YERİNE</Text>
               <Text style={styles.pairYes}>
                 <Text style={{ fontStyle: 'italic' }}>{yes}</Text>
               </Text>
-              <Text style={styles.pairLabel}>YERİNE</Text>
-              <Text style={styles.pairNo}>{no}</Text>
             </View>
           ))}
         </View>
@@ -101,6 +101,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: OnbColors.ink,
     fontFamily: SERIF,
+    textAlign: 'right',
   },
   pairLabel: {
     fontSize: 10,
@@ -115,7 +116,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: OnbColors.ink3,
     fontFamily: SERIF,
-    textAlign: 'right',
     textDecorationLine: 'line-through',
     textDecorationColor: OnbColors.terracotta,
   },

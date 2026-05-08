@@ -121,3 +121,72 @@ export function compute(input: ExerciseInput): ExerciseOutput {
     rmr: Math.round(rmr),
   };
 }
+
+// ── Step-based walking metrics ────────────────────────────────────────────────
+
+export interface StepMetrics {
+  kcalNet: number;
+  waterBonusMl: number;
+  intensityDistribution: { low: number; moderate: number; high: number };
+  durationMinutes: number;
+}
+
+// Walking MET values (Ainsworth 2011, codes 17151–17240)
+const WALK_MET = { low: 2.5, moderate: 3.5, high: 5.0 } as const;
+
+/**
+ * Estimates net calories and water needs from daily step count.
+ * Intensity distribution inferred from Tudor-Locke (2011) cadence norms.
+ * Walking cadence assumed 90 spm average → duration = steps / 90.
+ * Water bonus: ACSM 2007, 150 ml per 30 min of walking (conservative vs. running).
+ */
+export function computeStepMetrics(
+  steps: number,
+  weightKg: number,
+  heightCm: number,
+  age: number,
+  sex: 'male' | 'female',
+): StepMetrics | null {
+  if (steps < 500) return null;
+
+  const durationMinutes = steps / 90;
+
+  // Intensity distribution keyed by total daily steps
+  let lowFrac: number, modFrac: number, highFrac: number;
+  if (steps < 3000) {
+    lowFrac = 0.85; modFrac = 0.15; highFrac = 0.00;
+  } else if (steps < 6000) {
+    lowFrac = 0.60; modFrac = 0.35; highFrac = 0.05;
+  } else if (steps < 10000) {
+    lowFrac = 0.35; modFrac = 0.50; highFrac = 0.15;
+  } else if (steps < 15000) {
+    lowFrac = 0.20; modFrac = 0.50; highFrac = 0.30;
+  } else {
+    lowFrac = 0.15; modFrac = 0.45; highFrac = 0.40;
+  }
+
+  const rmr = computeRMR(weightKg, heightCm, age, sex);
+
+  let kcalNet = 0;
+  (['low', 'moderate', 'high'] as const).forEach((intensity) => {
+    const frac = intensity === 'low' ? lowFrac : intensity === 'moderate' ? modFrac : highFrac;
+    if (frac === 0) return;
+    const correctedMet = computeCorrectedMet(WALK_MET[intensity], rmr, weightKg);
+    const netMet = Math.max(0, correctedMet - 1);
+    kcalNet += netMet * weightKg * ((durationMinutes * frac) / 60);
+  });
+
+  // Water: 150 ml per 30 min of walking, capped at 450 ml
+  const waterBonusMl = Math.min(450, 150 * Math.floor(durationMinutes / 30));
+
+  return {
+    kcalNet: Math.round(kcalNet),
+    waterBonusMl,
+    intensityDistribution: {
+      low: Math.round(lowFrac * 100),
+      moderate: Math.round(modFrac * 100),
+      high: Math.round(highFrac * 100),
+    },
+    durationMinutes: Math.round(durationMinutes),
+  };
+}

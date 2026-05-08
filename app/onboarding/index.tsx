@@ -16,6 +16,23 @@ import {
   UserMetrics,
 } from '../../lib/nutrition';
 import { Colors, getBodyFatPercentageFromBand } from '../../lib/constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_MEAL_SETTINGS,
+  DEFAULT_STEP_SETTINGS,
+  DEFAULT_MOTIVATION_SETTINGS,
+  requestNotificationPermissions,
+  saveReminderSettings,
+  saveMealReminderSettings,
+  saveStepReminderSettings,
+  saveMotivationSettings,
+  scheduleWaterReminders,
+  scheduleMealReminders,
+  scheduleStepReminder,
+  scheduleMotivationMessages,
+  scheduleWeeklyReport,
+} from '../../lib/notifications';
 
 // Adım bileşenleri
 import { StoryWelcome } from '../../components/onboarding/steps/StoryWelcome';
@@ -307,6 +324,31 @@ export default function OnboardingScreen() {
 
     if (profile) {
       setProfile(profile);
+
+      // Onboarding bildirim tercihlerini AsyncStorage'a yaz ve zamanla
+      const prefs = data.notification_preferences;
+      const anyEnabled = prefs.water || prefs.meals || prefs.steps || prefs.motivation || prefs.weekly_report;
+      if (anyEnabled) await requestNotificationPermissions();
+
+      const waterSettings = { ...DEFAULT_SETTINGS, enabled: prefs.water };
+      await saveReminderSettings(waterSettings);
+      if (prefs.water) await scheduleWaterReminders(waterSettings);
+
+      const mealSettings = { ...DEFAULT_MEAL_SETTINGS, enabled: prefs.meals };
+      await saveMealReminderSettings(mealSettings);
+      if (prefs.meals) await scheduleMealReminders(mealSettings);
+
+      const stepSettings = { ...DEFAULT_STEP_SETTINGS, enabled: prefs.steps };
+      await saveStepReminderSettings(stepSettings);
+      if (prefs.steps) await scheduleStepReminder(stepSettings);
+
+      const motivationSettings = { ...DEFAULT_MOTIVATION_SETTINGS, enabled: prefs.motivation };
+      await saveMotivationSettings(motivationSettings);
+      if (prefs.motivation) await scheduleMotivationMessages(motivationSettings);
+
+      await AsyncStorage.setItem('weekly_report_enabled', prefs.weekly_report ? 'true' : 'false');
+      if (prefs.weekly_report) await scheduleWeeklyReport(true);
+
       reset();
       router.replace('/(tabs)');
     }

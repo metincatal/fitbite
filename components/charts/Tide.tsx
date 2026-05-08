@@ -117,6 +117,7 @@ interface TideProps {
   waterMl: number;
   goalMl: number;
   bonusMl?: number;
+  stepBonusMl?: number;
   waterLogs?: WaterLog[];
   width?: number;
   height?: number;
@@ -126,11 +127,12 @@ export function Tide({
   waterMl,
   goalMl,
   bonusMl = 0,
+  stepBonusMl = 0,
   waterLogs = [],
   width = 340,
   height = 86,
 }: TideProps) {
-  const effectiveGoal = goalMl + bonusMl;
+  const effectiveGoal = goalMl + bonusMl + stepBonusMl;
   const pct = Math.min(1, waterMl / Math.max(1, effectiveGoal));
   const isOverflow = waterMl > effectiveGoal;
   // overflowExtra: 0–1 scale of how far past the goal we are
@@ -324,6 +326,21 @@ export function Tide({
             fontWeight="600"
           >
             {`EGZ.+${bonusMl}ml`}
+          </SvgText>
+        )}
+        {/* Step bonus badge — top right, below exercise badge if both visible */}
+        {stepBonusMl > 0 && (
+          <SvgText
+            x={width - 12}
+            y={bonusMl > 0 ? 32 : 20}
+            fontSize={9}
+            fill={Colors.ink3}
+            fontFamily={MONO}
+            letterSpacing={0.7}
+            textAnchor="end"
+            fontWeight="600"
+          >
+            {`ADIM.+${stepBonusMl}ml`}
           </SvgText>
         )}
 

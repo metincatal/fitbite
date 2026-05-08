@@ -355,7 +355,7 @@ export default function FoodLogScreen() {
         });
         // Liquid items (texture=liquid) → also add to water log for hydration tracking
         if (detection.texture === 'liquid' && grams > 0) {
-          await addWaterLog(userId, Math.round(grams));
+          await addWaterLog(userId, Math.round(grams), 'meal_photo');
         }
 
         bump(i < items.length - 1 ? `${items[i + 1].detection.name} kaydediliyor...` : 'Tamamlandı');

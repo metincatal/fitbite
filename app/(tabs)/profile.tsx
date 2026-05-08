@@ -90,8 +90,10 @@ export default function ProfileScreen() {
 
   // Profil düzenleme
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editData, setEditData] = useState({ name: '', weight_kg: '', goal: '', diet_type: '', activity_level: '' });
+  const [editData, setEditData] = useState({ name: '', weight_kg: '', goal: '', weekly_weight_goal_kg: 0, diet_type: '', activity_level: '' });
   const [savingEdit, setSavingEdit] = useState(false);
+  const [pendingGoal, setPendingGoal] = useState<Goal | null>(null);
+  const [pendingRate, setPendingRate] = useState(0.5);
 
   // Gizlilik & Güvenlik
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
@@ -275,9 +277,11 @@ export default function ProfileScreen() {
       name: profile.name,
       weight_kg: profile.weight_kg.toString(),
       goal: profile.goal,
+      weekly_weight_goal_kg: profile.weekly_weight_goal_kg ?? (profile.goal === 'gain' ? -0.25 : profile.goal === 'lose' ? 0.5 : 0),
       diet_type: profile.diet_type,
       activity_level: profile.activity_level,
     });
+    setPendingGoal(null);
     setShowEditModal(true);
   }
 
@@ -302,13 +306,14 @@ export default function ProfileScreen() {
       activity_level: editData.activity_level as ActivityLevel,
       goal: editData.goal as Goal,
     };
-    const macros = calculateMacroGoals(metrics);
+    const macros = calculateMacroGoals(metrics, editData.weekly_weight_goal_kg);
     const { data } = await supabase
       .from('profiles')
       .update({
         name: editData.name.trim(),
         weight_kg: weight,
         goal: editData.goal as Goal,
+        weekly_weight_goal_kg: editData.weekly_weight_goal_kg,
         diet_type: editData.diet_type as DietType,
         activity_level: editData.activity_level as ActivityLevel,
         daily_calorie_goal: macros.calories,
@@ -320,11 +325,17 @@ export default function ProfileScreen() {
       .eq('user_id', user.id)
       .select()
       .single();
+    const goalChanged = editData.goal !== profile?.goal;
     setSavingEdit(false);
     if (data) {
       setProfile(data);
       setShowEditModal(false);
-      Alert.alert('Kaydedildi', 'Profiliniz güncellendi.');
+      Alert.alert(
+        'Kaydedildi',
+        goalChanged
+          ? `Hedefin "${GOALS[editData.goal as Goal]?.label}" olarak güncellendi. Yeni günlük kalori hedefin: ${macros.calories} kcal.`
+          : 'Profilin güncellendi.',
+      );
     } else {
       Alert.alert('Hata', 'Profil güncellenemedi. Tekrar deneyin.');
     }
@@ -333,7 +344,9 @@ export default function ProfileScreen() {
   async function handlePasswordReset() {
     if (!user?.email) return;
     setSendingReset(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(user.email);
+    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+      redirectTo: 'fitbite://reset-password',
+    });
     setSendingReset(false);
     if (error) {
       Alert.alert('Hata', 'E-posta gönderilemedi. Lütfen tekrar deneyin.');
@@ -351,19 +364,40 @@ export default function ProfileScreen() {
         {
           text: 'Hesabı Sil',
           style: 'destructive',
-          onPress: async () => {
-            if (!user) return;
-            await supabase.from('food_logs').delete().eq('user_id', user.id);
-            await supabase.from('water_logs').delete().eq('user_id', user.id);
-            await supabase.from('weight_logs').delete().eq('user_id', user.id);
-            await supabase.from('chat_messages').delete().eq('user_id', user.id);
-            await supabase.from('body_measurements').delete().eq('user_id', user.id);
-            await supabase.from('profiles').delete().eq('user_id', user.id);
-            await signOut();
+          onPress: () => {
+            Alert.alert(
+              'Emin misin?',
+              'Bu işlem geri alınamaz. Hesabın ve tüm verilerin silinecek.',
+              [
+                { text: 'Vazgeç', style: 'cancel' },
+                { text: 'Evet, Sil', style: 'destructive', onPress: confirmDeleteAccount },
+              ]
+            );
           },
         },
       ]
     );
+  }
+
+  async function confirmDeleteAccount() {
+    if (!user) return;
+    setSendingReset(true); // loading göstergesi olarak yeniden kullan
+    try {
+      const uid = user.id;
+      const tables = ['food_logs', 'water_logs', 'weight_logs', 'exercise_logs', 'chat_messages', 'body_measurements', 'profiles'] as const;
+      for (const table of tables) {
+        const { error } = await supabase.from(table).delete().eq('user_id', uid);
+        if (error) console.warn(`${table} silinemedi:`, error.message);
+      }
+      // Auth kaydını sil (Edge Function gerekiyor — yoksa sadece oturum kapatılır)
+      await supabase.functions.invoke('delete-user').catch(() => {});
+      router.replace('/(auth)/register');
+      await signOut();
+    } catch (e) {
+      Alert.alert('Hata', 'Hesap silinirken bir sorun oluştu. Lütfen tekrar deneyin.');
+    } finally {
+      setSendingReset(false);
+    }
   }
 
   async function handleNotifToggle(value: boolean) {
@@ -687,11 +721,6 @@ export default function ProfileScreen() {
               icon="create-outline"
               label="Profili Düzenle"
               onPress={openEditModal}
-            />
-            <SettingRow
-              icon="cart-outline"
-              label="Alışveriş Listesi"
-              onPress={() => router.push('/shopping-list')}
             />
             <SettingRow
               icon="notifications-outline"
@@ -1047,19 +1076,128 @@ export default function ProfileScreen() {
             />
 
             <Text style={styles.modalSectionLabel}>HEDEF</Text>
-            <View style={styles.optionRow}>
-              {(Object.entries(GOALS) as [Goal, { label: string }][]).map(([key, val]) => (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.optionBtn, editData.goal === key && styles.optionBtnActive]}
-                  onPress={() => setEditData((p) => ({ ...p, goal: key }))}
-                >
-                  <Text style={[styles.optionBtnText, editData.goal === key && styles.optionBtnTextActive]}>
-                    {val.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+
+            {/* ── Mevcut hedef + değiştir seçenekleri ── */}
+            {!pendingGoal && (
+              <>
+                <View style={styles.goalCurrentRow}>
+                  <View>
+                    <Text style={styles.goalCurrentText}>{GOALS[editData.goal as Goal]?.label}</Text>
+                    {editData.goal !== 'maintain' && (
+                      <Text style={styles.goalCurrentSub}>
+                        {Math.abs(editData.weekly_weight_goal_kg).toFixed(3).replace(/\.?0+$/, '')} kg / hafta
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={styles.goalLockHint}>Değiştirmek için{'\n'}seç →</Text>
+                </View>
+                <View style={styles.optionRow}>
+                  {(Object.entries(GOALS) as [Goal, { label: string }][])
+                    .filter(([k]) => k !== editData.goal)
+                    .map(([key, val]) => (
+                      <TouchableOpacity
+                        key={key}
+                        style={styles.optionBtn}
+                        onPress={() => {
+                          setPendingGoal(key);
+                          setPendingRate(key === 'gain' ? 0.25 : 0.5);
+                        }}
+                      >
+                        <Text style={styles.optionBtnText}>{val.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              </>
+            )}
+
+            {/* ── Hedef değişikliği onay paneli ── */}
+            {pendingGoal && pendingGoal !== (editData.goal as Goal) && profile && (() => {
+              const pw = parseFloat(editData.weight_kg.replace(',', '.')) || profile.weight_kg;
+              const age = new Date().getFullYear() - new Date(profile.birth_date).getFullYear();
+              const newRate = pendingGoal === 'maintain' ? 0 : pendingGoal === 'gain' ? -pendingRate : pendingRate;
+              const previewMetrics: UserMetrics = {
+                gender: profile.gender, age,
+                height_cm: profile.height_cm, weight_kg: pw,
+                goal: pendingGoal,
+                activity_level: editData.activity_level as ActivityLevel,
+              };
+              const newMacros = calculateMacroGoals(previewMetrics, newRate);
+              const currentCal = profile.daily_calorie_goal ?? 2000;
+              const diff = newMacros.calories - currentCal;
+              const accentColor = pendingGoal === 'lose' ? Colors.terracotta : pendingGoal === 'gain' ? '#4A7C59' : Colors.primary;
+              const LOSE_RATES = [0.25, 0.5, 0.75, 1.0];
+              const GAIN_RATES = [0.125, 0.25, 0.5, 0.75];
+
+              return (
+                <View style={styles.goalConfirmPanel}>
+                  {/* Yön başlığı */}
+                  <View style={styles.goalConfirmHeader}>
+                    <Text style={styles.goalConfirmOld}>{GOALS[editData.goal as Goal]?.label}</Text>
+                    <Text style={styles.goalConfirmArrowText}> → </Text>
+                    <Text style={[styles.goalConfirmNew, { color: accentColor }]}>{GOALS[pendingGoal]?.label}</Text>
+                  </View>
+
+                  {/* Tempo seçici (lose/gain için) */}
+                  {pendingGoal !== 'maintain' && (
+                    <View style={{ marginTop: 12 }}>
+                      <Text style={styles.goalConfirmRateLabel}>HAFTALIK TEMPO</Text>
+                      <View style={styles.goalConfirmRateRow}>
+                        {(pendingGoal === 'lose' ? LOSE_RATES : GAIN_RATES).map((r) => {
+                          const sel = pendingRate === r;
+                          return (
+                            <TouchableOpacity
+                              key={r}
+                              style={[styles.goalRateChip, sel && { backgroundColor: accentColor, borderColor: accentColor }]}
+                              onPress={() => setPendingRate(r)}
+                            >
+                              <Text style={[styles.goalRateChipText, sel && { color: '#fff' }]}>{r} kg</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Kalori önizleme */}
+                  <View style={[styles.goalConfirmCalRow, { borderLeftColor: accentColor }]}>
+                    <Text style={styles.goalConfirmCalLabel}>Yeni günlük kalori hedefi</Text>
+                    <Text style={[styles.goalConfirmCalValue, { color: accentColor }]}>
+                      {newMacros.calories} kcal
+                    </Text>
+                    <Text style={styles.goalConfirmCalDiff}>
+                      {diff > 0 ? '+' : ''}{diff} kcal / gün
+                      {' '}({newMacros.protein_g}g protein · {newMacros.carbs_g}g karb · {newMacros.fat_g}g yağ)
+                    </Text>
+                  </View>
+
+                  {/* Uyarı notu */}
+                  <View style={styles.goalConfirmWarn}>
+                    <Text style={styles.goalConfirmWarnText}>
+                      Kalori, protein, karbonhidrat ve yağ hedeflerin bu plana göre yeniden hesaplanacak. Kaydettiğin yemek kayıtları değişmez.
+                    </Text>
+                  </View>
+
+                  {/* Onay / Vazgeç */}
+                  <View style={styles.goalConfirmBtns}>
+                    <TouchableOpacity
+                      style={[styles.goalConfirmOkBtn, { backgroundColor: accentColor }]}
+                      onPress={() => {
+                        setEditData((p) => ({ ...p, goal: pendingGoal!, weekly_weight_goal_kg: newRate }));
+                        setPendingGoal(null);
+                      }}
+                    >
+                      <Text style={styles.goalConfirmOkText}>Planı Değiştir</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.goalConfirmCancelBtn}
+                      onPress={() => setPendingGoal(null)}
+                    >
+                      <Text style={styles.goalConfirmCancelText}>Vazgeç</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })()}
 
             <Text style={styles.modalSectionLabel}>DİYET TİPİ</Text>
             <View style={styles.optionRow}>
@@ -1555,7 +1693,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   settingBadge: {
-    backgroundColor: Colors.accentLight + '33',
+    backgroundColor: Colors.ink + '12',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
@@ -1563,15 +1701,17 @@ const styles = StyleSheet.create({
   settingBadgeText: {
     fontFamily: MONO,
     fontSize: 9,
-    color: Colors.accent,
+    color: Colors.ink,
     fontWeight: '700',
     letterSpacing: 0.6,
   },
   settingBadgeWarn: {
-    backgroundColor: Colors.accent + '20',
+    backgroundColor: Colors.ink + '08',
+    borderWidth: 0.5,
+    borderColor: Colors.ink3,
   },
   settingBadgeTextWarn: {
-    color: Colors.accent,
+    color: Colors.ink2,
   },
   chevron: {
     fontFamily: SERIF,
@@ -1667,6 +1807,162 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   optionBtnTextActive: { color: Colors.background },
+
+  // ── Hedef değişikliği UI ──
+  goalCurrentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
+    backgroundColor: Colors.surface,
+    marginBottom: 10,
+  },
+  goalCurrentText: {
+    fontFamily: SERIF,
+    fontSize: 20,
+    color: Colors.ink,
+  },
+  goalCurrentSub: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.ink3,
+    marginTop: 3,
+    letterSpacing: 0.5,
+  },
+  goalLockHint: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink4,
+    letterSpacing: 0.8,
+    textAlign: 'right',
+  },
+  goalConfirmPanel: {
+    borderWidth: 1,
+    borderColor: Colors.line,
+    backgroundColor: Colors.surface,
+    padding: 16,
+    gap: 0,
+  },
+  goalConfirmHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  goalConfirmOld: {
+    fontFamily: SERIF,
+    fontSize: 18,
+    color: Colors.ink3,
+  },
+  goalConfirmArrowText: {
+    fontFamily: SERIF,
+    fontSize: 18,
+    color: Colors.ink3,
+  },
+  goalConfirmNew: {
+    fontFamily: SERIF,
+    fontSize: 18,
+    fontStyle: 'italic',
+  },
+  goalConfirmRateLabel: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink3,
+    letterSpacing: 1.4,
+    marginBottom: 8,
+  },
+  goalConfirmRateRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  goalRateChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
+    borderRadius: 999,
+  },
+  goalRateChipText: {
+    fontFamily: MONO,
+    fontSize: 11,
+    color: Colors.ink2,
+    fontWeight: '600',
+  },
+  goalConfirmCalRow: {
+    marginTop: 14,
+    paddingLeft: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.line,
+  },
+  goalConfirmCalLabel: {
+    fontFamily: MONO,
+    fontSize: 9,
+    color: Colors.ink3,
+    letterSpacing: 1.2,
+  },
+  goalConfirmCalValue: {
+    fontFamily: SERIF,
+    fontSize: 28,
+    letterSpacing: -0.5,
+    marginTop: 2,
+  },
+  goalConfirmCalDiff: {
+    fontFamily: MONO,
+    fontSize: 10,
+    color: Colors.ink3,
+    marginTop: 2,
+    letterSpacing: 0.3,
+  },
+  goalConfirmWarn: {
+    marginTop: 14,
+    padding: 10,
+    backgroundColor: Colors.ink + '08',
+    borderLeftWidth: 2,
+    borderLeftColor: Colors.ink4,
+  },
+  goalConfirmWarnText: {
+    fontFamily: SERIF,
+    fontSize: 12,
+    color: Colors.ink3,
+    lineHeight: 18,
+  },
+  goalConfirmBtns: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  goalConfirmOkBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: BorderRadius.sm,
+  },
+  goalConfirmOkText: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  goalConfirmCancelBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderRadius: BorderRadius.sm,
+    borderWidth: 0.5,
+    borderColor: Colors.line,
+  },
+  goalConfirmCancelText: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: Colors.ink3,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+  },
+
   modalSummary: {
     marginTop: Spacing.md,
     padding: Spacing.md,

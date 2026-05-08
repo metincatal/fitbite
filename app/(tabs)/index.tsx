@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Defs, LinearGradient, Stop, G, Rect, Line as SvgLine, Text as SvgText } from 'react-native-svg';
 import { useAuthStore } from '../../store/authStore';
@@ -303,13 +303,18 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
 
   const userId = useAuthStore((s) => s.user?.id);
-  const { todaySteps, stepGoal, caloriesBurned, distanceKm, activeMinutes, isAvailable, permissionGranted } =
+  const { todaySteps, stepGoal, caloriesBurned, distanceKm, activeMinutes, isAvailable, permissionGranted,
+    stepKcal, stepWaterBonus, intensityDistribution } =
     useActivityStore();
   const {
     todayExercises, fetchTodayExercises,
     getTotalCaloriesBurned, getEpocRange, getWaterBonus, getEatBackBudget,
   } = useExerciseStore();
-  usePedometer(userId, profile?.weight_kg, profile?.height_cm);
+
+  const profileAge = profile?.birth_date
+    ? Math.floor((Date.now() - new Date(profile.birth_date).getTime()) / (1000 * 60 * 60 * 24 * 365.25))
+    : 30;
+  usePedometer(userId, profile?.weight_kg, profile?.height_cm, profileAge, profile?.gender);
   const playWaterDrop = useWaterDropSound();
 
 
@@ -319,6 +324,15 @@ export default function DashboardScreen() {
       fetchTodayExercises(userId, selectedDate);
     }
   }, [userId, selectedDate]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (userId) {
+        fetchDayLogs(userId, selectedDate);
+        fetchTodayExercises(userId, selectedDate);
+      }
+    }, [userId, selectedDate])
+  );
 
   async function onRefresh() {
     setRefreshing(true);
@@ -492,7 +506,7 @@ export default function DashboardScreen() {
         <View style={styles.tideWrap}>
           <TouchableOpacity
             onPress={() => {
-              if (userId && waterTotal < waterGoal + exerciseWaterBonus) {
+              if (userId && waterTotal < waterGoal + exerciseWaterBonus + stepWaterBonus) {
                 playWaterDrop();
                 addWaterLog(userId, 250);
               }
@@ -503,6 +517,7 @@ export default function DashboardScreen() {
               waterMl={waterTotal}
               goalMl={waterGoal}
               bonusMl={exerciseWaterBonus}
+              stepBonusMl={stepWaterBonus}
               waterLogs={waterLogs}
               width={340}
               height={86}
@@ -521,10 +536,23 @@ export default function DashboardScreen() {
             </View>
           )}
           <Text style={styles.tideHint}>
-            {waterTotal < waterGoal + exerciseWaterBonus
-              ? `Dokun → +250 ml · ${waterGoal + exerciseWaterBonus - waterTotal} ml kaldı`
+            {waterTotal < waterGoal + exerciseWaterBonus + stepWaterBonus
+              ? `Dokun → +250 ml · ${waterGoal + exerciseWaterBonus + stepWaterBonus - waterTotal} ml kaldı`
               : 'Su hedefine ulaştın!'}
           </Text>
+          {/* Öğün fotoğrafından gelen su kayıtları */}
+          {waterLogs.some((l) => l.source === 'meal_photo') && (
+            <View style={styles.mealWaterRow}>
+              {waterLogs.filter((l) => l.source === 'meal_photo').map((log, i) => (
+                <View key={log.id ?? i} style={styles.mealWaterChip}>
+                  <Ionicons name="camera-outline" size={10} color={Colors.sky} style={{ marginRight: 3 }} />
+                  <Text style={styles.mealWaterChipText}>
+                    {log.logged_at ? fmtLocalTime(log.logged_at) : ''} · {log.amount_ml} ml
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* ── STEPS HORIZON ── */}
@@ -555,6 +583,36 @@ export default function DashboardScreen() {
               )}
               {stepRemaining === 0 && <Text style={styles.footnoteAccent}>hedef tamamlandı!</Text>}
             </Text>
+            {stepKcal > 0 && (
+              <View style={styles.stepBurnRow}>
+                <View style={styles.stepBurnItem}>
+                  <Text style={styles.stepBurnValue}>~{stepKcal}</Text>
+                  <Text style={styles.stepBurnLabel}>kcal yürüyüş</Text>
+                </View>
+                {stepWaterBonus > 0 && (
+                  <>
+                    <View style={styles.stepBurnDivider} />
+                    <View style={styles.stepBurnItem}>
+                      <Text style={[styles.stepBurnValue, { color: Colors.sky }]}>+{stepWaterBonus} ml</Text>
+                      <Text style={styles.stepBurnLabel}>ekstra su</Text>
+                    </View>
+                  </>
+                )}
+                <View style={{ flex: 1 }} />
+                {/* Intensity distribution bar */}
+                <View style={styles.intensityBarWrap}>
+                  {intensityDistribution.low > 0 && (
+                    <View style={[styles.intensitySegment, { flex: intensityDistribution.low, backgroundColor: Colors.ink4 }]} />
+                  )}
+                  {intensityDistribution.moderate > 0 && (
+                    <View style={[styles.intensitySegment, { flex: intensityDistribution.moderate, backgroundColor: Colors.ink2 }]} />
+                  )}
+                  {intensityDistribution.high > 0 && (
+                    <View style={[styles.intensitySegment, { flex: intensityDistribution.high, backgroundColor: Colors.accent }]} />
+                  )}
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -598,7 +656,7 @@ export default function DashboardScreen() {
                     <View style={styles.railTitleRow}>
                       <Text style={[styles.railName, !hasData && styles.railNameEmpty]}>
                         {hasData
-                          ? logs.map((l) => l.food.name_tr || l.food.name).slice(0, 2).join(' · ')
+                          ? logs.map((l) => l.food?.name_tr || l.food?.name || 'Bilinmeyen').slice(0, 2).join(' · ')
                           : `${label} · henüz eklenmedi`}
                       </Text>
                       {hasData && (
@@ -710,7 +768,11 @@ export default function DashboardScreen() {
           {exerciseEatBack > 0 && (
             <View style={styles.exDashBuffer}>
               <Text style={styles.exDashBufferText}>
-                +{exerciseEatBack} kcal tampon eklendi
+                {goal === 'gain'
+                  ? `+${exerciseEatBack} kcal kazanım hedefine eklendi`
+                  : goal === 'maintain'
+                  ? `+${exerciseEatBack} kcal denge tampon eklendi`
+                  : `+${exerciseEatBack} kcal yeme payı eklendi`}
               </Text>
             </View>
           )}
@@ -909,6 +971,29 @@ const styles = StyleSheet.create({
     marginTop: 5,
     textAlign: 'center',
   },
+  mealWaterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  mealWaterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 99,
+    backgroundColor: Colors.sky + '14',
+    borderWidth: 0.5,
+    borderColor: Colors.sky + '40',
+  },
+  mealWaterChipText: {
+    fontSize: 10,
+    color: Colors.ink3,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' }),
+    letterSpacing: 0.2,
+  },
 
   // Steps
   stepsSection: {
@@ -967,6 +1052,44 @@ const styles = StyleSheet.create({
   footnoteAccent: {
     color: Colors.terracotta,
     fontStyle: 'italic',
+  },
+  stepBurnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 10,
+  },
+  stepBurnItem: {
+    alignItems: 'flex-start',
+  },
+  stepBurnValue: {
+    fontSize: 13,
+    fontFamily: 'Georgia, serif',
+    color: Colors.ink2,
+    lineHeight: 16,
+  },
+  stepBurnLabel: {
+    fontSize: 8,
+    letterSpacing: 0.8,
+    color: Colors.ink4,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'Menlo' }),
+    textTransform: 'uppercase',
+    marginTop: 1,
+  },
+  stepBurnDivider: {
+    width: 1,
+    height: 22,
+    backgroundColor: Colors.line,
+  },
+  intensityBarWrap: {
+    flexDirection: 'row',
+    width: 56,
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  intensitySegment: {
+    height: 4,
   },
 
   // Meal rail

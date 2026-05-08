@@ -56,7 +56,9 @@ async function loadSupabaseSteps(userId: string): Promise<number> {
 export function usePedometer(
   userId: string | undefined,
   weightKg: number | undefined,
-  heightCm: number | undefined
+  heightCm: number | undefined,
+  age?: number,
+  sex?: 'male' | 'female',
 ) {
   const { setTodaySteps, setAvailability, calculateMetrics, saveStepLog, stepGoal } =
     useActivityStore();
@@ -66,7 +68,7 @@ export function usePedometer(
 
   function applySteps(total: number) {
     setTodaySteps(total);
-    if (weightKg && heightCm) calculateMetrics(weightKg, heightCm);
+    if (weightKg && heightCm) calculateMetrics(weightKg, heightCm, age, sex);
 
     // Adım hedefine ulaşıldıysa 19:00 hatırlatıcısını iptal et (tek seferlik)
     if (total >= stepGoal && !stepReminderCancelled.current) {
@@ -164,5 +166,5 @@ export function usePedometer(
       appStateSub.remove();
       persistNow();
     };
-  }, [userId, weightKg, heightCm]);
+  }, [userId, weightKg, heightCm, age, sex]);
 }

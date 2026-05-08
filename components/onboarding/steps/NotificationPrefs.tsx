@@ -17,6 +17,7 @@ interface Props {
 const ITEMS: { k: keyof NotificationPreferences; label: string; hint: string }[] = [
   { k: 'meals',         label: 'Öğün hatırlatıcıları', hint: 'Seçtiğin öğün saatlerinde bildirim al' },
   { k: 'water',         label: 'Su hatırlatıcıları',   hint: 'Günlük su hedefine ulaşman için' },
+  { k: 'steps',         label: 'Adım Hedefi Uyarısı',  hint: 'Günlük adım hedefine ulaştığında bildir' },
   { k: 'weekly_report', label: 'Haftalık rapor',        hint: 'Her Pazartesi beslenme özeti' },
   { k: 'motivation',    label: 'Motivasyon mesajları',  hint: "FitBot'tan kişisel ilham notları" },
 ];

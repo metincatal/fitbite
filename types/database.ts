@@ -17,6 +17,7 @@ export type NotificationPreferences = {
   water: boolean;
   weekly_report: boolean;
   motivation: boolean;
+  steps: boolean;
 };
 
 // v2 şema ek tipleri
@@ -273,12 +274,14 @@ export interface Database {
           user_id: string;
           amount_ml: number;
           logged_at: string;
+          source: string | null;
         };
         Insert: {
           id?: string;
           user_id: string;
           amount_ml: number;
           logged_at?: string;
+          source?: string | null;
         };
         Update: Partial<Database['public']['Tables']['water_logs']['Insert']>;
         Relationships: [];

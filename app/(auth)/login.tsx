@@ -94,15 +94,8 @@ export default function LoginScreen() {
     }
   }
 
-  function handleApple() {
-    Alert.alert('Apple ile Giriş', 'Apple ile giriş yakında. Şimdilik e-posta veya Google ile devam edebilirsin.');
-  }
-
   function handleForgot() {
-    Alert.alert(
-      'Şifre Sıfırla',
-      'Şifre sıfırlama akışı yakında. E-posta ile destek almak için: destek@fitbite.app'
-    );
+    router.push('/(auth)/forgot-password');
   }
 
   const formDisabled = loading || oauthLoading;
@@ -167,12 +160,10 @@ export default function LoginScreen() {
           <ProviderRow
             disabled={formDisabled}
             items={[
-              { k: 'apple', label: 'Apple' },
               { k: 'google', label: oauthLoading ? 'Bağlanıyor…' : 'Google' },
             ]}
             onPick={(k) => {
               if (k === 'google') handleGoogle();
-              if (k === 'apple') handleApple();
             }}
           />
 

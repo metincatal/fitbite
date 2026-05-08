@@ -231,7 +231,6 @@ export interface ExerciseCatalogEntry {
 export const EXERCISE_CATALOG: ExerciseCatalogEntry[] = [
   // ── Kardiyo ────────────────────────────────────────────────────────────────
   { id: 'running',        nameTr: 'Koşu',             group: 'cardio',   emoji: '🏃', color: '#EF4444', met: { low: 6.0,  moderate: 8.3,  high: 11.0 }, ainsworthCode: '12050', defaultDuration: 30, defaultIntensity: 'moderate' },
-  { id: 'walking',        nameTr: 'Yürüyüş',          group: 'cardio',   emoji: '🚶', color: '#22C55E', met: { low: 2.5,  moderate: 3.5,  high: 5.0  }, ainsworthCode: '17151', defaultDuration: 45, defaultIntensity: 'moderate' },
   { id: 'cycling',        nameTr: 'Bisiklet',          group: 'cardio',   emoji: '🚴', color: '#3B82F6', met: { low: 4.0,  moderate: 6.8,  high: 10.0 }, ainsworthCode: '01010', defaultDuration: 30, defaultIntensity: 'moderate' },
   { id: 'swimming',       nameTr: 'Yüzme',             group: 'cardio',   emoji: '🏊', color: '#06B6D4', met: { low: 4.5,  moderate: 7.0,  high: 10.0 }, ainsworthCode: '18310', defaultDuration: 30, defaultIntensity: 'moderate' },
   { id: 'elliptical',     nameTr: 'Eliptik',           group: 'cardio',   emoji: '🏃', color: '#8B5CF6', met: { low: 4.0,  moderate: 5.0,  high: 7.5  }, ainsworthCode: '02030', defaultDuration: 30, defaultIntensity: 'moderate' },
