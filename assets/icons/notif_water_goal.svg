@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <circle cx="96" cy="96" r="96" fill="#E85D3C"/>
+  <!-- Su damlası arka plan -->
+  <path d="M96 36 C96 36 150 88 150 122 C150 151 126 166 96 166 C66 166 42 151 42 122 C42 88 96 36 96 36 Z"
+        fill="white" opacity="0.25"/>
+  <!-- Tik işareti -->
+  <path d="M54 100 L82 130 L140 62"
+        fill="none" stroke="white" stroke-width="18"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

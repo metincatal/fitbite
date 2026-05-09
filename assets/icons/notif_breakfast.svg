@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <circle cx="96" cy="96" r="96" fill="#E85D3C"/>
+  <!-- Fincan gövdesi -->
+  <path d="M54 88 L62 152 Q62 158 68 158 L124 158 Q130 158 130 152 L138 88 Z" fill="white"/>
+  <!-- Kulp -->
+  <path d="M138 104 Q160 104 160 120 Q160 136 138 136" fill="none" stroke="white" stroke-width="12" stroke-linecap="round"/>
+  <!-- Buhar 1 -->
+  <path d="M76 74 Q82 62 76 50" fill="none" stroke="white" stroke-width="8" stroke-linecap="round"/>
+  <!-- Buhar 2 -->
+  <path d="M96 70 Q102 58 96 46" fill="none" stroke="white" stroke-width="8" stroke-linecap="round"/>
+  <!-- Buhar 3 -->
+  <path d="M116 74 Q122 62 116 50" fill="none" stroke="white" stroke-width="8" stroke-linecap="round"/>
+</svg>

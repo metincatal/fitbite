@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <circle cx="96" cy="96" r="96" fill="#E85D3C"/>
+  <!-- Sol ayak izi (arka, biraz soluk) -->
+  <g opacity="0.5">
+    <ellipse cx="108" cy="148" rx="20" ry="14" fill="white"/>
+    <ellipse cx="100" cy="122" rx="13" ry="10" fill="white"/>
+    <ellipse cx="88" cy="109" rx="7" ry="8" fill="white"/>
+    <ellipse cx="102" cy="104" rx="7" ry="8" fill="white"/>
+    <ellipse cx="116" cy="107" rx="6" ry="7" fill="white"/>
+    <ellipse cx="127" cy="116" rx="5" ry="6" fill="white"/>
+  </g>
+  <!-- Sağ ayak izi (ön, tam beyaz) -->
+  <ellipse cx="84" cy="108" rx="20" ry="14" fill="white"/>
+  <ellipse cx="76" cy="82" rx="13" ry="10" fill="white"/>
+  <ellipse cx="62" cy="68" rx="7" ry="8" fill="white"/>
+  <ellipse cx="76" cy="63" rx="7" ry="8" fill="white"/>
+  <ellipse cx="90" cy="66" rx="6" ry="7" fill="white"/>
+  <ellipse cx="100" cy="76" rx="5" ry="6" fill="white"/>
+</svg>

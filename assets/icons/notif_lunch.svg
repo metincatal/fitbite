@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <circle cx="96" cy="96" r="96" fill="#E85D3C"/>
+  <!-- Güneş merkezi -->
+  <circle cx="96" cy="96" r="32" fill="white"/>
+  <!-- 8 ışın -->
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white"/>
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white" transform="rotate(45 96 96)"/>
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white" transform="rotate(90 96 96)"/>
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white" transform="rotate(135 96 96)"/>
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white" transform="rotate(180 96 96)"/>
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white" transform="rotate(225 96 96)"/>
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white" transform="rotate(270 96 96)"/>
+  <rect x="90" y="22" width="12" height="26" rx="6" fill="white" transform="rotate(315 96 96)"/>
+</svg>

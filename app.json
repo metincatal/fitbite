@@ -55,13 +55,14 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/notification-icon.png",
           "color": "#2D6A4F"
         }
       ],
       "expo-audio",
       "react-native-health-connect",
       "./plugins/withHealthConnectSetup",
+      "./plugins/withNotificationIcons",
       [
         "expo-build-properties",
         {

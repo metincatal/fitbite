@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <!-- Background: terracotta daire -->
+  <circle cx="96" cy="96" r="96" fill="#E85D3C"/>
+
+  <!-- Su damlası: yukarı sivri, aşağı yuvarlak -->
+  <path d="M96 38
+           C 96 38, 148 90, 148 124
+           C 148 153, 124 168, 96 168
+           C 68 168, 44 153, 44 124
+           C 44 90, 96 38, 96 38 Z"
+        fill="white"/>
+
+  <!-- Yansıma: sol üst köşede küçük parlak nokta -->
+  <ellipse cx="76" cy="98" rx="8" ry="13"
+           fill="white" opacity="0.3"
+           transform="rotate(-30 76 98)"/>
+</svg>

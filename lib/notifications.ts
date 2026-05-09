@@ -66,20 +66,20 @@ export const DEFAULT_MOTIVATION_SETTINGS: MotivationSettings = {
 
 // --- Motivasyon Mesaj Havuzu ---
 const MOTIVATION_MESSAGES = [
-  'Dün ne yaptığın değil, bugün ne yapacağın önemli. 💪',
-  'Her sağlıklı karar seni hedefe bir adım yaklaştırıyor. 🌿',
-  'Küçük adımlar büyük değişimlere yol açar. Devam et! 🚀',
-  'Bugün vücuduna yatırım yapmak, yarın daha iyi hissetmek demek. ✨',
-  'Hedeflerin seni burada bekliyor. Güne başlamanın tam zamanı! 🌅',
-  'En iyi antreman yapılmış olanıdır. Küçük de olsa harekete geç! 🏃',
-  'Sağlıklı yaşam bir sprint değil, maraton. Temponuzu koruyun. 🎯',
-  'Bugün nasıl beslendiğin, yarın nasıl hissedeceğini belirler. 🥗',
-  'Bilinçli her lokma, hedefine götüren bir adım. 💚',
-  'Kendinle gurur duyabileceğin bir gün geçir. Biz buradayız! 😊',
-  'Hareket etmek moralini de yükseltir. Bugün biraz daha aktif ol! ⚡',
-  'Suyu unutma, metabolizman için en önemli destek. 💧',
-  'Tutarlılık mükemmeliyetten daha değerlidir. Her gün biraz daha iyi. 📈',
-  'Bugün için değil, gelecekteki sen için seçim yap. 🌟',
+  'Dün ne yaptığın değil, bugün ne yapacağın önemli.',
+  'Her sağlıklı karar seni hedefe bir adım yaklaştırıyor.',
+  'Küçük adımlar büyük değişimlere yol açar. Devam et!',
+  'Bugün vücuduna yatırım yapmak, yarın daha iyi hissetmek demek.',
+  'Hedeflerin seni burada bekliyor. Güne başlamanın tam zamanı!',
+  'En iyi antreman yapılmış olanıdır. Küçük de olsa harekete geç!',
+  'Sağlıklı yaşam bir sprint değil, maraton. Temponuzu koruyun.',
+  'Bugün nasıl beslendiğin, yarın nasıl hissedeceğini belirler.',
+  'Bilinçli her lokma, hedefine götüren bir adım.',
+  'Kendinle gurur duyabileceğin bir gün geçir. Biz buradayız!',
+  'Hareket etmek moralini de yükseltir. Bugün biraz daha aktif ol!',
+  'Suyu unutma, metabolizman için en önemli destek.',
+  'Tutarlılık mükemmeliyetten daha değerlidir. Her gün biraz daha iyi.',
+  'Bugün için değil, gelecekteki sen için seçim yap.',
 ];
 
 // --- Lazy Module Loader ---
@@ -136,6 +136,19 @@ export function initNotificationHandler(): void {
   const notif = getNotif();
   if (!notif) return;
   ensureHandler(notif);
+}
+
+// Anlık yerel bildirim — arka planda analiz tamamlandığında kullanıcıya haber ver
+export async function sendImmediateNotification(title: string, body: string): Promise<void> {
+  const notif = getNotif();
+  if (!notif) return;
+  ensureHandler(notif);
+  try {
+    await notif.scheduleNotificationAsync({
+      content: { title, body, sound: true, data: { type: 'analysis_complete' } },
+      trigger: null,
+    });
+  } catch {}
 }
 
 // --- Yardımcı: Tipli bildirimleri iptal et ---
@@ -198,10 +211,10 @@ export async function scheduleWaterReminders(settings: WaterReminderSettings): P
   if (!hasPermission) return;
 
   const messages = [
-    'Bir bardak su içmeyi unutma! 💧',
-    'Vücudun suya ihtiyaç duyuyor, hadi bir yudum al! 🌿',
-    'Sağlıklı kalmak için su iç! 💪',
-    'Su içme zamanı geldi! Hedefine ulaşmak için devam et.',
+    'Bir bardak su içmeyi unutma.',
+    'Vücudun suya ihtiyaç duyuyor, hadi bir yudum al.',
+    'Sağlıklı kalmak için su iç.',
+    'Su içme zamanı geldi. Hedefine ulaşmak için devam et.',
   ];
 
   let msgIndex = 0;
@@ -211,10 +224,10 @@ export async function scheduleWaterReminders(settings: WaterReminderSettings): P
     try {
       await notif.scheduleNotificationAsync({
         content: {
-          title: '💧 Su Zamanı!',
+          title: 'Su Zamanı',
           body: msg,
           sound: true,
-          data: { type: 'water_reminder' },
+          data: { type: 'water_reminder', notifIcon: 'notif_water' },
         },
         trigger: {
           type: notif.SchedulableTriggerInputTypes.DAILY,
@@ -268,20 +281,23 @@ export async function scheduleMealReminders(settings: MealReminderSettings): Pro
     {
       slot: settings.breakfast,
       type: 'meal_reminder_breakfast',
-      title: '🌅 Kahvaltı Zamanı!',
-      body: 'Güne sağlıklı başla. Kahvaltını loglamayı unutma!',
+      title: 'Kahvaltı Zamanı',
+      body: 'Güne sağlıklı başla. Kahvaltını loglamayı unutma.',
+      notifIcon: 'notif_breakfast',
     },
     {
       slot: settings.lunch,
       type: 'meal_reminder_lunch',
-      title: '☀️ Öğle Yemeği!',
+      title: 'Öğle Yemeği',
       body: 'Öğle yemeği vakti. Bilinçli bir tercih yap ve logla.',
+      notifIcon: 'notif_lunch',
     },
     {
       slot: settings.dinner,
       type: 'meal_reminder_dinner',
-      title: '🌙 Akşam Yemeği!',
-      body: 'Günü iyi bitir. Akşam yemeğini loglamayı unutma!',
+      title: 'Akşam Yemeği',
+      body: 'Günü iyi bitir. Akşam yemeğini loglamayı unutma.',
+      notifIcon: 'notif_dinner',
     },
   ];
 
@@ -293,7 +309,7 @@ export async function scheduleMealReminders(settings: MealReminderSettings): Pro
           title: meal.title,
           body: meal.body,
           sound: true,
-          data: { type: meal.type },
+          data: { type: meal.type, notifIcon: meal.notifIcon },
         },
         trigger: {
           type: notif.SchedulableTriggerInputTypes.DAILY,
@@ -344,10 +360,10 @@ export async function scheduleStepReminder(settings: StepReminderSettings): Prom
   try {
     await notif.scheduleNotificationAsync({
       content: {
-        title: '👟 Adım Hedefin!',
-        body: 'Günlük adım hedefinize ulaştın mı? Biraz daha hareket sağlığın için harika!',
+        title: 'Adım Hedefin',
+        body: 'Günlük adım hedefinize ulaştın mı? Biraz daha hareket sağlığın için harika.',
         sound: true,
-        data: { type: 'step_reminder' },
+        data: { type: 'step_reminder', notifIcon: 'notif_steps' },
       },
       trigger: {
         type: notif.SchedulableTriggerInputTypes.DAILY,
@@ -419,10 +435,10 @@ export async function scheduleMotivationMessages(settings: MotivationSettings): 
   try {
     await notif.scheduleNotificationAsync({
       content: {
-        title: '✨ Günaydın!',
+        title: 'Günaydın',
         body: msg,
         sound: true,
-        data: { type: 'motivation' },
+        data: { type: 'motivation', notifIcon: 'notif_motivation' },
       },
       trigger: {
         type: notif.SchedulableTriggerInputTypes.DAILY,
@@ -458,10 +474,10 @@ export async function scheduleWeeklyReport(enabled: boolean): Promise<void> {
   try {
     await notif.scheduleNotificationAsync({
       content: {
-        title: '📊 Haftalık Rapor Hazır!',
-        body: "Geçen haftanı FitBite'da gözden geçir. Nasıl gittin? 🎯",
+        title: 'Haftalık Rapor Hazır',
+        body: "Geçen haftanı FitBite'da gözden geçir. Nasıl gittin?",
         sound: true,
-        data: { type: 'weekly_report' },
+        data: { type: 'weekly_report', notifIcon: 'notif_report' },
       },
       trigger: {
         type: notif.SchedulableTriggerInputTypes.WEEKLY,
@@ -494,10 +510,10 @@ export async function triggerWaterGoalAchievement(): Promise<void> {
   try {
     await notif.scheduleNotificationAsync({
       content: {
-        title: '🎉 Günlük Su Hedefi!',
-        body: 'Tebrikler! Bugünkü su hedefine ulaştın. Harika bir alışkanlık! 💧',
+        title: 'Günlük Su Hedefi',
+        body: 'Tebrikler! Bugünkü su hedefine ulaştın. Harika bir alışkanlık.',
         sound: true,
-        data: { type: 'water_goal_achievement' },
+        data: { type: 'water_goal_achievement', notifIcon: 'notif_water_goal' },
       },
       trigger: null, // Anında göster
     });

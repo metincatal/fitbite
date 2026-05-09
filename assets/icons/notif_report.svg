@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <circle cx="96" cy="96" r="96" fill="#E85D3C"/>
+  <!-- 3 çubuk, soldan sağa yükselen -->
+  <rect x="28" y="114" width="34" height="50" rx="7" fill="white"/>
+  <rect x="78" y="82" width="34" height="82" rx="7" fill="white"/>
+  <rect x="128" y="48" width="34" height="116" rx="7" fill="white"/>
+  <!-- Alt çizgi -->
+  <rect x="22" y="164" width="148" height="8" rx="4" fill="white"/>
+</svg>

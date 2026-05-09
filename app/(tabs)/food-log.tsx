@@ -34,6 +34,8 @@ import { DetectedFoodItem, generateMealName, recognizeMealFromImage } from '../.
 import { compute as computeNutrition } from '../../lib/nutritionEngine';
 import { lookupBarcode, BarcodeFoodResult } from '../../lib/openfoodfacts';
 import { uploadFoodPhoto } from '../../lib/storage';
+import { sendImmediateNotification } from '../../lib/notifications';
+import { savePendingAnalysis, loadPendingAnalysis, clearPendingAnalysis } from '../../lib/pendingAnalysisStore';
 import { MealPhotoDetailModal } from '../../components/food/MealPhotoDetailModal';
 import { FoodLogFlow } from '../../components/food/FoodLogFlow';
 import type { ComputedFoodItem } from '../../components/food/PhotoMealReviewModal';
@@ -83,6 +85,9 @@ export default function FoodLogScreen() {
   const [karesCount, setKaresCount] = useState<Record<string, number>>({});
   const [kareUrls, setKareUrls] = useState<Record<string, string[]>>({});
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  // Analiz sırasında arka plana gidilip gidilmediğini takip eder
+  const analysisInProgressRef = useRef(false);
+  const wentToBackgroundDuringAnalysisRef = useRef(false);
 
   // Search modal (legacy fallback)
   const [showSearch, setShowSearch] = useState(false);
@@ -123,6 +128,11 @@ export default function FoodLogScreen() {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       appStateRef.current = state;
+      // Analiz devam ediyorken arka plana geçilirse bunu kalıcı olarak işaretle.
+      // Kullanıcı geri dönse bile artık auto-save modundayız.
+      if (analysisInProgressRef.current && (state === 'background' || state === 'inactive')) {
+        wentToBackgroundDuringAnalysisRef.current = true;
+      }
     });
     return () => sub.remove();
   }, []);
@@ -155,6 +165,25 @@ export default function FoodLogScreen() {
       fetchYesterdayLogs(user.id);
     }
   }, [user, selectedDate]);
+
+  // Uygulama kapatılıp yeniden açıldığında bekleyen analizi devam ettir
+  useEffect(() => {
+    if (!user) return;
+    loadPendingAnalysis().then((pending) => {
+      if (!pending) return;
+      // Zaten analiz devam ediyorsa (in-memory) yeniden başlatma
+      if (analysisInProgressRef.current) {
+        clearPendingAnalysis().catch(() => {});
+        return;
+      }
+      // Uygulama kapatılmış ve yeniden açılmış — analizi yeniden başlat ve auto-save et
+      analysisInProgressRef.current = true;
+      wentToBackgroundDuringAnalysisRef.current = true; // direkt auto-save modunda
+      setBgAnalysis({ base64: pending.images[0] ?? '', phase: 'Fotoğraf inceleniyor', progress: 0 });
+      runBgAnalysis(pending.images, pending.hint);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   async function fetchYesterdayLogs(userId: string) {
     const d = new Date(selectedDate);
@@ -200,12 +229,16 @@ export default function FoodLogScreen() {
 
   function handleStartAnalysis(images: string[], hint: string) {
     const firstBase64 = images[0] ?? '';
+    // Analiz başlıyor — ref'leri sıfırla
+    analysisInProgressRef.current = true;
+    wentToBackgroundDuringAnalysisRef.current = false;
     setBgAnalysis({ base64: firstBase64, phase: 'Fotoğraf inceleniyor', progress: 0 });
+    // Uygulama kapatılsa da devam edebilsin diye analiz isteğini kalıcılaştır
+    savePendingAnalysis(images, hint).catch(() => {});
     runBgAnalysis(images, hint);
   }
 
   async function runBgAnalysis(images: string[], hint: string) {
-    const base64 = images[0] ?? '';
     const phases = ['Fotoğraf inceleniyor', 'Yemekler ayrıştırılıyor', 'Makrolar çıkarılıyor'];
     const intervalId = setInterval(() => {
       setBgAnalysis((prev) => {
@@ -218,31 +251,33 @@ export default function FoodLogScreen() {
     try {
       const detected = await recognizeMealFromImage(images, hint || undefined);
       clearInterval(intervalId);
+      analysisInProgressRef.current = false;
 
-      // Uygulama arka plandaysa kullanıcı sonuç ekranını göremez — direkt kaydet
-      if (appStateRef.current !== 'active') {
+      // Auto-save koşulu: şu an arka planda VEYA analiz sırasında herhangi bir noktada arka plana gidildi.
+      // "geri dönseler de" — bir kez arka plana gittilerse artık sonuç ekranı gösterilmez, direkt kaydedilir.
+      const shouldAutoSave = appStateRef.current !== 'active' || wentToBackgroundDuringAnalysisRef.current;
+
+      if (shouldAutoSave) {
         setBgAnalysis(null);
+        clearPendingAnalysis().catch(() => {});
         if (user) {
           const mealType = pickMealByHour();
           const computedItems: ComputedFoodItem[] = detected.map((d) => {
             const eng = computeNutrition({ detection: d, userGrams: d.estimatedGrams });
             return {
-              detection: {
-                ...d,
-                calories: eng.kcal,
-                protein: eng.protein,
-                carbs: eng.carbs,
-                fat: eng.fat,
-              },
+              detection: { ...d, calories: eng.kcal, protein: eng.protein, carbs: eng.carbs, fat: eng.fat },
               engine: eng,
             };
           });
           const namePromise = generateMealName(detected.map((d) => d.name));
-          handleSavePhotoMeal(computedItems, mealType, [base64], namePromise);
+          // BUG FIX: Tüm images array'ini geç, sadece ilk resmi değil
+          handleSavePhotoMeal(computedItems, mealType, images, namePromise, true);
         }
         return;
       }
 
+      // Kullanıcı aktif → sonuç ekranını aç, manuel onay istesin
+      clearPendingAnalysis().catch(() => {});
       setBgAnalysis((prev) => (prev ? { ...prev, progress: 100, phase: 'Analiz tamamlandı' } : null));
       setTimeout(() => {
         setBgAnalysis(null);
@@ -253,14 +288,16 @@ export default function FoodLogScreen() {
       }, 450);
     } catch (err) {
       clearInterval(intervalId);
+      analysisInProgressRef.current = false;
       setBgAnalysis(null);
+      clearPendingAnalysis().catch(() => {});
       const msg = err instanceof Error ? err.message : String(err);
       console.error('[food-log] recognizeMealFromImage failed:', err);
       Alert.alert('Hata', `Yemek tanınamadı.\n\n${msg}`);
     }
   }
 
-  function handleSavePhotoMeal(items: ComputedFoodItem[], mealType: MealType, images: string[], namePromise?: Promise<string>, imageCount?: number) {
+  function handleSavePhotoMeal(items: ComputedFoodItem[], mealType: MealType, images: string[], namePromise?: Promise<string>, autoSaved?: boolean | number) {
     if (!user) return;
     const pending: PendingSave = {
       imageBase64: images[0] ?? '',
@@ -271,10 +308,10 @@ export default function FoodLogScreen() {
     };
     setPendingSave(pending);
     pendingSaveRef.current = pending;
-    runBackgroundSave(user.id, images, items, mealType, namePromise);
+    runBackgroundSave(user.id, images, items, mealType, namePromise, autoSaved === true);
   }
 
-  async function runBackgroundSave(userId: string, images: string[], items: ComputedFoodItem[], mealType: MealType, namePromise?: Promise<string>) {
+  async function runBackgroundSave(userId: string, images: string[], items: ComputedFoodItem[], mealType: MealType, namePromise?: Promise<string>, isAutoSaved?: boolean) {
     const totalSteps = items.length + 1;
     let completedSteps = 0;
     function bump(text: string) {
@@ -362,13 +399,17 @@ export default function FoodLogScreen() {
       }
 
       setPendingSave((prev) => (prev ? { ...prev, progress: 100, statusText: 'Tamamlandı' } : null));
+      // Arka planda otomatik kaydedildiyse kullanıcıya bildirim gönder
+      if (isAutoSaved) {
+        sendImmediateNotification('Öğün Kaydedildi ✓', 'Yemek günlüğüne eklendi, istediğin zaman düzenleyebilirsin.').catch(() => {});
+      }
       setTimeout(() => {
         setPendingSave(null);
         pendingSaveRef.current = null;
         fetchDayLogs(userId, selectedDate);
       }, 600);
     } catch {
-      Alert.alert('Hata', 'Kayıt sırasında bir sorun oluştu.');
+      if (!isAutoSaved) Alert.alert('Hata', 'Kayıt sırasında bir sorun oluştu.');
       setPendingSave(null);
       pendingSaveRef.current = null;
     }
